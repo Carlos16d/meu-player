@@ -1,16 +1,15 @@
-const CACHE_NAME = 'netflix-icons-v1';
+const CACHE_NAME = 'netflix-icons-v2';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/style.css',
-  '/app.js',
-  '/manifest.json'
+  '/icones-netflix/',
+  '/icones-netflix/index.html',
+  '/icones-netflix/style.css',
+  '/icones-netflix/app.js',
+  '/icones-netflix/manifest.json'
 ];
 
 self.addEventListener('install', function(event) {
   event.waitUntil(
     caches.open(CACHE_NAME).then(function(cache) {
-      console.log('Cache aberto');
       return cache.addAll(urlsToCache);
     })
   );
@@ -19,13 +18,7 @@ self.addEventListener('install', function(event) {
 self.addEventListener('fetch', function(event) {
   event.respondWith(
     caches.match(event.request).then(function(response) {
-      return response || fetch(event.request).then(function(response) {
-        let responseClone = response.clone();
-        caches.open(CACHE_NAME).then(function(cache) {
-          cache.put(event.request, responseClone);
-        });
-        return response;
-      });
+      return response || fetch(event.request);
     })
   );
 });
