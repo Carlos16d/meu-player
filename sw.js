@@ -1,4 +1,4 @@
-const CACHE_NAME = 'netflix-icons-v2';
+const CACHE_NAME = 'netflix-icons-v3';
 const urlsToCache = [
   '/netflix-icons/',
   '/netflix-icons/index.html',
