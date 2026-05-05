@@ -5,15 +5,13 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Netflix Icons</title>
 
-<!-- PWA Meta Tags -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="theme-color" content="#000000">
+<meta name="theme-color" content="#4CAF50">
 <meta name="format-detection" content="telephone=no">
 
-<!-- Manifest Inline -->
-<link rel="manifest" href="data:application/manifest+json;base64,ewogICJuYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzaG9ydF9uYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzdGFydF91cmwiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAic2NvcGUiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAib3JpZW50YXRpb24iOiAicG9ydHJhaXQiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiMwMDAwMDAiLAogICJ0aGVtZV9jb2xvciI6ICIjMDAwMDAwIiwKICAibGFuZyI6ICJwdC1CUiIsCiAgImljb25zIjogWwogICAgewogICAgICAic3JjIjogImljb24ucG5nIiwKICAgICAgInNpemVzIjogIjUxMng1MTIiLAogICAgICAidHlwZSI6ICJpbWFnZS9wbmciCiAgICB9CiAgXQp9">
+<link rel="manifest" href="data:application/manifest+json;base64,ewogICJuYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzaG9ydF9uYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzdGFydF91cmwiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAic2NvcGUiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAib3JpZW50YXRpb24iOiAicG9ydHJhaXQiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiM0Q0FGNTAiLAogICJ0aGVtZV9jb2xvciI6ICIjNENBRjUwIiwKICAibGFuZyI6ICJwdC1CUiIsCiAgImljb25zIjogWwogICAgewogICAgICAic3JjIjogImljb24ucG5nIiwKICAgICAgInNpemVzIjogIjUxMng1MTIiLAogICAgICAidHlwZSI6ICJpbWFnZS9wbmciCiAgICB9CiAgXQp9">
 
 <style>
   * { 
@@ -26,17 +24,18 @@
   }
 
   html {
-    background: green;
+    background: #4CAF50;
   }
 
   body {
     width: 100%; 
-    height: 100%;
+    height: 100vh;
+    height: 100dvh;
     overflow: hidden;
     position: fixed;
     top: 0; 
     left: 0;
-    background: black;
+    background: #4CAF50;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -47,6 +46,7 @@
     position: relative;
     width: 100vw;
     height: 100vh;
+    height: 100dvh;
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
   }
@@ -66,7 +66,7 @@
     height: 100%;
     object-fit: cover;
     border-radius: 7px;
-    background: linear-gradient(to bottom, rgba(0,0,139,0.7), rgba(173,216,230,0.3));
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
   }
 
   .legenda {
@@ -83,9 +83,9 @@
     width: 100%;
     margin-top: 6px;
     padding: 4px 0;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
   }
 
-  /* POSIÇÕES INICIAIS */
   .verde, .vermelho, .amarelo, .azul { 
     top: 30%; 
     left: 21%; 
@@ -102,7 +102,6 @@
     z-index: 10;
   }
 
-  /* PASSO 1 */
   .p1 .azul { 
     transform: translate(120%, 0px) scale(1);
     opacity: 1;
@@ -115,7 +114,6 @@
     z-index: 9;
   }
 
-  /* PASSO 2 */
   .p2 .azul { 
     transform: translate(120%, 140%) scale(1);
     opacity: 1;
@@ -133,7 +131,6 @@
     z-index: 8;
   }
 
-  /* PASSO 3 */
   .p3 .azul { 
     transform: translate(0px, 140%) scale(1);
     opacity: 1;
@@ -156,7 +153,6 @@
     z-index: 7;
   }
 
-  /* ANIMAÇÃO DE VIBRAÇÃO */
   @keyframes tremer {
     0%, 100% { transform: translate(0px, 140%) translate(-4px, 0); }
     50% { transform: translate(0px, 140%) translate(4px, 0); }
@@ -170,25 +166,21 @@
 <body>
 
 <div class="area" id="area">
-  <!-- VERDE -->
   <div class="quadrado verde" id="verde">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Verde">
     <div class="legenda">Saurabh Subaru</div>
   </div>
 
-  <!-- VERMELHO -->
   <div class="quadrado vermelho" id="vermelho">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Vermelho">
     <div class="legenda">Editar perfil</div>
   </div>
 
-  <!-- AMARELO -->
   <div class="quadrado amarelo" id="amarelo">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Amarelo">
     <div class="legenda">Editar perfil</div>
   </div>
 
-  <!-- AZUL -->
   <div class="quadrado azul" id="azul">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Azul">
     <div class="legenda">Add Profile</div>
