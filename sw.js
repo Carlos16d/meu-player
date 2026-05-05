@@ -1,10 +1,10 @@
 const CACHE_NAME = 'netflix-icons-v2';
 const urlsToCache = [
-  '/icones-netflix/',
-  '/icones-netflix/index.html',
-  '/icones-netflix/style.css',
-  '/icones-netflix/app.js',
-  '/icones-netflix/manifest.json'
+  '/netflix-icons/',
+  '/netflix-icons/index.html',
+  '/netflix-icons/style.css',
+  '/netflix-icons/app.js',
+  '/netflix-icons/manifest.json'
 ];
 
 self.addEventListener('install', function(event) {
