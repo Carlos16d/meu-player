@@ -1,11 +1,13 @@
 // Registrar Service Worker
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function() {
-    navigator.serviceWorker.register('sw.js').then(function(registration) {
-      console.log('Service Worker registrado com sucesso!');
-    }).catch(function(err) {
-      console.log('Service Worker falhou:', err);
-    });
+    navigator.serviceWorker.register('sw.js')
+      .then(function() {
+        console.log('Service Worker registrado!');
+      })
+      .catch(function(err) {
+        console.log('Service Worker erro:', err);
+      });
   });
 }
 
@@ -17,15 +19,13 @@ window.addEventListener('beforeinstallprompt', function(e) {
   e.preventDefault();
   deferredPrompt = e;
   btnDownload.style.display = 'block';
-  btnDownload.textContent = '📲 Instalar App';
 });
 
 btnDownload.addEventListener('click', function() {
   if (deferredPrompt) {
     deferredPrompt.prompt();
-    deferredPrompt.userChoice.then(function(choiceResult) {
-      if (choiceResult.outcome === 'accepted') {
-        console.log('Usuário instalou o app!');
+    deferredPrompt.userChoice.then(function(result) {
+      if (result.outcome === 'accepted') {
         btnDownload.textContent = '✅ Instalado!';
         setTimeout(function() {
           btnDownload.style.display = 'none';
@@ -33,8 +33,6 @@ btnDownload.addEventListener('click', function() {
       }
       deferredPrompt = null;
     });
-  } else {
-    alert('Para instalar:\n\nAndroid: Menu (⋮) > Instalar aplicativo\n\niPhone: Compartilhar > Adicionar à Tela de Início');
   }
 });
 
@@ -43,7 +41,6 @@ window.addEventListener('appinstalled', function() {
   setTimeout(function() {
     btnDownload.style.display = 'none';
   }, 2000);
-  deferredPrompt = null;
 });
 
 // Animação dos quadrados
