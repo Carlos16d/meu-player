@@ -13,7 +13,7 @@
 <link rel="manifest" href="data:application/json;base64,ewogICJuYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzaG9ydF9uYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzdGFydF91cmwiOiAiLi8iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiMwMDAwMDAiLAogICJ0aGVtZV9jb2xvciI6ICIjMDAwMDAwIgp9">
 
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
   
   html, body {
     width: 100%; height: 100%;
@@ -27,6 +27,7 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   }
 
   .area {
@@ -56,7 +57,6 @@
     top: 100%;
     left: 50%;
     transform: translateX(-50%);
-    font-family: sans-serif;
     font-size: 19px;
     color: white;
     text-align: center;
@@ -108,21 +108,85 @@
 
   .bater { animation: bater 0.1s linear infinite !important; }
 
+  /* Botão de download */
   .btn-download {
     position: fixed;
-    bottom: 20px;
+    bottom: 25px;
     left: 50%;
     transform: translateX(-50%);
     z-index: 1000;
-    background: #fff;
-    color: #000;
+    background: white;
+    color: black;
     border: none;
-    padding: 15px 30px;
-    border-radius: 30px;
+    padding: 16px 35px;
+    border-radius: 50px;
+    font-size: 17px;
+    font-weight: bold;
+    cursor: pointer;
+    font-family: inherit;
+    box-shadow: 0 5px 20px rgba(255,255,255,0.3);
+    display: block;
+    text-align: center;
+    min-width: 200px;
+  }
+
+  .btn-download:active {
+    transform: translateX(-50%) scale(0.95);
+  }
+
+  /* Modal de instruções */
+  .modal {
+    display: none;
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0,0,0,0.9);
+    z-index: 2000;
+    justify-content: center;
+    align-items: center;
+  }
+
+  .modal.active {
+    display: flex;
+  }
+
+  .modal-content {
+    background: #1a1a1a;
+    color: white;
+    padding: 30px 25px;
+    border-radius: 15px;
+    text-align: center;
+    max-width: 90%;
+    border: 1px solid #333;
+  }
+
+  .modal-content h3 {
+    margin-bottom: 20px;
+    font-size: 20px;
+  }
+
+  .modal-content p {
+    margin: 15px 0;
+    font-size: 15px;
+    color: #ccc;
+    line-height: 1.5;
+  }
+
+  .modal-content .icon {
+    font-size: 50px;
+    margin: 15px 0;
+  }
+
+  .btn-close {
+    background: white;
+    color: black;
+    border: none;
+    padding: 12px 40px;
+    border-radius: 25px;
     font-size: 16px;
     font-weight: bold;
     cursor: pointer;
-    font-family: sans-serif;
+    margin-top: 15px;
   }
 </style>
 </head>
@@ -150,39 +214,91 @@
   </div>
 </div>
 
-<button class="btn-download" id="btnDownload">📱 Baixar App</button>
+<!-- Botão de Download -->
+<button class="btn-download" id="btnDownload">📲 Instalar App</button>
+
+<!-- Modal de instruções -->
+<div class="modal" id="modal">
+  <div class="modal-content">
+    <h3>Como Instalar</h3>
+    <div id="instrucoes"></div>
+    <button class="btn-close" onclick="fecharModal()">OK, Entendi</button>
+  </div>
+</div>
 
 <script>
 // Service Worker
 if ('serviceWorker' in navigator) {
-  const swCode = `
-    self.addEventListener('install', e => self.skipWaiting());
-    self.addEventListener('activate', e => self.clients.claim());
-    self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
-  `;
-  const blob = new Blob([swCode], { type: 'application/javascript' });
-  navigator.serviceWorker.register(URL.createObjectURL(blob));
+  navigator.serviceWorker.register('data:application/javascript,' + encodeURIComponent(
+    'self.addEventListener("install",e=>self.skipWaiting());self.addEventListener("activate",e=>self.clients.claim());self.addEventListener("fetch",e=>e.respondWith(fetch(e.request)));'
+  )).catch(() => {});
 }
+
+// Detectar sistema operacional
+const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+const isAndroid = /Android/.test(navigator.userAgent);
+const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
 
 // Instalação
 let deferredPrompt;
-const btn = document.getElementById('btnDownload');
+const btnDownload = document.getElementById('btnDownload');
+const modal = document.getElementById('modal');
+const instrucoes = document.getElementById('instrucoes');
 
 window.addEventListener('beforeinstallprompt', (e) => {
   e.preventDefault();
   deferredPrompt = e;
-  btn.textContent = '📱 Baixar App';
-  btn.style.display = 'block';
+  btnDownload.textContent = '📲 Instalar App';
+  btnDownload.style.display = 'block';
 });
 
-btn.addEventListener('click', () => {
+btnDownload.addEventListener('click', () => {
   if (deferredPrompt) {
+    // Tenta instalar automaticamente
     deferredPrompt.prompt();
-    deferredPrompt.userChoice.then(r => {
-      if (r.outcome === 'accepted') btn.textContent = '✅ Instalado!';
+    deferredPrompt.userChoice.then((result) => {
+      if (result.outcome === 'accepted') {
+        btnDownload.textContent = '✅ Instalado!';
+        setTimeout(() => { btnDownload.style.display = 'none'; }, 2000);
+      }
       deferredPrompt = null;
     });
+  } else {
+    // Mostra instruções manuais
+    if (isIOS) {
+      instrucoes.innerHTML = `
+        <div class="icon">📤</div>
+        <p><strong>1.</strong> Toque no botão <strong>Compartilhar</strong> (quadrado com seta) na barra inferior do Safari</p>
+        <p><strong>2.</strong> Role para baixo e toque em <strong>"Adicionar à Tela de Início"</strong></p>
+        <p><strong>3.</strong> Toque em <strong>Adicionar</strong> no canto superior direito</p>
+        <p style="font-size:13px; color:#999;">⚠️ Importante: Use o navegador <strong>Safari</strong> para instalar</p>
+      `;
+    } else if (isAndroid) {
+      instrucoes.innerHTML = `
+        <div class="icon">⋮</div>
+        <p><strong>1.</strong> Toque nos <strong>3 pontinhos ⋮</strong> no canto superior direito</p>
+        <p><strong>2.</strong> Selecione <strong>"Instalar aplicativo"</strong></p>
+        <p><strong>3.</strong> Confirme tocando em <strong>Instalar</strong></p>
+      `;
+    } else {
+      instrucoes.innerHTML = `
+        <div class="icon">💻</div>
+        <p>No computador, procure o ícone de instalação na barra de endereço do Chrome/Edge</p>
+        <p>Ou acesse pelo celular para instalar como app</p>
+      `;
+    }
+    modal.classList.add('active');
   }
+});
+
+function fecharModal() {
+  modal.classList.remove('active');
+}
+
+// Verifica se já está instalado
+window.addEventListener('appinstalled', () => {
+  btnDownload.textContent = '✅ Instalado!';
+  setTimeout(() => { btnDownload.style.display = 'none'; }, 2000);
 });
 
 // Quadrados
@@ -190,12 +306,17 @@ let passo = 0;
 const area = document.getElementById('area');
 document.getElementById('azul').addEventListener('click', function(e) {
   e.stopPropagation();
-  if (passo < 3) { passo++; area.className = 'area p' + passo; }
-  else {
+  if (passo < 3) { 
+    passo++; 
+    area.className = 'area p' + passo; 
+  } else {
     this.classList.add('bater');
     setTimeout(() => this.classList.remove('bater'), 300);
   }
 });
+
+// Previne scroll
+document.body.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
 </script>
 
 </body>
