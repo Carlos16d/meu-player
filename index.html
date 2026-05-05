@@ -84,7 +84,7 @@
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
   }
 
-  /* POSIÇÕES INICIAIS - Todos na mesma posição */
+  /* TODOS COMEÇAM NA MESMA POSIÇÃO */
   .verde, .vermelho, .amarelo, .azul { 
     top: 30%; 
     left: 21%; 
@@ -100,57 +100,72 @@
     z-index: 10;
   }
 
-  /* PASSO 1 - Azul vai pra direita, Verde aparece no lugar */
+  /* PASSO 1: Azul vai pra DIREITA, Verde aparece NA POSIÇÃO INICIAL */
   .p1 .azul { 
-    transform: translate(120%, 0px) scale(1);
+    top: 30%;
+    left: calc(21% + 120px);
+    transform: scale(1);
     opacity: 1;
-    pointer-events: auto;
   }
   .p1 .verde { 
-    transform: translate(0px, 0px) scale(1);
+    top: 30%;
+    left: 21%;
+    transform: scale(1);
     opacity: 1;
     pointer-events: auto;
     z-index: 9;
     animation: estourar 1.2s ease forwards;
   }
 
-  /* PASSO 2 - Azul vai pra baixo-direita, Vermelho aparece no lugar anterior */
+  /* PASSO 2: Azul vai pra BAIXO-DIREITA, Vermelho aparece NA POSIÇÃO ANTERIOR DO AZUL (direita) */
   .p2 .azul { 
-    transform: translate(120%, 140%) scale(1);
+    top: calc(30% + 130px);
+    left: calc(21% + 120px);
+    transform: scale(1);
     opacity: 1;
-    pointer-events: auto;
   }
   .p2 .verde { 
-    transform: translate(0px, 0px) scale(1);
+    top: 30%;
+    left: 21%;
+    transform: scale(1);
     opacity: 1;
     z-index: 9;
   }
   .p2 .vermelho { 
-    transform: translate(120%, 0px) scale(1);
+    top: 30%;
+    left: calc(21% + 120px);
+    transform: scale(1);
     opacity: 1;
     pointer-events: auto;
     z-index: 8;
     animation: estourar 1.2s ease forwards;
   }
 
-  /* PASSO 3 - Azul vai pra baixo-esquerda, Amarelo aparece no lugar anterior */
+  /* PASSO 3: Azul vai pra BAIXO-ESQUERDA, Amarelo aparece NA POSIÇÃO ANTERIOR DO AZUL (baixo-direita) */
   .p3 .azul { 
-    transform: translate(0px, 140%) scale(1);
+    top: calc(30% + 130px);
+    left: 21%;
+    transform: scale(1);
     opacity: 1;
-    pointer-events: auto;
   }
   .p3 .verde { 
-    transform: translate(0px, 0px) scale(1);
+    top: 30%;
+    left: 21%;
+    transform: scale(1);
     opacity: 1;
     z-index: 9;
   }
   .p3 .vermelho { 
-    transform: translate(120%, 0px) scale(1);
+    top: 30%;
+    left: calc(21% + 120px);
+    transform: scale(1);
     opacity: 1;
     z-index: 8;
   }
   .p3 .amarelo { 
-    transform: translate(120%, 140%) scale(1);
+    top: calc(30% + 130px);
+    left: calc(21% + 120px);
+    transform: scale(1);
     opacity: 1;
     pointer-events: auto;
     z-index: 7;
@@ -166,9 +181,8 @@
 
   /* ANIMAÇÃO DE VIBRAÇÃO */
   @keyframes bater {
-    0% { transform: translate(0px, 140%) translate(-5px, 0); }
-    50% { transform: translate(0px, 140%) translate(5px, 0); }
-    100% { transform: translate(0px, 140%) translate(-5px, 0); }
+    0%, 100% { transform: translateX(-5px); }
+    50% { transform: translateX(5px); }
   }
 
   .p3 .azul.bater {
@@ -179,25 +193,25 @@
 <body>
 
 <div class="area" id="area">
-  <!-- VERDE: POLICIAL -->
+  <!-- VERDE: Aparece na posição inicial -->
   <div class="quadrado verde" id="verde">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Verde">
     <div class="legenda">Saurabh Subaru</div>
   </div>
 
-  <!-- VERMELHO: BATMAN -->
+  <!-- VERMELHO: Aparece na posição anterior do azul (direita) -->
   <div class="quadrado vermelho" id="vermelho">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Vermelho">
     <div class="legenda">Editar perfil</div>
   </div>
 
-  <!-- AMARELO: MULHER MARAVILHA -->
+  <!-- AMARELO: Aparece na posição anterior do azul (baixo-direita) -->
   <div class="quadrado amarelo" id="amarelo">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Amarelo">
     <div class="legenda">Editar perfil</div>
   </div>
 
-  <!-- AZUL: ADD PROFILE -->
+  <!-- AZUL: Quadrado principal -->
   <div class="quadrado azul" id="azul">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Azul">
     <div class="legenda">Add Profile</div>
