@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Netflix Icons</title>
 
-<!-- PWA CORRETO -->
+<!-- CONFIGURAÇÕES PWA E TELA CHEIA -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#4CAF50">
+<meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="mobile-web-app-capable" content="yes">
 
 <style>
   body {
@@ -18,13 +18,22 @@
     display: flex;
     justify-content: center;
     align-items: center;
+    
+    /* Ocupa 100% da tela */
     min-height: 100vh;
+    min-height: -webkit-fill-available;
     height: 100dvh;
+    width: 100vw;
+    
     margin: 0;
     padding: 0;
     overflow: hidden;
+    
+    /* Espaçamento seguro para o notch */
     padding-top: env(safe-area-inset-top);
     padding-bottom: env(safe-area-inset-bottom);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
   }
 
   .area {
@@ -161,7 +170,7 @@ azul.addEventListener('click', () => {
   }
 });
 
-// Service Worker simples
+// Service Worker
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('sw.js');
 }
