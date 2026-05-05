@@ -38,22 +38,24 @@
     margin-top: 0px !important;
   }
 
-  /* QUADRADO DE TESTE NO TOPO */
-  .teste-topo {
-    position: fixed;
-    top: 0;
-    left: 0;
+  /* QUADRADO QUE PODE ARRASTAR */
+  .quadrado-arrastavel {
+    position: absolute;
+    top: 0px;  /* Começa no topo */
+    left: 0px; /* Começa na esquerda */
     width: 100%;
-    height: 50px; /* Altura do quadrado */
+    height: 80px; /* Altura */
     background: red;
     border: 3px solid white;
-    z-index: 9999; /* Para ficar por cima de tudo */
+    z-index: 9999;
     display: flex;
     justify-content: center;
     align-items: center;
     color: white;
     font-weight: bold;
     font-family: sans-serif;
+    touch-action: none; /* Importante para não conflitar com o toque */
+    user-select: none;
   }
 
   .area {
@@ -62,7 +64,7 @@
     height: 90vw;
     max-width: 650px;
     max-height: 650px;
-    margin-top: 50px; /* Para não ficar atrás do quadrado vermelho */
+    margin-top: 80px;
   }
 
   .quadrado {
@@ -154,8 +156,8 @@
 </head>
 <body>
 
-<!-- QUADRADO DE TESTE -->
-<div class="teste-topo">ÁREA DE TESTE - TOPO</div>
+<!-- QUADRADO ARRASTÁVEL -->
+<div class="quadrado-arrastavel" id="arrastavel">ARRASTE-ME ✋</div>
 
 <div class="area" id="area">
   <div class="quadrado verde" id="verde">
@@ -183,6 +185,56 @@
 let passo = 0;
 const area = document.getElementById('area');
 const azul = document.getElementById('azul');
+const elem = document.getElementById('arrastavel');
+
+let pos1 = 0, pos2 = 0, pos3 = 0, pos4 = 0;
+
+elem.onmousedown = dragMouseDown;
+elem.ontouchstart = dragTouchStart;
+
+function dragMouseDown(e) {
+  e = e || window.event;
+  e.preventDefault();
+  pos3 = e.clientX;
+  pos4 = e.clientY;
+  document.onmouseup = closeDragElement;
+  document.onmousemove = elementDrag;
+}
+
+function dragTouchStart(e) {
+  e = e || window.event;
+  pos3 = e.touches[0].clientX;
+  pos4 = e.touches[0].clientY;
+  document.ontouchend = closeDragElement;
+  document.ontouchmove = elementDragTouch;
+}
+
+function elementDrag(e) {
+  e = e || window.event;
+  e.preventDefault();
+  pos1 = pos3 - e.clientX;
+  pos2 = pos4 - e.clientY;
+  pos3 = e.clientX;
+  pos4 = e.clientY;
+  elem.style.top = (elem.offsetTop - pos2) + "px";
+  elem.style.left = (elem.offsetLeft - pos1) + "px";
+}
+
+function elementDragTouch(e) {
+  pos1 = pos3 - e.touches[0].clientX;
+  pos2 = pos4 - e.touches[0].clientY;
+  pos3 = e.touches[0].clientX;
+  pos4 = e.touches[0].clientY;
+  elem.style.top = (elem.offsetTop - pos2) + "px";
+  elem.style.left = (elem.offsetLeft - pos1) + "px";
+}
+
+function closeDragElement() {
+  document.onmouseup = null;
+  document.onmousemove = null;
+  document.ontouchend = null;
+  document.ontouchmove = null;
+}
 
 function entrarFullscreen() {
   const doc = document.documentElement;
