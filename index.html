@@ -12,9 +12,6 @@
 <meta name="theme-color" content="#4CAF50">
 <meta name="google" content="notranslate">
 
-<!-- Manifest Inline -->
-<link rel="manifest" href="data:application/manifest+json;base64,ewogICJuYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzaG9ydF9uYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzdGFydF91cmwiOiAiLi8iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiM0Q0FGNTAiLAogICJ0aGVtZV9jb2xvciI6ICIjNENBRjUwIgp9">
-
 <style>
   body {
     background: #4CAF50;
@@ -37,7 +34,6 @@
     max-height: 650px;
   }
 
-  /* QUADRADOS */
   .quadrado {
     width: 29.45%;
     height: 30%;
@@ -68,7 +64,6 @@
     box-shadow: 0 4px 8px rgba(0,0,0,0.3);
   }
 
-  /* TEXTO COM TRUNCAMENTO */
   .legenda {
     position: absolute;
     top: 100%;
@@ -90,7 +85,6 @@
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
   }
 
-  /* TODOS COMEÇAM NA MESMA POSIÇÃO */
   .azul, .verde, .vermelho, .amarelo { 
     top: -10%; 
     left: 17%; 
@@ -101,7 +95,6 @@
     pointer-events: none;
   }
 
-  /* AZUL COMEÇA VISÍVEL */
   .azul {
     transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
@@ -109,7 +102,6 @@
     z-index: 10;
   }
 
-  /* RASTRO - PASSO 1 */
   .p1 .azul { 
     --tx: 120%; 
     --ty: 0px; 
@@ -123,7 +115,6 @@
     z-index: 9;
   }
 
-  /* RASTRO - PASSO 2 */
   .p2 .azul { 
     --tx: 120%; 
     --ty: 140%; 
@@ -144,7 +135,6 @@
     z-index: 8;
   }
 
-  /* RASTRO - PASSO 3 */
   .p3 .azul { 
     --tx: 0px; 
     --ty: 140%; 
@@ -178,7 +168,6 @@
     100% { transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; }
   }
 
-  /* VIBRAÇÃO */
   @keyframes bater {
     0% { transform: translate(var(--tx), var(--ty)) translate(-5px, 0); }
     50% { transform: translate(var(--tx), var(--ty)) translate(5px, 0); }
@@ -191,25 +180,21 @@
 <body>
 
 <div class="area" id="area">
-  <!-- VERDE: POLICIAL -->
   <div class="quadrado verde" id="verde">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-2fg93funipvqfs9i.webp" alt="Policial">
     <div class="legenda">Saurabh Subaru</div>
   </div>
 
-  <!-- VERMELHO: BATMAN -->
   <div class="quadrado vermelho" id="vermelho">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-88wkdmjrorckekha.webp" alt="Batman">
     <div class="legenda">Editar bdjdjfperfil</div>
   </div>
 
-  <!-- AMARELO: MULHER MARAVILHA -->
   <div class="quadrado amarelo" id="amarelo">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Mulher Maravilha">
     <div class="legenda">Editar perfil</div>
   </div>
 
-  <!-- AZUL: ADD PROFILE -->
   <div class="quadrado azul" id="azul">
     <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Add Profile">
     <div class="legenda">Add Profile</div>
@@ -217,6 +202,7 @@
 </div>
 
 <script>
+// ANIMAÇÃO DOS QUADRADOS
 let passo = 0;
 const area = document.getElementById('area');
 const azul = document.getElementById('azul');
@@ -233,17 +219,33 @@ azul.addEventListener('click', () => {
   }
 });
 
-// Registrar Service Worker para PWA
+// ========== PWA - MANIFEST VIA JAVASCRIPT (MAIS CONFIÁVEL) ==========
+const manifest = {
+  name: "Netflix Icons",
+  short_name: "Netflix Icons",
+  start_url: location.href,
+  display: "standalone",
+  background_color: "#4CAF50",
+  theme_color: "#4CAF50"
+};
+
+const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+const manifestURL = URL.createObjectURL(manifestBlob);
+
+const linkManifest = document.createElement('link');
+linkManifest.rel = 'manifest';
+linkManifest.href = manifestURL;
+document.head.appendChild(linkManifest);
+
+// ========== SERVICE WORKER ==========
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => {
-    const swCode = `
-      self.addEventListener('install', e => self.skipWaiting());
-      self.addEventListener('activate', e => self.clients.claim());
-      self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
-    `;
-    const blob = new Blob([swCode], { type: 'application/javascript' });
-    navigator.serviceWorker.register(URL.createObjectURL(blob));
-  });
+  const swCode = `
+    self.addEventListener('install', e => self.skipWaiting());
+    self.addEventListener('activate', e => self.clients.claim());
+    self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+  `;
+  const swBlob = new Blob([swCode], { type: 'application/javascript' });
+  navigator.serviceWorker.register(URL.createObjectURL(swBlob));
 }
 </script>
 
