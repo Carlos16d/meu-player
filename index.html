@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Netflix Icons</title>
 
-<!-- CONFIGURAÇÕES PWA E TELA CHEIA -->
+<!-- PWA -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#4CAF50">
 <meta name="mobile-web-app-capable" content="yes">
@@ -13,27 +13,36 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 
 <style>
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
   body {
     background: #4CAF50;
     display: flex;
     justify-content: center;
     align-items: center;
     
-    /* Ocupa 100% da tela */
+    /* OCUPAR TUDO MESMO */
+    height: 100vh;
+    width: 100vw;
     min-height: 100vh;
     min-height: -webkit-fill-available;
-    height: 100dvh;
-    width: 100vw;
+    min-width: 100vw;
     
-    margin: 0;
-    padding: 0;
     overflow: hidden;
+    position: relative;
     
-    /* Espaçamento seguro para o notch */
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
-    padding-left: env(safe-area-inset-left);
-    padding-right: env(safe-area-inset-right);
+    /* REMOVE QUALQUER ESPAÇO SEGURO A MAIS */
+    padding-top: 0px !important;
+    margin-top: 0px !important;
+  }
+
+  /* Garante que o fundo vá para trás do notch */
+  :root {
+    --safa-area-inset-top: 0px;
   }
 
   .area {
@@ -159,6 +168,21 @@
 let passo = 0;
 const area = document.getElementById('area');
 const azul = document.getElementById('azul');
+
+// TENTATIVA DE FORÇAR TELA CHEIA AO ABRIR
+function entrarFullscreen() {
+  const doc = document.documentElement;
+  if (doc.requestFullscreen) {
+    doc.requestFullscreen().catch(err => {});
+  } else if (doc.webkitRequestFullscreen) {
+    doc.webkitRequestFullscreen();
+  }
+}
+
+// Tenta executar assim que carregar
+window.onload = () => {
+  setTimeout(entrarFullscreen, 500);
+};
 
 azul.addEventListener('click', () => {
   if (passo < 3) {
