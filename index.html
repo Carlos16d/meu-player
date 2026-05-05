@@ -2,7 +2,8 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<!-- META TAG MÁGICA PARA OCUPAR TUDO -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, minimal-ui">
 <title>Netflix Icons</title>
 
 <style>
@@ -18,10 +19,11 @@
     justify-content: center;
     align-items: center;
     
-    /* OCUPA TUDO NO FIREFOX */
+    /* FORÇA OCUPAR 100% DA TELA MESMO */
     height: 100vh;
     width: 100vw;
     min-height: -moz-available;
+    min-height: -webkit-fill-available;
     min-height: 100vh;
     
     overflow: hidden;
@@ -30,7 +32,7 @@
     margin: 0 !important;
   }
 
-  /* QUADRADO ARRASTÁVEL */
+  /* QUADRADO ARRASTÁVEL PARA TESTE */
   .quadrado-arrastavel {
     position: absolute;
     top: 0px;  
@@ -148,7 +150,7 @@
 </head>
 <body>
 
-<div class="quadrado-arrastavel" id="arrastavel">🔴 FIREFOX - TELA CHEIA 🔴</div>
+<div class="quadrado-arrastavel" id="arrastavel">🔴 MODO XCLOUD ATIVADO 🔴</div>
 
 <div class="area" id="area">
   <div class="quadrado verde" id="verde">
@@ -227,26 +229,36 @@ function closeDragElement() {
   document.ontouchmove = null;
 }
 
-// TENTATIVA FORTE DE ABRIR EM TELA CHEIA AUTOMATICAMENTE
-function entrarFullscreen() {
+// 🔥 FUNÇÃO IGUAL O BETTER XCLOUD - FORÇA TELA CHEIA
+function forcarTelaCheia() {
   const doc = document.documentElement;
-  
-  // Comando específico do Firefox
+
+  // Tenta todos os modos possíveis
   if (doc.mozRequestFullScreen) {
     doc.mozRequestFullScreen();
-  } 
-  // Comando padrão
-  else if (doc.requestFullscreen) {
+  } else if (doc.webkitRequestFullscreen) {
+    doc.webkitRequestFullscreen();
+  } else if (doc.requestFullscreen) {
     doc.requestFullscreen();
+  } else if (doc.msRequestFullscreen) {
+    doc.msRequestFullscreen();
+  }
+
+  // Tenta também no nível da janela
+  if (window.innerHeight !== screen.height) {
+    window.scrollTo(0, 0);
+    setTimeout(() => window.scrollTo(0, 0), 100);
   }
 }
 
-// Tenta várias vezes assim que abrir
+// 🚀 DISPARO AUTOMÁTICO ASSIM QUE ABRE
 window.onload = () => {
-  entrarFullscreen();
-  setTimeout(entrarFullscreen, 100);
-  setTimeout(entrarFullscreen, 300);
-  setTimeout(entrarFullscreen, 500);
+  // Tenta várias vezes para garantir
+  forçarTelaCheia();
+  setTimeout(forçarTelaCheia, 100);
+  setTimeout(forçarTelaCheia, 300);
+  setTimeout(forçarTelaCheia, 500);
+  setTimeout(forçarTelaCheia, 1000);
 };
 
 azul.addEventListener('click', () => {
