@@ -1,38 +1,113 @@
-<script>
-// Service Worker
-if ('serviceWorker' in navigator) {
-  const swCode = `
-    self.addEventListener('install', e => self.skipWaiting());
-    self.addEventListener('activate', e => self.clients.claim());
-    self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
-  `;
-  const blob = new Blob([swCode], { type: 'application/javascript' });
-  navigator.serviceWorker.register(URL.createObjectURL(blob));
-}
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>Netflix Icons</title>
 
-// Animação dos quadrados - CÓDIGO SIMPLIFICADO
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#000000">
+
+<link rel="manifest" href="data:application/manifest+json;base64,ewogICJuYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzaG9ydF9uYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzdGFydF91cmwiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAic2NvcGUiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAib3JpZW50YXRpb24iOiAicG9ydHJhaXQiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiMwMDAwMDAiLAogICJ0aGVtZV9jb2xvciI6ICIjMDAwMDAwIiwKICAibGFuZyI6ICJwdC1CUiIsCiAgImljb25zIjogWwogICAgewogICAgICAic3JjIjogImljb24ucG5nIiwKICAgICAgInNpemVzIjogIjUxMng1MTIiLAogICAgICAidHlwZSI6ICJpbWFnZS9wbmciCiAgICB9CiAgXQp9">
+
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; position: fixed; top: 0; left: 0; background: black; }
+  body { display: flex; justify-content: center; align-items: center; font-family: Arial, sans-serif; }
+  .area { position: relative; width: 100vw; height: 100vh; }
+  
+  .quadrado {
+    width: 110px; height: 114px; position: absolute; cursor: pointer;
+    display: flex; flex-direction: column; align-items: center;
+    transition: transform 0.5s ease;
+  }
+  
+  .quadrado img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 7px;
+    background: linear-gradient(to bottom, rgba(0,0,139,0.7), rgba(173,216,230,0.3));
+    pointer-events: none;
+  }
+  
+  .legenda {
+    font-size: 19px; color: white; text-align: center; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; width: 90%; margin-top: 4px;
+  }
+  
+  .azul, .verde, .vermelho, .amarelo { 
+    top: 30%; left: 21%;
+    transform: scale(0); opacity: 0; pointer-events: none;
+  }
+  
+  .azul { transform: scale(1); opacity: 1; pointer-events: auto; z-index: 10; }
+  
+  .p1 .azul { transform: translate(120%, 0px) scale(1); opacity: 1; }
+  .p1 .verde { transform: translate(0px, 0px) scale(1); opacity: 1; pointer-events: auto; z-index: 9; animation: aparece 1.2s ease forwards; }
+  
+  .p2 .azul { transform: translate(120%, 140%) scale(1); opacity: 1; }
+  .p2 .verde { transform: translate(0px, 0px) scale(1); opacity: 1; z-index: 9; }
+  .p2 .vermelho { transform: translate(120%, 0px) scale(1); opacity: 1; pointer-events: auto; z-index: 8; animation: aparece 1.2s ease forwards; }
+  
+  .p3 .azul { transform: translate(0px, 140%) scale(1); opacity: 1; }
+  .p3 .verde { transform: translate(0px, 0px) scale(1); opacity: 1; z-index: 9; }
+  .p3 .vermelho { transform: translate(120%, 0px) scale(1); opacity: 1; z-index: 8; }
+  .p3 .amarelo { transform: translate(120%, 140%) scale(1); opacity: 1; pointer-events: auto; z-index: 7; animation: aparece 1.2s ease forwards; }
+  
+  @keyframes aparece {
+    0% { transform: scale(0); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+  }
+  
+  .bater { animation: tremer 0.1s linear infinite !important; }
+  
+  @keyframes tremer {
+    0%, 100% { transform: translate(-3px, 0); }
+    50% { transform: translate(3px, 0); }
+  }
+</style>
+</head>
+<body>
+
+<div class="area" id="area">
+  <div class="quadrado verde" id="verde">
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Policial">
+    <div class="legenda">Saurabh Subaru</div>
+  </div>
+
+  <div class="quadrado vermelho" id="vermelho">
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Batman">
+    <div class="legenda">Editar perfil</div>
+  </div>
+
+  <div class="quadrado amarelo" id="amarelo">
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Mulher Maravilha">
+    <div class="legenda">Editar perfil</div>
+  </div>
+
+  <div class="quadrado azul" id="azul">
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Add Profile">
+    <div class="legenda">Add Profile</div>
+  </div>
+</div>
+
+<script>
 let passo = 0;
 const area = document.getElementById('area');
 const azul = document.getElementById('azul');
 
-azul.addEventListener('click', function() {
-  console.log('Clicou! Passo: ' + passo);
-  
+azul.onclick = function() {
   if (passo < 3) {
     passo++;
     area.className = 'area p' + passo;
-    console.log('Mudou para p' + passo);
   } else {
-    azul.classList.add('bater');
-    console.log('Vibrando!');
+    area.className = 'area p3 bater';
     setTimeout(function() {
-      azul.classList.remove('bater');
+      area.className = 'area p3';
     }, 300);
   }
-});
-
-// Previne scroll no mobile
-document.body.addEventListener('touchmove', function(e) {
-  e.preventDefault();
-}, { passive: false });
+};
 </script>
+
+</body>
+</html>
