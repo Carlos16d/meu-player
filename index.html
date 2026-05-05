@@ -5,11 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Netflix Icons</title>
 
+<!-- PWA Meta Tags -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#000000">
+<meta name="format-detection" content="telephone=no">
 
+<!-- Manifest Inline -->
 <link rel="manifest" href="data:application/manifest+json;base64,ewogICJuYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzaG9ydF9uYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzdGFydF91cmwiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAic2NvcGUiOiAiL25ldGZsaXgtaWNvbnMvIiwKICAiZGlzcGxheSI6ICJzdGFuZGFsb25lIiwKICAib3JpZW50YXRpb24iOiAicG9ydHJhaXQiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiMwMDAwMDAiLAogICJ0aGVtZV9jb2xvciI6ICIjMDAwMDAwIiwKICAibGFuZyI6ICJwdC1CUiIsCiAgImljb25zIjogWwogICAgewogICAgICAic3JjIjogImljb24ucG5nIiwKICAgICAgInNpemVzIjogIjUxMng1MTIiLAogICAgICAidHlwZSI6ICJpbWFnZS9wbmciCiAgICB9CiAgXQp9">
 
 <style>
@@ -22,7 +25,11 @@
     user-select: none; 
   }
 
-  html, body {
+  html {
+    background: black;
+  }
+
+  body {
     width: 100%; 
     height: 100%;
     overflow: hidden;
@@ -30,9 +37,6 @@
     top: 0; 
     left: 0;
     background: black;
-  }
-
-  body {
     display: flex;
     justify-content: center;
     align-items: center;
