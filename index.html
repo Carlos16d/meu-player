@@ -5,215 +5,213 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Netflix Icons</title>
 
+<!-- PWA Meta Tags -->
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#4CAF50">
 <meta name="google" content="notranslate">
 
+<!-- Manifest Inline -->
 <link rel="manifest" href="data:application/manifest+json;base64,ewogICJuYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzaG9ydF9uYW1lIjogIk5ldGZsaXggSWNvbnMiLAogICJzdGFydF91cmwiOiAiLi8iLAogICJkaXNwbGF5IjogInN0YW5kYWxvbmUiLAogICJiYWNrZ3JvdW5kX2NvbG9yIjogIiM0Q0FGNTAiLAogICJ0aGVtZV9jb2xvciI6ICIjNENBRjUwIgp9">
 
 <style>
-  * { 
-    margin: 0; 
-    padding: 0; 
-    box-sizing: border-box; 
-    -webkit-tap-highlight-color: transparent; 
-    -webkit-user-select: none; 
-    user-select: none; 
-  }
-
-  html, body {
-    width: 100%; 
-    height: 100vh;
-    height: 100dvh;
-    overflow: hidden;
-    position: fixed;
-    top: 0; 
-    left: 0;
-    background: #4CAF50;
-  }
-
   body {
+    background: #4CAF50;
     display: flex;
     justify-content: center;
     align-items: center;
-    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    min-height: 100vh;
+    height: 100vh;
+    height: 100dvh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
   }
 
   .area {
     position: relative;
-    width: 100vw;
-    height: 100vh;
-    height: 100dvh;
+    width: 90vw;
+    height: 90vw;
+    max-width: 650px;
+    max-height: 650px;
   }
 
+  /* QUADRADOS */
   .quadrado {
-    width: 110px;
-    height: 114px;
+    width: 29.45%;
+    height: 30%;
     position: absolute;
-    cursor: pointer;
     display: flex;
     flex-direction: column;
     align-items: center;
-    transition: all 0.5s ease;
+    justify-content: flex-start;
+    cursor: pointer;
+    transition: transform 0.5s ease;
+    overflow: visible;
+  }
+
+  .quadrado::before {
+    content: "";
+    padding-top: 100%;
   }
 
   .quadrado img {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
     border-radius: 7px;
+    background: linear-gradient(to bottom, rgba(0,0,139,0.7), rgba(173,216,230,0.3));
     box-shadow: 0 4px 8px rgba(0,0,0,0.3);
   }
 
+  /* TEXTO COM TRUNCAMENTO */
   .legenda {
     position: absolute;
     top: 100%;
     left: 50%;
     transform: translateX(-50%);
-    font-size: 16px;
+    font-family: sans-serif;
+    font-size: 19px;
+    font-weight: 400;
     color: white;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    width: 100%;
-    margin-top: 6px;
-    padding: 4px 0;
+    z-index: 5;
+    width: 90%;
+    margin-top: 4px;
+    padding-top: 4px;
+    padding-bottom: 8px;
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
   }
 
   /* TODOS COMEÇAM NA MESMA POSIÇÃO */
-  .verde, .vermelho, .amarelo, .azul { 
-    top: 30%; 
-    left: 21%; 
-    transform: scale(0);
+  .azul, .verde, .vermelho, .amarelo { 
+    top: -10%; 
+    left: 17%; 
+    --tx: 0px; 
+    --ty: 0px; 
+    transform: translate(var(--tx), var(--ty)) scale(0);
     opacity: 0;
     pointer-events: none;
   }
 
+  /* AZUL COMEÇA VISÍVEL */
   .azul {
-    transform: scale(1);
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
     pointer-events: auto;
     z-index: 10;
   }
 
-  /* PASSO 1: Azul vai pra DIREITA, Verde aparece NA POSIÇÃO INICIAL */
+  /* RASTRO - PASSO 1 */
   .p1 .azul { 
-    top: 30%;
-    left: calc(21% + 120px);
-    transform: scale(1);
+    --tx: 120%; 
+    --ty: 0px; 
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
   }
   .p1 .verde { 
-    top: 30%;
-    left: 21%;
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
+    --tx: 0px; 
+    --ty: 0px; 
+    animation: estourar 1.2s ease forwards; 
     z-index: 9;
-    animation: estourar 1.2s ease forwards;
   }
 
-  /* PASSO 2: Azul vai pra BAIXO-DIREITA, Vermelho aparece NA POSIÇÃO ANTERIOR DO AZUL (direita) */
+  /* RASTRO - PASSO 2 */
   .p2 .azul { 
-    top: calc(30% + 130px);
-    left: calc(21% + 120px);
-    transform: scale(1);
+    --tx: 120%; 
+    --ty: 140%; 
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
   }
   .p2 .verde { 
-    top: 30%;
-    left: 21%;
-    transform: scale(1);
+    --tx: 0px; 
+    --ty: 0px; 
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
     z-index: 9;
   }
   .p2 .vermelho { 
-    top: 30%;
-    left: calc(21% + 120px);
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
+    --tx: 120%; 
+    --ty: 0px; 
+    animation: estourar 1.2s ease forwards; 
     z-index: 8;
-    animation: estourar 1.2s ease forwards;
   }
 
-  /* PASSO 3: Azul vai pra BAIXO-ESQUERDA, Amarelo aparece NA POSIÇÃO ANTERIOR DO AZUL (baixo-direita) */
+  /* RASTRO - PASSO 3 */
   .p3 .azul { 
-    top: calc(30% + 130px);
-    left: 21%;
-    transform: scale(1);
+    --tx: 0px; 
+    --ty: 140%; 
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
   }
   .p3 .verde { 
-    top: 30%;
-    left: 21%;
-    transform: scale(1);
+    --tx: 0px; 
+    --ty: 0px; 
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
     z-index: 9;
   }
   .p3 .vermelho { 
-    top: 30%;
-    left: calc(21% + 120px);
-    transform: scale(1);
+    --tx: 120%; 
+    --ty: 0px; 
+    transform: translate(var(--tx), var(--ty)) scale(1);
     opacity: 1;
     z-index: 8;
   }
   .p3 .amarelo { 
-    top: calc(30% + 130px);
-    left: calc(21% + 120px);
-    transform: scale(1);
-    opacity: 1;
-    pointer-events: auto;
+    --tx: 120%; 
+    --ty: 140%; 
+    animation: estourar 1.2s ease forwards; 
     z-index: 7;
-    animation: estourar 1.2s ease forwards;
   }
 
-  /* ANIMAÇÃO DE ESTOURO */
   @keyframes estourar {
-    0% { transform: scale(0); opacity: 0; }
-    60% { transform: scale(1.05); opacity: 1; }
-    100% { transform: scale(1); opacity: 1; }
+    0% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
+    60% { transform: translate(var(--tx), var(--ty)) scale(1.05); opacity: 1; }
+    100% { transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; }
   }
 
-  /* ANIMAÇÃO DE VIBRAÇÃO */
+  /* VIBRAÇÃO */
   @keyframes bater {
-    0%, 100% { transform: translateX(-5px); }
-    50% { transform: translateX(5px); }
+    0% { transform: translate(var(--tx), var(--ty)) translate(-5px, 0); }
+    50% { transform: translate(var(--tx), var(--ty)) translate(5px, 0); }
+    100% { transform: translate(var(--tx), var(--ty)) translate(-5px, 0); }
   }
 
-  .p3 .azul.bater {
-    animation: bater 0.1s linear infinite;
-  }
+  .bater { animation: bater 0.1s linear infinite !important; }
 </style>
 </head>
 <body>
 
 <div class="area" id="area">
-  <!-- VERDE: Aparece na posição inicial -->
+  <!-- VERDE: POLICIAL -->
   <div class="quadrado verde" id="verde">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Verde">
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-2fg93funipvqfs9i.webp" alt="Policial">
     <div class="legenda">Saurabh Subaru</div>
   </div>
 
-  <!-- VERMELHO: Aparece na posição anterior do azul (direita) -->
+  <!-- VERMELHO: BATMAN -->
   <div class="quadrado vermelho" id="vermelho">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Vermelho">
-    <div class="legenda">Editar perfil</div>
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-88wkdmjrorckekha.webp" alt="Batman">
+    <div class="legenda">Editar bdjdjfperfil</div>
   </div>
 
-  <!-- AMARELO: Aparece na posição anterior do azul (baixo-direita) -->
+  <!-- AMARELO: MULHER MARAVILHA -->
   <div class="quadrado amarelo" id="amarelo">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Amarelo">
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Mulher Maravilha">
     <div class="legenda">Editar perfil</div>
   </div>
 
-  <!-- AZUL: Quadrado principal -->
+  <!-- AZUL: ADD PROFILE -->
   <div class="quadrado azul" id="azul">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Azul">
+    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Add Profile">
     <div class="legenda">Add Profile</div>
   </div>
 </div>
@@ -223,17 +221,30 @@ let passo = 0;
 const area = document.getElementById('area');
 const azul = document.getElementById('azul');
 
-azul.onclick = function() {
+azul.addEventListener('click', () => {
   if (passo < 3) {
     passo++;
     area.className = 'area p' + passo;
   } else {
     azul.classList.add('bater');
-    setTimeout(function() {
+    setTimeout(() => {
       azul.classList.remove('bater');
     }, 300);
   }
-};
+});
+
+// Registrar Service Worker para PWA
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    const swCode = `
+      self.addEventListener('install', e => self.skipWaiting());
+      self.addEventListener('activate', e => self.clients.claim());
+      self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
+    `;
+    const blob = new Blob([swCode], { type: 'application/javascript' });
+    navigator.serviceWorker.register(URL.createObjectURL(blob));
+  });
+}
 </script>
 
 </body>
