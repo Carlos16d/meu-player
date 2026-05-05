@@ -2,8 +2,11 @@
 <html lang="pt-BR">
 <head>
 <meta charset="UTF-8">
-<!-- META TAG MÁGICA PARA OCUPAR TUDO -->
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, minimal-ui">
+<!-- META TAGS QUE O APPSGEYSER USA -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover, minimal-ui, target-densitydpi=device-dpi">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="fullscreen" content="true">
 <title>Netflix Icons</title>
 
 <style>
@@ -13,26 +16,32 @@
     box-sizing: border-box;
   }
 
+  html, body {
+    /* PROPRIEDADES QUE FORÇAM OCUPAR TUDO */
+    height: 100% !important;
+    width: 100% !important;
+    min-height: -moz-available !important;
+    min-height: -webkit-fill-available !important;
+    min-height: 100vh !important;
+    
+    overflow: hidden !important;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+  }
+
   body {
     background: #4CAF50;
     display: flex;
     justify-content: center;
     align-items: center;
-    
-    /* FORÇA OCUPAR 100% DA TELA MESMO */
-    height: 100vh;
-    width: 100vw;
-    min-height: -moz-available;
-    min-height: -webkit-fill-available;
-    min-height: 100vh;
-    
-    overflow: hidden;
-    position: relative;
     padding: 0 !important;
     margin: 0 !important;
   }
 
-  /* QUADRADO ARRASTÁVEL PARA TESTE */
+  /* QUADRADO ARRASTÁVEL */
   .quadrado-arrastavel {
     position: absolute;
     top: 0px;  
@@ -150,7 +159,7 @@
 </head>
 <body>
 
-<div class="quadrado-arrastavel" id="arrastavel">🔴 MODO XCLOUD ATIVADO 🔴</div>
+<div class="quadrado-arrastavel" id="arrastavel">🔴 MODO APPSGEYSER ATIVADO 🔴</div>
 
 <div class="area" id="area">
   <div class="quadrado verde" id="verde">
@@ -229,9 +238,10 @@ function closeDragElement() {
   document.ontouchmove = null;
 }
 
-// 🔥 FUNÇÃO IGUAL O BETTER XCLOUD - FORÇA TELA CHEIA
-function forcarTelaCheia() {
+// 🔥 FUNÇÕES IGUAL O APPSGEYSER USA
+function forcarFullscreenTotal() {
   const doc = document.documentElement;
+  const body = document.body;
 
   // Tenta todos os modos possíveis
   if (doc.mozRequestFullScreen) {
@@ -244,22 +254,36 @@ function forcarTelaCheia() {
     doc.msRequestFullscreen();
   }
 
-  // Tenta também no nível da janela
-  if (window.innerHeight !== screen.height) {
-    window.scrollTo(0, 0);
-    setTimeout(() => window.scrollTo(0, 0), 100);
+  // Tenta também no body
+  if (body.mozRequestFullScreen) {
+    body.mozRequestFullScreen();
+  } else if (body.webkitRequestFullscreen) {
+    body.webkitRequestFullscreen();
   }
+
+  // Simula rolagem para esconder barra
+  window.scrollTo(0, 1);
+  setTimeout(() => window.scrollTo(0, 0), 100);
 }
 
-// 🚀 DISPARO AUTOMÁTICO ASSIM QUE ABRE
-window.onload = () => {
-  // Tenta várias vezes para garantir
-  forçarTelaCheia();
-  setTimeout(forçarTelaCheia, 100);
-  setTimeout(forçarTelaCheia, 300);
-  setTimeout(forçarTelaCheia, 500);
-  setTimeout(forçarTelaCheia, 1000);
-};
+// 🚀 DISPARO CONTÍNUO IGUAL NO APP
+function iniciarModoApp() {
+  forcarFullscreenTotal();
+  
+  // Tenta de novo várias vezes
+  setTimeout(forcarFullscreenTotal, 100);
+  setTimeout(forcarFullscreenTotal, 300);
+  setTimeout(forcarFullscreenTotal, 500);
+  setTimeout(forcarFullscreenTotal, 1000);
+  setTimeout(forcarFullscreenTotal, 2000);
+}
+
+// Inicia tudo quando carregar
+window.onload = iniciarModoApp;
+
+// Tenta também quando a tela mudar de tamanho
+window.addEventListener('resize', forcarFullscreenTotal);
+window.addEventListener('orientationchange', forcarFullscreenTotal);
 
 azul.addEventListener('click', () => {
   if (passo < 3) {
