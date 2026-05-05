@@ -25,7 +25,6 @@
     justify-content: center;
     align-items: center;
     
-    /* OCUPAR TUDO MESMO */
     height: 100vh;
     width: 100vw;
     min-height: 100vh;
@@ -35,14 +34,26 @@
     overflow: hidden;
     position: relative;
     
-    /* REMOVE QUALQUER ESPAÇO SEGURO A MAIS */
     padding-top: 0px !important;
     margin-top: 0px !important;
   }
 
-  /* Garante que o fundo vá para trás do notch */
-  :root {
-    --safa-area-inset-top: 0px;
+  /* QUADRADO DE TESTE NO TOPO */
+  .teste-topo {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 50px; /* Altura do quadrado */
+    background: red;
+    border: 3px solid white;
+    z-index: 9999; /* Para ficar por cima de tudo */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    color: white;
+    font-weight: bold;
+    font-family: sans-serif;
   }
 
   .area {
@@ -51,6 +62,7 @@
     height: 90vw;
     max-width: 650px;
     max-height: 650px;
+    margin-top: 50px; /* Para não ficar atrás do quadrado vermelho */
   }
 
   .quadrado {
@@ -142,6 +154,9 @@
 </head>
 <body>
 
+<!-- QUADRADO DE TESTE -->
+<div class="teste-topo">ÁREA DE TESTE - TOPO</div>
+
 <div class="area" id="area">
   <div class="quadrado verde" id="verde">
     <img src="img1.jpg" alt="Policial">
@@ -169,7 +184,6 @@ let passo = 0;
 const area = document.getElementById('area');
 const azul = document.getElementById('azul');
 
-// TENTATIVA DE FORÇAR TELA CHEIA AO ABRIR
 function entrarFullscreen() {
   const doc = document.documentElement;
   if (doc.requestFullscreen) {
@@ -179,7 +193,6 @@ function entrarFullscreen() {
   }
 }
 
-// Tenta executar assim que carregar
 window.onload = () => {
   setTimeout(entrarFullscreen, 500);
 };
