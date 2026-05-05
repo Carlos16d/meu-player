@@ -5,12 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Netflix Icons</title>
 
-<!-- PWA Meta Tags -->
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<!-- PWA CORRETO -->
+<link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#4CAF50">
-<meta name="google" content="notranslate">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="mobile-web-app-capable" content="yes">
 
 <style>
   body {
@@ -19,11 +19,12 @@
     justify-content: center;
     align-items: center;
     min-height: 100vh;
-    height: 100vh;
     height: 100dvh;
     margin: 0;
     padding: 0;
     overflow: hidden;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
   }
 
   .area {
@@ -44,7 +45,6 @@
     justify-content: flex-start;
     cursor: pointer;
     transition: transform 0.5s ease;
-    overflow: visible;
   }
 
   .quadrado::before {
@@ -60,7 +60,6 @@
     height: 100%;
     object-fit: cover;
     border-radius: 7px;
-    background: linear-gradient(to bottom, rgba(0,0,139,0.7), rgba(173,216,230,0.3));
     box-shadow: 0 4px 8px rgba(0,0,0,0.3);
   }
 
@@ -71,17 +70,11 @@
     transform: translateX(-50%);
     font-family: sans-serif;
     font-size: 19px;
-    font-weight: 400;
     color: white;
     text-align: center;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    z-index: 5;
     width: 90%;
     margin-top: 4px;
-    padding-top: 4px;
-    padding-bottom: 8px;
     text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
   }
 
@@ -102,65 +95,17 @@
     z-index: 10;
   }
 
-  .p1 .azul { 
-    --tx: 120%; 
-    --ty: 0px; 
-    transform: translate(var(--tx), var(--ty)) scale(1);
-    opacity: 1;
-  }
-  .p1 .verde { 
-    --tx: 0px; 
-    --ty: 0px; 
-    animation: estourar 1.2s ease forwards; 
-    z-index: 9;
-  }
+  .p1 .azul { --tx: 120%; --ty: 0px; transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; }
+  .p1 .verde { --tx: 0px; --ty: 0px; animation: estourar 1.2s ease forwards; z-index: 9; }
 
-  .p2 .azul { 
-    --tx: 120%; 
-    --ty: 140%; 
-    transform: translate(var(--tx), var(--ty)) scale(1);
-    opacity: 1;
-  }
-  .p2 .verde { 
-    --tx: 0px; 
-    --ty: 0px; 
-    transform: translate(var(--tx), var(--ty)) scale(1);
-    opacity: 1;
-    z-index: 9;
-  }
-  .p2 .vermelho { 
-    --tx: 120%; 
-    --ty: 0px; 
-    animation: estourar 1.2s ease forwards; 
-    z-index: 8;
-  }
+  .p2 .azul { --tx: 120%; --ty: 140%; transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; }
+  .p2 .verde { --tx: 0px; --ty: 0px; transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; z-index: 9; }
+  .p2 .vermelho { --tx: 120%; --ty: 0px; animation: estourar 1.2s ease forwards; z-index: 8; }
 
-  .p3 .azul { 
-    --tx: 0px; 
-    --ty: 140%; 
-    transform: translate(var(--tx), var(--ty)) scale(1);
-    opacity: 1;
-  }
-  .p3 .verde { 
-    --tx: 0px; 
-    --ty: 0px; 
-    transform: translate(var(--tx), var(--ty)) scale(1);
-    opacity: 1;
-    z-index: 9;
-  }
-  .p3 .vermelho { 
-    --tx: 120%; 
-    --ty: 0px; 
-    transform: translate(var(--tx), var(--ty)) scale(1);
-    opacity: 1;
-    z-index: 8;
-  }
-  .p3 .amarelo { 
-    --tx: 120%; 
-    --ty: 140%; 
-    animation: estourar 1.2s ease forwards; 
-    z-index: 7;
-  }
+  .p3 .azul { --tx: 0px; --ty: 140%; transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; }
+  .p3 .verde { --tx: 0px; --ty: 0px; transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; z-index: 9; }
+  .p3 .vermelho { --tx: 120%; --ty: 0px; transform: translate(var(--tx), var(--ty)) scale(1); opacity: 1; z-index: 8; }
+  .p3 .amarelo { --tx: 120%; --ty: 140%; animation: estourar 1.2s ease forwards; z-index: 7; }
 
   @keyframes estourar {
     0% { transform: translate(var(--tx), var(--ty)) scale(0); opacity: 0; }
@@ -181,28 +126,27 @@
 
 <div class="area" id="area">
   <div class="quadrado verde" id="verde">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-2fg93funipvqfs9i.webp" alt="Policial">
+    <img src="img1.jpg" alt="Policial">
     <div class="legenda">Saurabh Subaru</div>
   </div>
 
   <div class="quadrado vermelho" id="vermelho">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-88wkdmjrorckekha.webp" alt="Batman">
-    <div class="legenda">Editar bdjdjfperfil</div>
+    <img src="img2.jpg" alt="Batman">
+    <div class="legenda">Editar perfil</div>
   </div>
 
   <div class="quadrado amarelo" id="amarelo">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Mulher Maravilha">
+    <img src="img3.jpg" alt="Mulher Maravilha">
     <div class="legenda">Editar perfil</div>
   </div>
 
   <div class="quadrado azul" id="azul">
-    <img src="https://wallpapers.com/images/high/netflix-profile-pictures-1000-x-1000-qo9h82134t9nv0j0.webp" alt="Add Profile">
+    <img src="img4.jpg" alt="Add Profile">
     <div class="legenda">Add Profile</div>
   </div>
 </div>
 
 <script>
-// ANIMAÇÃO DOS QUADRADOS
 let passo = 0;
 const area = document.getElementById('area');
 const azul = document.getElementById('azul');
@@ -213,39 +157,13 @@ azul.addEventListener('click', () => {
     area.className = 'area p' + passo;
   } else {
     azul.classList.add('bater');
-    setTimeout(() => {
-      azul.classList.remove('bater');
-    }, 300);
+    setTimeout(() => azul.classList.remove('bater'), 300);
   }
 });
 
-// ========== PWA - MANIFEST VIA JAVASCRIPT (MAIS CONFIÁVEL) ==========
-const manifest = {
-  name: "Netflix Icons",
-  short_name: "Netflix Icons",
-  start_url: location.href,
-  display: "standalone",
-  background_color: "#4CAF50",
-  theme_color: "#4CAF50"
-};
-
-const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
-const manifestURL = URL.createObjectURL(manifestBlob);
-
-const linkManifest = document.createElement('link');
-linkManifest.rel = 'manifest';
-linkManifest.href = manifestURL;
-document.head.appendChild(linkManifest);
-
-// ========== SERVICE WORKER ==========
+// Service Worker simples
 if ('serviceWorker' in navigator) {
-  const swCode = `
-    self.addEventListener('install', e => self.skipWaiting());
-    self.addEventListener('activate', e => self.clients.claim());
-    self.addEventListener('fetch', e => e.respondWith(fetch(e.request)));
-  `;
-  const swBlob = new Blob([swCode], { type: 'application/javascript' });
-  navigator.serviceWorker.register(URL.createObjectURL(swBlob));
+  navigator.serviceWorker.register('sw.js');
 }
 </script>
 
