@@ -5,13 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
 <title>Netflix Icons</title>
 
-<!-- PWA -->
-<link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#000000"> <!-- Cor preta para combinar -->
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-
 <style>
   * {
     margin: 0;
@@ -25,24 +18,16 @@
     justify-content: center;
     align-items: center;
     
-    /* FORÇA OCUPAR TUDO */
+    /* OCUPA TUDO NO FIREFOX */
     height: 100vh;
     width: 100vw;
+    min-height: -moz-available;
     min-height: 100vh;
-    min-height: -webkit-fill-available;
-    min-width: 100vw;
     
     overflow: hidden;
     position: relative;
-    
-    /* REMOVE QUALQUER MARGEM SEGURA */
     padding: 0 !important;
     margin: 0 !important;
-  }
-
-  /* ESSA LINHA É A MÁGICA PARA IR ATRÁS DO NOTCH */
-  :root {
-    --safa-area-inset-top: 0px;
   }
 
   /* QUADRADO ARRASTÁVEL */
@@ -51,7 +36,7 @@
     top: 0px;  
     left: 0px; 
     width: 100%;
-    height: 100px; /* Aumentei a altura para você ver bem */
+    height: 120px;
     background: red;
     border: 3px solid white;
     z-index: 9999;
@@ -71,7 +56,7 @@
     height: 90vw;
     max-width: 650px;
     max-height: 650px;
-    margin-top: 100px;
+    margin-top: 120px;
   }
 
   .quadrado {
@@ -163,8 +148,7 @@
 </head>
 <body>
 
-<!-- QUADRADO ARRASTÁVEL -->
-<div class="quadrado-arrastavel" id="arrastavel">🔴 TENTANDO FICAR POR CIMA DO NOTCH 🔴</div>
+<div class="quadrado-arrastavel" id="arrastavel">🔴 FIREFOX - TELA CHEIA 🔴</div>
 
 <div class="area" id="area">
   <div class="quadrado verde" id="verde">
@@ -243,16 +227,25 @@ function closeDragElement() {
   document.ontouchmove = null;
 }
 
+// TENTATIVA FORTE DE ABRIR EM TELA CHEIA AUTOMATICAMENTE
 function entrarFullscreen() {
   const doc = document.documentElement;
-  if (doc.requestFullscreen) {
-    doc.requestFullscreen().catch(err => {});
-  } else if (doc.webkitRequestFullscreen) {
-    doc.webkitRequestFullscreen();
+  
+  // Comando específico do Firefox
+  if (doc.mozRequestFullScreen) {
+    doc.mozRequestFullScreen();
+  } 
+  // Comando padrão
+  else if (doc.requestFullscreen) {
+    doc.requestFullscreen();
   }
 }
 
+// Tenta várias vezes assim que abrir
 window.onload = () => {
+  entrarFullscreen();
+  setTimeout(entrarFullscreen, 100);
+  setTimeout(entrarFullscreen, 300);
   setTimeout(entrarFullscreen, 500);
 };
 
@@ -265,11 +258,6 @@ azul.addEventListener('click', () => {
     setTimeout(() => azul.classList.remove('bater'), 300);
   }
 });
-
-// Service Worker
-if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('sw.js');
-}
 </script>
 
 </body>
