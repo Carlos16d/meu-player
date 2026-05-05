@@ -1,20 +1,12 @@
 {
   "name": "Netflix Icons",
   "short_name": "Netflix Icons",
-  "description": "App de ícones Netflix",
-  "start_url": "https://carlos16d.github.io/icones-netflix/",
-  "scope": "https://carlos16d.github.io/icones-netflix/",
+  "description": "App de ícones estilo Netflix",
+  "start_url": "/icones-netflix/",
+  "scope": "/icones-netflix/",
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#000000",
   "theme_color": "#000000",
-  "lang": "pt-BR",
-  "icons": [
-    {
-      "src": "icon.png",
-      "sizes": "512x512",
-      "type": "image/png",
-      "purpose": "any maskable"
-    }
-  ]
+  "lang": "pt-BR"
 }
