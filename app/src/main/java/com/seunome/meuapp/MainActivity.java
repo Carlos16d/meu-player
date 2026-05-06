@@ -2,6 +2,7 @@ package com.seunome.meuapp;
 
 import androidx.appcompat.app.ActionBar;
 import androidx.appcompat.app.AppCompatActivity;
+import android.os.Build;
 import android.os.Bundle;
 import android.view.View;
 import android.webkit.WebSettings;
@@ -15,9 +16,16 @@ public class MainActivity extends AppCompatActivity {
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
+        // Esconder ActionBar
         ActionBar actionBar = getSupportActionBar();
         if (actionBar != null) {
             actionBar.hide();
+        }
+
+        // TELA CHEIA TOTAL (SUMIR COM A BORDA PRETA)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getWindow().getAttributes().layoutInDisplayCutoutMode =
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
         }
 
         getWindow().getDecorView().setSystemUiVisibility(
@@ -29,18 +37,21 @@ public class MainActivity extends AppCompatActivity {
                 View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
         );
 
+        // CRIAR WEBVIEW
         webView = new WebView(this);
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
+        webSettings.setDomStorageEnabled(true);
+        // ✅ LIBERAR CARREGAMENTO DE IMAGENS (MESMO QUE SEJAM DE FORA)
+        webSettings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
 
-        // CÓDIGO HTML SEM USAR ASPAS TRIPLAS
         String html = "<!DOCTYPE html>" +
                 "<html lang='pt-BR'>" +
                 "<head>" +
                 "<meta charset='UTF-8'>" +
                 "<meta name='viewport' content='width=device-width, initial-scale=1.0'>" +
                 "<style>" +
-                "body { background: orchid; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 20px; padding-top: 60px; }" +
+                "body { background: orchid; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; padding: 0px; }" + // TIREI O PADDING TOP
                 ".area { position: relative; width: 90vw; height: 90vw; max-width: 650px; max-height: 650px; }" +
                 ".quadrado { width: 40%; height: 40%; position: absolute; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: transform 0.5s ease; overflow: visible; }" +
                 ".quadrado::before { content: ''; padding-top: 100%; }" +
