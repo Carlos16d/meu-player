@@ -46,7 +46,6 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setAllowContentAccess(true);
         webSettings.setMediaPlaybackRequiresUserGesture(false);
         webSettings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        webSettings.setAppCacheEnabled(false);
         webSettings.setDatabaseEnabled(true);
         
         CookieManager.getInstance().setAcceptCookie(true);
