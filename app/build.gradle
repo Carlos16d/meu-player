@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace "com.seunome.meuapp"
+    namespace 'com.seunome.meuapp'
     compileSdk 34
 
     defaultConfig {
@@ -12,20 +12,37 @@ android {
         targetSdk 34
         versionCode 1
         versionName "1.0"
+
+        ndk {
+            abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
-
+    
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    packagingOptions {
+        exclude 'META-INF/DEPENDENCIES'
     }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'com.google.android.material:material:1.9.0'
+    
+    // libtorrent para Android
+    implementation 'com.frostwire:jlibtorrent:1.2.0.20'
+    implementation 'com.frostwire:jlibtorrent-android-arm:1.2.0.20'
+    implementation 'com.frostwire:jlibtorrent-android-arm64:1.2.0.20'
+    implementation 'com.frostwire:jlibtorrent-android-x86:1.2.0.20'
+    implementation 'com.frostwire:jlibtorrent-android-x86_64:1.2.0.20'
 }
