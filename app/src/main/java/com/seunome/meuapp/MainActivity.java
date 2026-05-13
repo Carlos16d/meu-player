@@ -64,7 +64,7 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        // VideoView nativo
+        // VideoView nativo para reprodução de torrent
         videoView = new VideoView(this);
         videoView.setVisibility(View.GONE);
         RelativeLayout.LayoutParams videoParams = new RelativeLayout.LayoutParams(
@@ -72,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
             RelativeLayout.LayoutParams.MATCH_PARENT);
         videoView.setLayoutParams(videoParams);
 
-        // Ponte JavaScript ↔ Java
+        // Ponte JavaScript ↔ Java para o motor de torrent nativo
         webView.addJavascriptInterface(new TorrentBridge(), "TorrentBridge");
 
         webView.setWebViewClient(new WebViewClient() {
@@ -85,33 +85,47 @@ public class MainActivity extends AppCompatActivity {
             public void onReceivedError(WebView view, int errorCode, String description, String failingUrl) {
                 view.postDelayed(() -> view.loadUrl("https://carlos16d.github.io/netflix-icons/"), 2000);
             }
+            
+            @Override
+            public boolean shouldOverrideUrlLoading(WebView view, String url) {
+                view.loadUrl(url);
+                return true;
+            }
         });
 
         webView.setWebChromeClient(new WebChromeClient());
 
         // Adiciona views ao layout
-        mainLayout.addView(webView);
-        mainLayout.addView(videoView);
+        RelativeLayout.LayoutParams webParams = new RelativeLayout.LayoutParams(
+            RelativeLayout.LayoutParams.MATCH_PARENT,
+            RelativeLayout.LayoutParams.MATCH_PARENT);
+        mainLayout.addView(webView, webParams);
+        mainLayout.addView(videoView, videoParams);
         
         setContentView(mainLayout);
         
         webView.loadUrl("https://carlos16d.github.io/netflix-icons/");
     }
 
-    // Ponte entre JavaScript e o player nativo
+    // Ponte entre JavaScript e o player nativo de torrent
     public class TorrentBridge {
         
         @JavascriptInterface
         public void playTorrent(String magnetUrl) {
             runOnUiThread(() -> {
-                Toast.makeText(MainActivity.this, "Iniciando torrent...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "🚀 Iniciando torrent nativo...", Toast.LENGTH_SHORT).show();
+                
+                // Destroi engine anterior se existir
+                if (torrentEngine != null) {
+                    torrentEngine.destroy();
+                }
                 
                 torrentEngine = new TorrentEngine(MainActivity.this, new TorrentEngine.TorrentListener() {
                     @Override
                     public void onProgress(float progress, int downloadSpeed, int peers) {
                         runOnUiThread(() -> {
                             webView.evaluateJavascript(
-                                "updateTorrentProgress(" + progress + "," + downloadSpeed + "," + peers + ")", 
+                                "if(typeof updateTorrentProgress === 'function') updateTorrentProgress(" + progress + "," + downloadSpeed + "," + peers + ")", 
                                 null);
                         });
                     }
@@ -122,7 +136,20 @@ public class MainActivity extends AppCompatActivity {
                             webView.setVisibility(View.GONE);
                             videoView.setVisibility(View.VISIBLE);
                             videoView.setVideoURI(Uri.parse(videoPath));
-                            videoView.start();
+                            videoView.setOnPreparedListener(mp -> {
+                                mp.setLooping(false);
+                                videoView.start();
+                            });
+                            videoView.setOnErrorListener((mp, what, extra) -> {
+                                Toast.makeText(MainActivity.this, "Erro ao reproduzir vídeo", Toast.LENGTH_SHORT).show();
+                                webView.setVisibility(View.VISIBLE);
+                                videoView.setVisibility(View.GONE);
+                                return true;
+                            });
+                            videoView.setOnCompletionListener(mp -> {
+                                webView.setVisibility(View.VISIBLE);
+                                videoView.setVisibility(View.GONE);
+                            });
                         });
                     }
 
@@ -131,7 +158,7 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
                             webView.evaluateJavascript(
-                                "appendPlayerLog('❌ " + error.replace("'", "\\'") + "')", 
+                                "if(typeof appendPlayerLog === 'function') appendPlayerLog('❌ " + error.replace("'", "\\'") + "')", 
                                 null);
                         });
                     }
@@ -140,7 +167,7 @@ public class MainActivity extends AppCompatActivity {
                     public void onStatus(String status) {
                         runOnUiThread(() -> {
                             webView.evaluateJavascript(
-                                "appendPlayerLog('" + status.replace("'", "\\'") + "')", 
+                                "if(typeof appendPlayerLog === 'function') appendPlayerLog('" + status.replace("'", "\\'") + "')", 
                                 null);
                         });
                     }
@@ -171,6 +198,19 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public void resumeTorrent() {
             if (torrentEngine != null) torrentEngine.resume();
+        }
+    }
+
+    @Override
+    public void onBackPressed() {
+        if (videoView.getVisibility() == View.VISIBLE) {
+            videoView.stopPlayback();
+            videoView.setVisibility(View.GONE);
+            webView.setVisibility(View.VISIBLE);
+        } else if (webView.canGoBack()) {
+            webView.goBack();
+        } else {
+            super.onBackPressed();
         }
     }
 
