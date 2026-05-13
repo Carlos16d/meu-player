@@ -13,7 +13,6 @@ import android.webkit.JavascriptInterface;
 import android.graphics.Bitmap;
 import android.webkit.CookieManager;
 import android.net.Uri;
-import android.media.MediaPlayer;
 import android.widget.VideoView;
 import android.widget.RelativeLayout;
 import android.widget.Toast;
@@ -21,7 +20,7 @@ import android.widget.Toast;
 public class MainActivity extends AppCompatActivity {
 
     private WebView webView;
-    private TorrentEngine torrentEngine;
+    private TorrentBridge torrentBridge;
     private VideoView videoView;
     private RelativeLayout mainLayout;
 
@@ -46,10 +45,8 @@ public class MainActivity extends AppCompatActivity {
                 View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN
         );
 
-        // Layout principal
         mainLayout = new RelativeLayout(this);
         
-        // WebView para a interface
         webView = new WebView(this);
         WebSettings webSettings = webView.getSettings();
         webSettings.setJavaScriptEnabled(true);
@@ -64,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
         CookieManager.getInstance().setAcceptCookie(true);
         CookieManager.getInstance().setAcceptThirdPartyCookies(webView, true);
 
-        // VideoView nativo para reprodução de torrent
         videoView = new VideoView(this);
         videoView.setVisibility(View.GONE);
         RelativeLayout.LayoutParams videoParams = new RelativeLayout.LayoutParams(
@@ -72,8 +68,7 @@ public class MainActivity extends AppCompatActivity {
             RelativeLayout.LayoutParams.MATCH_PARENT);
         videoView.setLayoutParams(videoParams);
 
-        // Ponte JavaScript ↔ Java para o motor de torrent nativo
-        webView.addJavascriptInterface(new TorrentBridge(), "TorrentBridge");
+        webView.addJavascriptInterface(new TorrentBridgeInterface(), "TorrentBridge");
 
         webView.setWebViewClient(new WebViewClient() {
             @Override
@@ -95,11 +90,9 @@ public class MainActivity extends AppCompatActivity {
 
         webView.setWebChromeClient(new WebChromeClient());
 
-        // Adiciona views ao layout
-        RelativeLayout.LayoutParams webParams = new RelativeLayout.LayoutParams(
+        mainLayout.addView(webView, new RelativeLayout.LayoutParams(
             RelativeLayout.LayoutParams.MATCH_PARENT,
-            RelativeLayout.LayoutParams.MATCH_PARENT);
-        mainLayout.addView(webView, webParams);
+            RelativeLayout.LayoutParams.MATCH_PARENT));
         mainLayout.addView(videoView, videoParams);
         
         setContentView(mainLayout);
@@ -107,20 +100,18 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("https://carlos16d.github.io/netflix-icons/");
     }
 
-    // Ponte entre JavaScript e o player nativo de torrent
-    public class TorrentBridge {
+    public class TorrentBridgeInterface {
         
         @JavascriptInterface
         public void playTorrent(String magnetUrl) {
             runOnUiThread(() -> {
-                Toast.makeText(MainActivity.this, "🚀 Iniciando torrent nativo...", Toast.LENGTH_SHORT).show();
+                Toast.makeText(MainActivity.this, "🚀 Iniciando torrent nativo (libtorrent C++)...", Toast.LENGTH_SHORT).show();
                 
-                // Destroi engine anterior se existir
-                if (torrentEngine != null) {
-                    torrentEngine.destroy();
+                if (torrentBridge != null) {
+                    torrentBridge.destroy();
                 }
                 
-                torrentEngine = new TorrentEngine(MainActivity.this, new TorrentEngine.TorrentListener() {
+                torrentBridge = new TorrentBridge(MainActivity.this, new TorrentBridge.TorrentListener() {
                     @Override
                     public void onProgress(float progress, int downloadSpeed, int peers) {
                         runOnUiThread(() -> {
@@ -135,17 +126,8 @@ public class MainActivity extends AppCompatActivity {
                         runOnUiThread(() -> {
                             webView.setVisibility(View.GONE);
                             videoView.setVisibility(View.VISIBLE);
-                            videoView.setVideoURI(Uri.parse(videoPath));
-                            videoView.setOnPreparedListener(mp -> {
-                                mp.setLooping(false);
-                                videoView.start();
-                            });
-                            videoView.setOnErrorListener((mp, what, extra) -> {
-                                Toast.makeText(MainActivity.this, "Erro ao reproduzir vídeo", Toast.LENGTH_SHORT).show();
-                                webView.setVisibility(View.VISIBLE);
-                                videoView.setVisibility(View.GONE);
-                                return true;
-                            });
+                            videoView.setVideoURI(Uri.parse("file://" + videoPath));
+                            videoView.setOnPreparedListener(mp -> videoView.start());
                             videoView.setOnCompletionListener(mp -> {
                                 webView.setVisibility(View.VISIBLE);
                                 videoView.setVisibility(View.GONE);
@@ -157,9 +139,6 @@ public class MainActivity extends AppCompatActivity {
                     public void onError(String error) {
                         runOnUiThread(() -> {
                             Toast.makeText(MainActivity.this, error, Toast.LENGTH_LONG).show();
-                            webView.evaluateJavascript(
-                                "if(typeof appendPlayerLog === 'function') appendPlayerLog('❌ " + error.replace("'", "\\'") + "')", 
-                                null);
                         });
                     }
 
@@ -173,16 +152,16 @@ public class MainActivity extends AppCompatActivity {
                     }
                 });
                 
-                torrentEngine.addMagnet(magnetUrl);
+                torrentBridge.addMagnet(magnetUrl);
             });
         }
         
         @JavascriptInterface
         public void stopTorrent() {
             runOnUiThread(() -> {
-                if (torrentEngine != null) {
-                    torrentEngine.destroy();
-                    torrentEngine = null;
+                if (torrentBridge != null) {
+                    torrentBridge.destroy();
+                    torrentBridge = null;
                 }
                 videoView.stopPlayback();
                 videoView.setVisibility(View.GONE);
@@ -192,33 +171,20 @@ public class MainActivity extends AppCompatActivity {
         
         @JavascriptInterface
         public void pauseTorrent() {
-            if (torrentEngine != null) torrentEngine.pause();
+            if (torrentBridge != null) torrentBridge.pause();
         }
         
         @JavascriptInterface
         public void resumeTorrent() {
-            if (torrentEngine != null) torrentEngine.resume();
-        }
-    }
-
-    @Override
-    public void onBackPressed() {
-        if (videoView.getVisibility() == View.VISIBLE) {
-            videoView.stopPlayback();
-            videoView.setVisibility(View.GONE);
-            webView.setVisibility(View.VISIBLE);
-        } else if (webView.canGoBack()) {
-            webView.goBack();
-        } else {
-            super.onBackPressed();
+            if (torrentBridge != null) torrentBridge.resume();
         }
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (torrentEngine != null) {
-            torrentEngine.destroy();
+        if (torrentBridge != null) {
+            torrentBridge.destroy();
         }
     }
 }
