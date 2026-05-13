@@ -39,10 +39,10 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.9.0'
     
-    // libtorrent para Android
-    implementation 'com.frostwire:jlibtorrent:1.2.0.20'
-    implementation 'com.frostwire:jlibtorrent-android-arm:1.2.0.20'
-    implementation 'com.frostwire:jlibtorrent-android-arm64:1.2.0.20'
-    implementation 'com.frostwire:jlibtorrent-android-x86:1.2.0.20'
-    implementation 'com.frostwire:jlibtorrent-android-x86_64:1.2.0.20'
+    // jlibtorrent para Android - versão 1.2.0.19
+    implementation 'com.frostwire:jlibtorrent:1.2.0.19'
+    implementation 'com.frostwire:jlibtorrent-android-arm:1.2.0.19'
+    implementation 'com.frostwire:jlibtorrent-android-arm64:1.2.0.19'
+    implementation 'com.frostwire:jlibtorrent-android-x86:1.2.0.19'
+    implementation 'com.frostwire:jlibtorrent-android-x86_64:1.2.0.19'
 }
