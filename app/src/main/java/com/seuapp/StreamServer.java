@@ -39,14 +39,6 @@ public class StreamServer extends NanoHTTPD {
     public int getPeerCount() { return peerCount; }
     public String getDownloadSpeed() { return downloadSpeed; }
     
-    public void updateVideoChunk(byte[] chunk) {
-        // Concatena novos dados ao buffer
-        byte[] newBuffer = new byte[videoBuffer.length + chunk.length];
-        System.arraycopy(videoBuffer, 0, newBuffer, 0, videoBuffer.length);
-        System.arraycopy(chunk, 0, newBuffer, videoBuffer.length, chunk.length);
-        videoBuffer = newBuffer;
-    }
-    
     @Override
     public Response serve(IHTTPSession session) {
         String uri = session.getUri();
@@ -82,7 +74,6 @@ public class StreamServer extends NanoHTTPD {
             String rangeHeader = session.getHeaders().get("range");
             
             if (rangeHeader != null) {
-                // Suporte a Range requests
                 long start = 0;
                 long end = videoBuffer.length - 1;
                 
@@ -120,7 +111,6 @@ public class StreamServer extends NanoHTTPD {
                 
                 return response;
             } else {
-                // Resposta completa
                 Response response = newFixedLengthResponse(
                     Response.Status.OK, mimeType,
                     new ByteArrayInputStream(videoBuffer), videoBuffer.length
