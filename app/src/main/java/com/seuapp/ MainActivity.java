@@ -35,14 +35,12 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        
-        // Suporte a WebRTC (necessário para WebTorrent)
         settings.setJavaScriptCanOpenWindowsAutomatically(true);
         
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient());
         
-        // Bridge para comunicação
+        // Bridge JavaScript ↔ Java
         webView.addJavascriptInterface(new TorrentBridge(), "AndroidTorrent");
         
         // Carrega o HTML5
