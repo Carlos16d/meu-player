@@ -1,37 +1,84 @@
-plugins {
-    id 'com.android.application'
-}
+package com.seuapp;
 
-android {
-    namespace 'com.seuapp'
-    compileSdk 34
+import android.os.Bundle;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.webkit.WebSettings;
+import androidx.appcompat.app.AppCompatActivity;
 
-    defaultConfig {
-        applicationId "com.seuapp.player"
-        minSdk 21
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+public class MainActivity extends AppCompatActivity {
+    private WebView webView;
+    private StreamServer streamServer;
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
         
-        ndk {
-            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86'
+        // Inicia servidor HTTP local
+        streamServer = new StreamServer(8080);
+        try {
+            streamServer.start();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
+        
+        // Configura WebView
+        webView = findViewById(R.id.webview);
+        
+        WebSettings settings = webView.getSettings();
+        settings.setJavaScriptEnabled(true);
+        settings.setDomStorageEnabled(true);
+        settings.setMediaPlaybackRequiresUserGesture(false);
+        settings.setAllowFileAccess(true);
+        settings.setAllowContentAccess(true);
+        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
+        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
+        settings.setJavaScriptCanOpenWindowsAutomatically(true);
+        settings.setUseWideViewPort(true);
+        settings.setLoadWithOverviewMode(true);
+        
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient());
+        
+        // Bridge JavaScript ↔ Java
+        webView.addJavascriptInterface(new TorrentBridge(), "AndroidTorrent");
+        
+        // Carrega o HTML5
+        webView.loadUrl("file:///android_asset/www/index.html");
     }
-
-    buildTypes {
-        release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
+    
+    public class TorrentBridge {
+        @android.webkit.JavascriptInterface
+        public String getStreamUrl() {
+            return "http://127.0.0.1:8080/stream";
+        }
+        
+        @android.webkit.JavascriptInterface
+        public void updateStats(String progress, String peers, String speed) {
+            streamServer.updateStats(progress, peers, speed);
+        }
+        
+        @android.webkit.JavascriptInterface
+        public String getProgress() {
+            return String.valueOf(streamServer.getProgress());
+        }
+        
+        @android.webkit.JavascriptInterface
+        public String getPeers() {
+            return String.valueOf(streamServer.getPeerCount());
+        }
+        
+        @android.webkit.JavascriptInterface
+        public String getSpeed() {
+            return streamServer.getDownloadSpeed();
         }
     }
     
-    compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (streamServer != null) streamServer.stop();
     }
-}
-
-dependencies {
-    implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'org.nanohttpd:nanohttpd:2.3.1'
 }
