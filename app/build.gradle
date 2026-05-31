@@ -4,12 +4,12 @@ plugins {
 
 android {
     namespace 'com.seuapp'
-    compileSdk 34
+    compileSdk 33
 
     defaultConfig {
         applicationId "com.seuapp.player"
         minSdk 21
-        targetSdk 34
+        targetSdk 33
         versionCode 1
         versionName "1.0"
     }
@@ -25,12 +25,17 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+    
+    packagingOptions {
+        exclude 'META-INF/*'
+    }
 }
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    implementation 'androidx.webkit:webkit:1.8.0'
-    implementation 'com.frostwire:jlibtorrent:1.2.19.0'
-    implementation 'com.frostwire:jlibtorrent-android-arm64:1.2.19.0'
-    implementation 'com.frostwire:jlibtorrent-android-arm:1.2.19.0'
+    
+    // LibreTorrent - suporte UDP completo
+    implementation 'org.libtorrent4j:libtorrent4j:2.0.8-16'
+    implementation 'org.libtorrent4j:libtorrent4j-android-arm64:2.0.8-16'
+    implementation 'org.libtorrent4j:libtorrent4j-android-arm:2.0.8-16'
 }
