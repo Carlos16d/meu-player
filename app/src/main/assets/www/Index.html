@@ -4,32 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Player Torrent UDP</title>
+    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; }
         
         body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            font-family: 'Segoe UI', system-ui, sans-serif;
             background: #0a0a0a;
             color: #fff;
             min-height: 100vh;
             display: flex;
             flex-direction: column;
-            overflow-x: hidden;
         }
         
-        /* Header */
         .header {
             background: #111;
             padding: 15px;
             text-align: center;
             border-bottom: 2px solid #6c5ce7;
-            position: sticky;
-            top: 0;
-            z-index: 100;
         }
         
         .header h1 {
@@ -40,7 +32,6 @@
             font-weight: 700;
         }
         
-        /* Container principal */
         .container {
             flex: 1;
             padding: 15px;
@@ -49,13 +40,11 @@
             width: 100%;
         }
         
-        /* Player */
         .player-wrapper {
             background: #000;
             border-radius: 12px;
             overflow: hidden;
             margin-bottom: 20px;
-            position: relative;
             aspect-ratio: 16/9;
             display: flex;
             align-items: center;
@@ -76,19 +65,8 @@
             align-items: center;
             gap: 15px;
             color: #666;
-            pointer-events: none;
         }
         
-        .player-placeholder .icon {
-            font-size: 4em;
-            opacity: 0.5;
-        }
-        
-        .player-placeholder p {
-            font-size: 0.9em;
-        }
-        
-        /* Painel de controles */
         .controls-panel {
             background: #1a1a1a;
             border-radius: 12px;
@@ -102,7 +80,6 @@
             font-size: 1.1em;
         }
         
-        /* Abas */
         .tabs {
             display: flex;
             gap: 5px;
@@ -127,15 +104,9 @@
             font-weight: 600;
         }
         
-        .tab-content {
-            display: none;
-        }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
         
-        .tab-content.active {
-            display: block;
-        }
-        
-        /* Inputs */
         .input-group {
             display: flex;
             gap: 10px;
@@ -154,15 +125,9 @@
             transition: border 0.3s;
         }
         
-        input[type="text"]:focus {
-            border-color: #6c5ce7;
-        }
+        input[type="text"]:focus { border-color: #6c5ce7; }
+        input[type="file"] { display: none; }
         
-        input[type="file"] {
-            display: none;
-        }
-        
-        /* Botões */
         .btn {
             padding: 12px 20px;
             border: none;
@@ -181,24 +146,11 @@
             flex: 1;
         }
         
-        .btn-primary:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 20px rgba(108, 92, 231, 0.4);
-        }
-        
         .btn-secondary {
             background: #252525;
             color: #a855f7;
             border: 2px solid #6c5ce7;
             width: 100%;
-        }
-        
-        .btn-small {
-            padding: 8px 15px;
-            font-size: 0.8em;
-            background: #6c5ce7;
-            color: #fff;
-            border-radius: 6px;
         }
         
         .btn-danger {
@@ -207,7 +159,6 @@
             width: 100%;
         }
         
-        /* Stats */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(3, 1fr);
@@ -235,7 +186,6 @@
             text-transform: uppercase;
         }
         
-        /* Barra de progresso */
         .progress-container {
             background: #252525;
             border-radius: 10px;
@@ -252,57 +202,6 @@
             width: 0%;
         }
         
-        .progress-text {
-            font-size: 0.8em;
-            color: #888;
-            text-align: right;
-            margin-top: 5px;
-        }
-        
-        /* Lista de arquivos */
-        .file-list {
-            max-height: 300px;
-            overflow-y: auto;
-            background: #252525;
-            border-radius: 8px;
-            padding: 5px;
-        }
-        
-        .file-item {
-            padding: 12px;
-            border-radius: 6px;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            transition: background 0.2s;
-        }
-        
-        .file-item:hover {
-            background: #333;
-        }
-        
-        .file-item.active {
-            background: #6c5ce7;
-        }
-        
-        .file-name {
-            font-size: 0.85em;
-            flex: 1;
-            margin-right: 10px;
-            word-break: break-all;
-        }
-        
-        .file-size {
-            font-size: 0.75em;
-            color: #888;
-        }
-        
-        .file-item.active .file-size {
-            color: #ccc;
-        }
-        
-        /* Toast */
         .toast {
             position: fixed;
             bottom: 30px;
@@ -318,46 +217,25 @@
             transition: opacity 0.3s;
         }
         
-        .toast.show {
-            opacity: 1;
-        }
-        
-        .toast.error {
-            background: #e74c3c;
-        }
-        
-        /* Responsivo */
-        @media (max-width: 600px) {
-            .stats-grid {
-                grid-template-columns: repeat(2, 1fr);
-            }
-            
-            .btn {
-                padding: 10px 15px;
-                font-size: 0.8em;
-            }
-        }
+        .toast.show { opacity: 1; }
+        .toast.error { background: #e74c3c; }
     </style>
 </head>
 <body>
-    <!-- Header -->
     <div class="header">
         <h1>🎬 Player Torrent UDP</h1>
     </div>
     
-    <!-- Container -->
     <div class="container">
-        <!-- Player -->
         <div class="player-wrapper" id="playerWrapper">
             <video id="torrentPlayer" controls playsinline crossorigin="anonymous"></video>
             <div class="player-placeholder" id="playerPlaceholder">
-                <span class="icon">▶️</span>
+                <span style="font-size:4em;opacity:0.5;">▶️</span>
                 <p>Adicione um torrent para começar</p>
             </div>
         </div>
         
-        <!-- Estatísticas -->
-        <div class="stats-grid" id="statsPanel" style="display: none;">
+        <div class="stats-grid" id="statsPanel" style="display:none;">
             <div class="stat-card">
                 <div class="stat-value" id="statProgress">0%</div>
                 <div class="stat-label">Progresso</div>
@@ -372,80 +250,50 @@
             </div>
         </div>
         
-        <!-- Barra de progresso -->
-        <div class="progress-container" id="progressContainer" style="display: none;">
+        <div class="progress-container" id="progressContainer" style="display:none;">
             <div class="progress-bar" id="progressBar"></div>
         </div>
-        <div class="progress-text" id="progressText" style="display: none;"></div>
         
-        <!-- Controles -->
         <div class="controls-panel">
             <h3>📥 Adicionar Torrent</h3>
             
-            <!-- Abas -->
             <div class="tabs">
                 <button class="tab-btn active" onclick="switchTab('magnet')">🔗 Link/Magnet</button>
                 <button class="tab-btn" onclick="switchTab('file')">📁 Arquivo .torrent</button>
             </div>
             
-            <!-- Tab Magnet -->
             <div class="tab-content active" id="tabMagnet">
                 <div class="input-group">
-                    <input 
-                        type="text" 
-                        id="magnetInput" 
-                        placeholder="Cole o magnet link ou URL do torrent..."
-                    >
+                    <input type="text" id="magnetInput" placeholder="Cole o magnet link aqui...">
                 </div>
-                <button class="btn btn-primary" onclick="addMagnetTorrent()">
-                    ▶️ Reproduzir Link
-                </button>
+                <button class="btn btn-primary" onclick="addMagnetTorrent()">▶️ Reproduzir</button>
             </div>
             
-            <!-- Tab Arquivo -->
             <div class="tab-content" id="tabFile">
-                <input 
-                    type="file" 
-                    id="fileInput" 
-                    accept=".torrent"
-                    onchange="handleFileSelect(event)"
-                >
+                <input type="file" id="fileInput" accept=".torrent" onchange="handleFileSelect(event)">
                 <button class="btn btn-secondary" onclick="document.getElementById('fileInput').click()">
                     📂 Selecionar Arquivo .torrent
                 </button>
-                <p id="fileNameDisplay" style="margin-top: 10px; font-size: 0.85em; color: #888;"></p>
-                <button class="btn btn-primary" id="btnPlayFile" style="margin-top: 15px; display: none;" onclick="playFileTorrent()">
+                <p id="fileNameDisplay" style="margin-top:10px;font-size:0.85em;color:#888;"></p>
+                <button class="btn btn-primary" id="btnPlayFile" style="margin-top:15px;display:none;" onclick="playFileTorrent()">
                     ▶️ Reproduzir Arquivo
                 </button>
             </div>
         </div>
         
-        <!-- Lista de arquivos do torrent -->
-        <div class="controls-panel" id="fileListPanel" style="display: none;">
-            <h3>📄 Arquivos do Torrent</h3>
-            <div class="file-list" id="fileList"></div>
-        </div>
-        
-        <!-- Botão Parar -->
-        <button class="btn btn-danger" id="btnStop" style="display: none;" onclick="stopTorrent()">
+        <button class="btn btn-danger" id="btnStop" style="display:none;" onclick="stopTorrent()">
             ⏹️ Parar Reprodução
         </button>
     </div>
     
-    <!-- Toast -->
     <div class="toast" id="toast"></div>
 
     <script>
-        // ============== VARIÁVEIS GLOBAIS ==============
-        let currentMagnet = null;
-        let currentFileIndex = 0;
-        let selectedTorrentFile = null;
+        let client = null;
+        let currentTorrent = null;
+        let selectedFile = null;
         let statsInterval = null;
-        let isPlaying = false;
         
-        // ============== FUNÇÕES DE INTERFACE ==============
-        
-        // Alternar abas
         function switchTab(tab) {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
@@ -459,337 +307,159 @@
             }
         }
         
-        // Toast de notificação
         function showToast(message, isError = false) {
             const toast = document.getElementById('toast');
             toast.textContent = message;
             toast.className = 'toast ' + (isError ? 'error' : '') + ' show';
-            
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 3000);
+            setTimeout(() => toast.classList.remove('show'), 3000);
         }
         
-        // Formatar tamanho de arquivo
         function formatSize(bytes) {
-            if (bytes === 0) return '0 B';
-            const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+            const sizes = ['B', 'KB', 'MB', 'GB'];
             const i = Math.floor(Math.log(bytes) / Math.log(1024));
             return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + sizes[i];
         }
         
-        // ============== TORRENT POR MAGNET/LINK ==============
-        
-        async function addMagnetTorrent() {
-            const input = document.getElementById('magnetInput').value.trim();
-            
-            if (!input) {
-                showToast('Cole um link magnet ou URL .torrent', true);
-                return;
-            }
-            
-            // Verifica se é uma URL .torrent
-            if (input.startsWith('http') && input.endsWith('.torrent')) {
-                showToast('Baixando arquivo .torrent...');
-                try {
-                    const response = await fetch(input);
-                    const blob = await response.blob();
-                    const reader = new FileReader();
-                    reader.onload = function(e) {
-                        const magnetFromFile = extractMagnetFromTorrent(e.target.result);
-                        if (magnetFromFile) {
-                            startPlayback(magnetFromFile);
-                        } else {
-                            showToast('Arquivo .torrent inválido', true);
-                        }
-                    };
-                    reader.readAsArrayBuffer(blob);
-                } catch (error) {
-                    showToast('Erro ao baixar arquivo .torrent', true);
-                }
-                return;
-            }
-            
-            // Verifica se é magnet link
-            if (input.startsWith('magnet:')) {
-                startPlayback(input);
-            } else {
-                showToast('Link inválido. Use magnet: ou URL .torrent', true);
-            }
-        }
-        
-        // Extrai magnet de arquivo .torrent (simplificado)
-        function extractMagnetFromTorrent(data) {
-            try {
-                const decoder = new TextDecoder();
-                const text = decoder.decode(new Uint8Array(data));
-                
-                // Procura por infohash no arquivo
-                const infoHashMatch = text.match(/info_hash[=:]([a-f0-9]{40})/i);
-                if (infoHashMatch) {
-                    return `magnet:?xt=urn:btih:${infoHashMatch[1]}`;
-                }
-                return null;
-            } catch (e) {
-                return null;
-            }
-        }
-        
-        // ============== TORRENT POR ARQUIVO ==============
-        
         function handleFileSelect(event) {
-            const file = event.target.files[0];
-            if (!file) return;
-            
-            selectedTorrentFile = file;
-            document.getElementById('fileNameDisplay').textContent = 
-                `📄 ${file.name} (${formatSize(file.size)})`;
-            document.getElementById('btnPlayFile').style.display = 'block';
+            selectedFile = event.target.files[0];
+            if (selectedFile) {
+                document.getElementById('fileNameDisplay').textContent = 
+                    '📄 ' + selectedFile.name + ' (' + formatSize(selectedFile.size) + ')';
+                document.getElementById('btnPlayFile').style.display = 'block';
+            }
         }
         
-        async function playFileTorrent() {
-            if (!selectedTorrentFile) {
-                showToast('Selecione um arquivo .torrent', true);
+        function playFileTorrent() {
+            if (!selectedFile) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const blob = new Blob([e.target.result]);
+                const url = URL.createObjectURL(blob);
+                addTorrent(url);
+            };
+            reader.readAsArrayBuffer(selectedFile);
+        }
+        
+        function addMagnetTorrent() {
+            const input = document.getElementById('magnetInput').value.trim();
+            if (!input) {
+                showToast('Cole um link magnet', true);
                 return;
             }
+            addTorrent(input);
+        }
+        
+        function addTorrent(source) {
+            if (!client) {
+                client = new WebTorrent();
+            }
             
-            showToast('Processando arquivo...');
+            showToast('Conectando a peers...');
             
-            try {
-                const reader = new FileReader();
-                reader.onload = async function(e) {
-                    const magnet = extractMagnetFromTorrent(e.target.result);
-                    if (magnet) {
-                        // Adiciona trackers UDP ao magnet
-                        const magnetWithTrackers = addTrackers(magnet);
-                        startPlayback(magnetWithTrackers);
-                    } else {
-                        // Se não conseguir extrair, tenta enviar o arquivo para o backend
-                        showToast('Processando via backend...');
-                        if (typeof AndroidTorrent !== 'undefined') {
-                            const base64 = arrayBufferToBase64(e.target.result);
-                            AndroidTorrent.playTorrentFromFile(base64);
-                            startPlaybackFromFile();
-                        } else {
-                            showToast('Erro ao processar arquivo .torrent', true);
-                        }
+            // Adiciona trackers UDP (WebTorrent usa WebRTC, mas tenta UDP também)
+            let magnet = source;
+            if (magnet.startsWith('magnet:')) {
+                const trackers = [
+                    'wss://tracker.openwebtorrent.com',
+                    'wss://tracker.btorrent.xyz',
+                    'wss://tracker.files.fm:7073'
+                ];
+                trackers.forEach(tr => {
+                    if (!magnet.includes(tr)) {
+                        magnet += '&tr=' + encodeURIComponent(tr);
                     }
-                };
-                reader.readAsArrayBuffer(selectedTorrentFile);
-            } catch (error) {
-                showToast('Erro ao ler arquivo', true);
-            }
-        }
-        
-        function arrayBufferToBase64(buffer) {
-            let binary = '';
-            const bytes = new Uint8Array(buffer);
-            for (let i = 0; i < bytes.byteLength; i++) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return btoa(binary);
-        }
-        
-        // Adiciona trackers UDP ao magnet link
-        function addTrackers(magnet) {
-            const trackers = [
-                'udp://tracker.opentrackr.org:1337/announce',
-                'udp://tracker.openbittorrent.com:6969/announce',
-                'udp://open.stealth.si:80/announce',
-                'udp://tracker.torrent.eu.org:451/announce',
-                'udp://tracker.moeking.me:6969/announce',
-                'udp://explodie.org:6969/announce',
-                'udp://tracker.cyberia.is:6969/announce',
-                'udp://9.rarbg.to:2710/announce',
-                'udp://tracker.coppersurfer.tk:6969/announce',
-                'udp://tracker.leechers-paradise.org:6969/announce',
-                'udp://tracker.internetwarriors.net:1337/announce'
-            ];
-            
-            let fullMagnet = magnet;
-            trackers.forEach(tr => {
-                if (!fullMagnet.includes(tr)) {
-                    fullMagnet += '&tr=' + encodeURIComponent(tr);
-                }
-            });
-            
-            return fullMagnet;
-        }
-        
-        // ============== REPRODUÇÃO ==============
-        
-        function startPlayback(magnetURI) {
-            currentMagnet = magnetURI;
-            
-            // Verifica se está no app Android
-            if (typeof AndroidTorrent !== 'undefined') {
-                // Usa backend nativo com UDP
-                AndroidTorrent.playTorrent(magnetURI);
-                
-                setTimeout(() => {
-                    const streamUrl = AndroidTorrent.getStreamUrl();
-                    setupPlayer(streamUrl);
-                }, 3000);
-            } else {
-                // Fallback: WebTorrent no browser (sem UDP)
-                showToast('Usando WebTorrent (UDP não disponível no browser)');
-                startWebTorrentFallback(magnetURI);
-            }
-            
-            // Mostra UI de reprodução
-            showPlayingUI();
-        }
-        
-        function startPlaybackFromFile() {
-            setTimeout(() => {
-                if (typeof AndroidTorrent !== 'undefined') {
-                    const streamUrl = AndroidTorrent.getStreamUrl();
-                    setupPlayer(streamUrl);
-                }
-                showPlayingUI();
-            }, 3000);
-        }
-        
-        function setupPlayer(streamUrl) {
-            const player = document.getElementById('torrentPlayer');
-            const placeholder = document.getElementById('playerPlaceholder');
-            
-            player.src = streamUrl;
-            player.style.display = 'block';
-            placeholder.style.display = 'none';
-            
-            player.load();
-            
-            const playPromise = player.play();
-            if (playPromise !== undefined) {
-                playPromise.catch(() => {
-                    // Autoplay bloqueado, mostra controles
-                    player.controls = true;
                 });
             }
             
-            isPlaying = true;
-            startStatsUpdate();
+            client.add(magnet, (torrent) => {
+                currentTorrent = torrent;
+                console.log('Torrent:', torrent.name);
+                
+                // Pega o maior arquivo de vídeo
+                const videoFile = torrent.files
+                    .filter(f => /\.(mp4|mkv|avi|webm|mov)$/i.test(f.name))
+                    .sort((a, b) => b.length - a.length)[0];
+                
+                if (videoFile) {
+                    const player = document.getElementById('torrentPlayer');
+                    document.getElementById('playerPlaceholder').style.display = 'none';
+                    
+                    // Renderiza direto no player
+                    videoFile.renderTo(player, {
+                        autoplay: true,
+                        controls: true
+                    });
+                    
+                    // Mostra UI
+                    document.getElementById('statsPanel').style.display = 'grid';
+                    document.getElementById('progressContainer').style.display = 'block';
+                    document.getElementById('btnStop').style.display = 'block';
+                    
+                    // Atualiza bridge nativa (se disponível)
+                    updateNativeBridge(torrent);
+                    
+                    // Inicia monitoramento
+                    startStatsUpdate(torrent);
+                    
+                    showToast('Reproduzindo: ' + videoFile.name);
+                } else {
+                    showToast('Nenhum arquivo de vídeo encontrado', true);
+                }
+            });
         }
         
-        function showPlayingUI() {
-            document.getElementById('statsPanel').style.display = 'grid';
-            document.getElementById('progressContainer').style.display = 'block';
-            document.getElementById('progressText').style.display = 'block';
-            document.getElementById('btnStop').style.display = 'block';
+        function updateNativeBridge(torrent) {
+            if (typeof AndroidTorrent !== 'undefined') {
+                setInterval(() => {
+                    const progress = (torrent.progress * 100).toFixed(1);
+                    const peers = torrent.numPeers;
+                    const speed = formatSize(torrent.downloadSpeed) + '/s';
+                    
+                    AndroidTorrent.updateTorrentData(progress, String(peers), speed);
+                }, 1000);
+            }
         }
         
-        function hidePlayingUI() {
-            document.getElementById('statsPanel').style.display = 'none';
-            document.getElementById('progressContainer').style.display = 'none';
-            document.getElementById('progressText').style.display = 'none';
-            document.getElementById('btnStop').style.display = 'none';
-            document.getElementById('fileListPanel').style.display = 'none';
-        }
-        
-        // ============== ESTATÍSTICAS EM TEMPO REAL ==============
-        
-        function startStatsUpdate() {
+        function startStatsUpdate(torrent) {
             if (statsInterval) clearInterval(statsInterval);
             
             statsInterval = setInterval(() => {
-                if (typeof AndroidTorrent !== 'undefined') {
-                    const progress = AndroidTorrent.getProgress();
-                    const speed = AndroidTorrent.getDownloadSpeed();
-                    const peers = AndroidTorrent.getPeerCount();
-                    
-                    updateStatsDisplay(progress, speed, peers);
-                }
+                const progress = (torrent.progress * 100).toFixed(1);
+                const speed = formatSize(torrent.downloadSpeed) + '/s';
+                const peers = torrent.numPeers;
+                
+                document.getElementById('statProgress').textContent = progress + '%';
+                document.getElementById('statSpeed').textContent = speed;
+                document.getElementById('statPeers').textContent = peers;
+                document.getElementById('progressBar').style.width = progress + '%';
             }, 1000);
         }
         
-        function updateStatsDisplay(progress, speed, peers) {
-            document.getElementById('statProgress').textContent = progress + '%';
-            document.getElementById('statSpeed').textContent = speed;
-            document.getElementById('statPeers').textContent = peers;
-            
-            document.getElementById('progressBar').style.width = progress + '%';
-            document.getElementById('progressText').textContent = 
-                `Baixado: ${progress}% • ${speed} • ${peers} peers`;
-        }
-        
-        // ============== PARAR REPRODUÇÃO ==============
-        
         function stopTorrent() {
+            if (currentTorrent) {
+                currentTorrent.destroy();
+                currentTorrent = null;
+            }
+            
             const player = document.getElementById('torrentPlayer');
             player.pause();
             player.removeAttribute('src');
-            player.style.display = 'none';
-            
             document.getElementById('playerPlaceholder').style.display = 'flex';
             
             if (statsInterval) clearInterval(statsInterval);
             
-            hidePlayingUI();
-            isPlaying = false;
-            currentMagnet = null;
+            document.getElementById('statsPanel').style.display = 'none';
+            document.getElementById('progressContainer').style.display = 'none';
+            document.getElementById('btnStop').style.display = 'none';
             
             showToast('Reprodução parada');
         }
         
-        // ============== FALLBACK WEBTORRENT (BROWSER) ==============
-        
-        function startWebTorrentFallback(magnetURI) {
-            // Carrega WebTorrent dinamicamente
-            const script = document.createElement('script');
-            script.src = 'https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js';
-            script.onload = () => {
-                const client = new WebTorrent();
-                
-                client.add(magnetURI, (torrent) => {
-                    console.log('Torrent:', torrent.name);
-                    
-                    // Pega o maior arquivo de vídeo
-                    const videoFile = torrent.files
-                        .filter(f => /\.(mp4|mkv|avi|webm|mov)$/i.test(f.name))
-                        .sort((a, b) => b.length - a.length)[0];
-                    
-                    if (videoFile) {
-                        const player = document.getElementById('torrentPlayer');
-                        videoFile.renderTo(player, {
-                            autoplay: true,
-                            controls: true
-                        });
-                        
-                        document.getElementById('playerPlaceholder').style.display = 'none';
-                        
-                        // Stats do WebTorrent
-                        startStatsUpdate = () => {
-                            if (statsInterval) clearInterval(statsInterval);
-                            statsInterval = setInterval(() => {
-                                const progress = (torrent.progress * 100).toFixed(1);
-                                const speed = formatSize(torrent.downloadSpeed) + '/s';
-                                const peers = torrent.numPeers;
-                                
-                                updateStatsDisplay(progress, speed, peers);
-                            }, 1000);
-                        };
-                        
-                        showPlayingUI();
-                        startStatsUpdate();
-                    }
-                });
-            };
-            document.head.appendChild(script);
-        }
-        
-        // ============== INICIALIZAÇÃO ==============
-        
+        // Suporte a Drag & Drop
         document.addEventListener('DOMContentLoaded', () => {
-            // Verifica se está rodando no app Android
-            if (typeof AndroidTorrent !== 'undefined') {
-                console.log('✅ Backend nativo com UDP disponível');
-            } else {
-                console.log('⚠️ Rodando no browser - UDP não disponível');
-            }
-            
-            // Suporte a arrastar arquivo .torrent
             const playerWrapper = document.getElementById('playerWrapper');
+            
             playerWrapper.addEventListener('dragover', (e) => {
                 e.preventDefault();
                 playerWrapper.style.border = '2px dashed #6c5ce7';
@@ -805,7 +475,7 @@
                 
                 const file = e.dataTransfer.files[0];
                 if (file && file.name.endsWith('.torrent')) {
-                    selectedTorrentFile = file;
+                    selectedFile = file;
                     playFileTorrent();
                 }
             });
