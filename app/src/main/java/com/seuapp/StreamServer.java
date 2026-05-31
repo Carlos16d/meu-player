@@ -1,124 +1,140 @@
 package com.seuapp;
 
-import org.libtorrent4j.TorrentHandle;
-import org.libtorrent4j.TorrentInfo;
+import android.util.Log;
 
-import java.io.*;
-import java.net.ServerSocket;
-import java.net.Socket;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.util.Map;
 
-public class StreamServer {
-    private int port;
-    private ServerSocket serverSocket;
-    private TorrentHandle torrentHandle;
-    private int fileIndex;
-    private File cacheDir;
-    private boolean running = false;
+import fi.iki.elonen.NanoHTTPD;
+
+public class StreamServer extends NanoHTTPD {
+    private byte[] videoBuffer = new byte[0];
+    private long contentLength = 0;
+    private String mimeType = "video/mp4";
+    private float progress = 0;
+    private int peerCount = 0;
+    private String downloadSpeed = "0 KB/s";
     
     public StreamServer(int port) {
-        this.port = port;
+        super(port);
     }
     
-    public void setTorrentHandle(TorrentHandle handle, int fileIndex, File cacheDir) {
-        this.torrentHandle = handle;
-        this.fileIndex = fileIndex;
-        this.cacheDir = cacheDir;
+    public void setVideoData(String mimeType, long contentLength) {
+        this.mimeType = mimeType;
+        this.contentLength = contentLength;
     }
     
-    public void start() throws IOException {
-        serverSocket = new ServerSocket(port);
-        running = true;
-        
-        new Thread(() -> {
-            while (running) {
-                try {
-                    Socket client = serverSocket.accept();
-                    handleClient(client);
-                } catch (IOException e) {
-                    if (running) e.printStackTrace();
-                }
-            }
-        }).start();
-    }
-    
-    private void handleClient(Socket client) {
+    public void updateStats(String progress, String peers, String speed) {
         try {
-            BufferedReader reader = new BufferedReader(
-                new InputStreamReader(client.getInputStream())
-            );
-            OutputStream out = client.getOutputStream();
+            this.progress = Float.parseFloat(progress);
+            this.peerCount = Integer.parseInt(peers);
+            this.downloadSpeed = speed;
+        } catch (NumberFormatException e) {
+            // Ignora erros de parsing
+        }
+    }
+    
+    public float getProgress() { return progress; }
+    public int getPeerCount() { return peerCount; }
+    public String getDownloadSpeed() { return downloadSpeed; }
+    
+    public void updateVideoChunk(byte[] chunk) {
+        // Concatena novos dados ao buffer
+        byte[] newBuffer = new byte[videoBuffer.length + chunk.length];
+        System.arraycopy(videoBuffer, 0, newBuffer, 0, videoBuffer.length);
+        System.arraycopy(chunk, 0, newBuffer, videoBuffer.length, chunk.length);
+        videoBuffer = newBuffer;
+    }
+    
+    @Override
+    public Response serve(IHTTPSession session) {
+        String uri = session.getUri();
+        
+        // CORS headers
+        if (session.getMethod() == Method.OPTIONS) {
+            Response response = newFixedLengthResponse(Response.Status.OK, 
+                "text/plain", "");
+            response.addHeader("Access-Control-Allow-Origin", "*");
+            response.addHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+            response.addHeader("Access-Control-Allow-Headers", "Content-Type, Range");
+            return response;
+        }
+        
+        if ("/stream".equals(uri)) {
+            return serveVideo(session);
+        } else if ("/status".equals(uri)) {
+            String json = "{\"progress\":" + progress + 
+                         ",\"peers\":" + peerCount + 
+                         ",\"speed\":\"" + downloadSpeed + "\"}";
+            Response response = newFixedLengthResponse(Response.Status.OK, 
+                "application/json", json);
+            response.addHeader("Access-Control-Allow-Origin", "*");
+            return response;
+        }
+        
+        return newFixedLengthResponse(Response.Status.NOT_FOUND, 
+            "text/plain", "Not Found");
+    }
+    
+    private Response serveVideo(IHTTPSession session) {
+        try {
+            String rangeHeader = session.getHeaders().get("range");
             
-            String line = reader.readLine();
-            if (line == null) return;
-            
-            String[] parts = line.split(" ");
-            String path = parts[1];
-            
-            String response = "HTTP/1.1 200 OK\r\n";
-            response += "Access-Control-Allow-Origin: *\r\n";
-            response += "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
-            response += "Access-Control-Allow-Headers: Content-Type, Range\r\n";
-            
-            if (path.equals("/stream") && torrentHandle != null && torrentHandle.isValid()) {
-                serveVideo(out, response);
-            } else if (path.equals("/status")) {
-                String status = "{\"progress\":" + 
-                    (torrentHandle != null ? torrentHandle.status().progress() * 100 : 0) + "}";
-                response += "Content-Type: application/json\r\n";
-                response += "Content-Length: " + status.length() + "\r\n\r\n";
-                response += status;
-                out.write(response.getBytes());
+            if (rangeHeader != null) {
+                // Suporte a Range requests
+                long start = 0;
+                long end = videoBuffer.length - 1;
+                
+                String range = rangeHeader.replace("bytes=", "");
+                String[] parts = range.split("-");
+                
+                if (parts.length > 0 && !parts[0].isEmpty()) {
+                    start = Long.parseLong(parts[0]);
+                }
+                if (parts.length > 1 && !parts[1].isEmpty()) {
+                    end = Long.parseLong(parts[1]);
+                }
+                
+                if (start >= videoBuffer.length) {
+                    return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, 
+                        "text/plain", "Range Not Satisfiable");
+                }
+                
+                end = Math.min(end, videoBuffer.length - 1);
+                int length = (int)(end - start + 1);
+                
+                byte[] data = new byte[length];
+                System.arraycopy(videoBuffer, (int)start, data, 0, length);
+                
+                Response response = newFixedLengthResponse(
+                    Response.Status.PARTIAL_CONTENT, mimeType,
+                    new ByteArrayInputStream(data), data.length
+                );
+                
+                response.addHeader("Content-Range", 
+                    "bytes " + start + "-" + end + "/" + videoBuffer.length);
+                response.addHeader("Accept-Ranges", "bytes");
+                response.addHeader("Content-Length", String.valueOf(length));
+                response.addHeader("Access-Control-Allow-Origin", "*");
+                
+                return response;
             } else {
-                response = "HTTP/1.1 404 Not Found\r\n\r\n";
-                out.write(response.getBytes());
+                // Resposta completa
+                Response response = newFixedLengthResponse(
+                    Response.Status.OK, mimeType,
+                    new ByteArrayInputStream(videoBuffer), videoBuffer.length
+                );
+                
+                response.addHeader("Accept-Ranges", "bytes");
+                response.addHeader("Content-Length", String.valueOf(videoBuffer.length));
+                response.addHeader("Access-Control-Allow-Origin", "*");
+                
+                return response;
             }
-            
-            out.flush();
-            client.close();
-            
         } catch (Exception e) {
-            e.printStackTrace();
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, 
+                "text/plain", "Internal Server Error");
         }
-    }
-    
-    private void serveVideo(OutputStream out, String headers) throws Exception {
-        TorrentInfo ti = torrentHandle.torrentFile();
-        long fileSize = ti.files().fileSize(fileIndex);
-        
-        headers += "Content-Type: video/mp4\r\n";
-        headers += "Accept-Ranges: bytes\r\n";
-        headers += "Content-Length: " + fileSize + "\r\n";
-        headers += "Connection: keep-alive\r\n\r\n";
-        
-        out.write(headers.getBytes());
-        
-        byte[] buffer = new byte[65536];
-        long sent = 0;
-        
-        while (sent < fileSize && running) {
-            int pieceIndex = (int)(sent / ti.pieceLength());
-            if (torrentHandle.havePiece(pieceIndex)) {
-                File tempFile = new File(cacheDir, ti.files().filePath(fileIndex));
-                if (tempFile.exists()) {
-                    try (RandomAccessFile raf = new RandomAccessFile(tempFile, "r")) {
-                        raf.seek(sent);
-                        int read = raf.read(buffer, 0, 
-                            (int)Math.min(buffer.length, fileSize - sent));
-                        if (read > 0) {
-                            out.write(buffer, 0, read);
-                            sent += read;
-                        }
-                    }
-                }
-            }
-            Thread.sleep(10);
-        }
-    }
-    
-    public void stop() {
-        running = false;
-        try {
-            if (serverSocket != null) serverSocket.close();
-        } catch (IOException e) {}
     }
 }
