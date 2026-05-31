@@ -1,84 +1,62 @@
-package com.seuapp;
+plugins {
+    id 'com.android.application'
+}
 
-import android.os.Bundle;
-import android.webkit.WebChromeClient;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
-import android.webkit.WebSettings;
-import androidx.appcompat.app.AppCompatActivity;
+android {
+    namespace 'com.seuapp'
+    compileSdk 34
 
-public class MainActivity extends AppCompatActivity {
-    private WebView webView;
-    private StreamServer streamServer;
-
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+    defaultConfig {
+        applicationId "com.seuapp.player"
+        minSdk 21
+        targetSdk 34
+        versionCode 1
+        versionName "1.0"
         
-        // Inicia servidor HTTP local
-        streamServer = new StreamServer(8080);
-        try {
-            streamServer.start();
-        } catch (Exception e) {
-            e.printStackTrace();
+        ndk {
+            abiFilters 'arm64-v8a', 'armeabi-v7a', 'x86'
         }
-        
-        // Configura WebView
-        webView = findViewById(R.id.webview);
-        
-        WebSettings settings = webView.getSettings();
-        settings.setJavaScriptEnabled(true);
-        settings.setDomStorageEnabled(true);
-        settings.setMediaPlaybackRequiresUserGesture(false);
-        settings.setAllowFileAccess(true);
-        settings.setAllowContentAccess(true);
-        settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
-        settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setUseWideViewPort(true);
-        settings.setLoadWithOverviewMode(true);
-        
-        webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
-        
-        // Bridge JavaScript ↔ Java
-        webView.addJavascriptInterface(new TorrentBridge(), "AndroidTorrent");
-        
-        // Carrega o HTML5
-        webView.loadUrl("file:///android_asset/www/index.html");
     }
-    
-    public class TorrentBridge {
-        @android.webkit.JavascriptInterface
-        public String getStreamUrl() {
-            return "http://127.0.0.1:8080/stream";
+
+    // Assinatura para debug (permite instalar)
+    signingConfigs {
+        debug {
+            storeFile file("debug.keystore")
         }
-        
-        @android.webkit.JavascriptInterface
-        public void updateStats(String progress, String peers, String speed) {
-            streamServer.updateStats(progress, peers, speed);
+        release {
+            // Para release, use uma keystore própria
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
         }
-        
-        @android.webkit.JavascriptInterface
-        public String getProgress() {
-            return String.valueOf(streamServer.getProgress());
+    }
+
+    buildTypes {
+        debug {
+            signingConfig signingConfigs.debug
         }
-        
-        @android.webkit.JavascriptInterface
-        public String getPeers() {
-            return String.valueOf(streamServer.getPeerCount());
-        }
-        
-        @android.webkit.JavascriptInterface
-        public String getSpeed() {
-            return streamServer.getDownloadSpeed();
+        release {
+            signingConfig signingConfigs.release
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt')
         }
     }
     
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (streamServer != null) streamServer.stop();
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
     }
+    
+    // Importante: empacotar as libs nativas
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
+
+dependencies {
+    implementation 'androidx.appcompat:appcompat:1.6.1'
+    implementation 'org.nanohttpd:nanohttpd:2.3.1'
 }
