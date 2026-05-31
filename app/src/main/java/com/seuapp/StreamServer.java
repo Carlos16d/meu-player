@@ -1,12 +1,11 @@
 package com.seuapp;
 
-import com.frostwire.jlibtorrent.TorrentHandle;
-import com.frostwire.jlibtorrent.TorrentInfo;
+import org.libtorrent4j.TorrentHandle;
+import org.libtorrent4j.TorrentInfo;
 
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.net.URLDecoder;
 
 public class StreamServer {
     private int port;
@@ -49,25 +48,20 @@ public class StreamServer {
             );
             OutputStream out = client.getOutputStream();
             
-            // Lê request HTTP
             String line = reader.readLine();
             if (line == null) return;
             
             String[] parts = line.split(" ");
-            String method = parts[0];
             String path = parts[1];
             
-            // Headers CORS e streaming
             String response = "HTTP/1.1 200 OK\r\n";
             response += "Access-Control-Allow-Origin: *\r\n";
             response += "Access-Control-Allow-Methods: GET, OPTIONS\r\n";
             response += "Access-Control-Allow-Headers: Content-Type, Range\r\n";
             
-            if (path.equals("/stream") && torrentHandle != null) {
-                // Serve o arquivo de vídeo
+            if (path.equals("/stream") && torrentHandle != null && torrentHandle.isValid()) {
                 serveVideo(out, response);
             } else if (path.equals("/status")) {
-                // Endpoint de status
                 String status = "{\"progress\":" + 
                     (torrentHandle != null ? torrentHandle.status().progress() * 100 : 0) + "}";
                 response += "Content-Type: application/json\r\n";
@@ -91,7 +85,6 @@ public class StreamServer {
         TorrentInfo ti = torrentHandle.torrentFile();
         long fileSize = ti.files().fileSize(fileIndex);
         
-        // Headers para streaming de vídeo
         headers += "Content-Type: video/mp4\r\n";
         headers += "Accept-Ranges: bytes\r\n";
         headers += "Content-Length: " + fileSize + "\r\n";
@@ -99,16 +92,13 @@ public class StreamServer {
         
         out.write(headers.getBytes());
         
-        // Envia dados em chunks conforme baixa
         byte[] buffer = new byte[65536];
         long sent = 0;
         
         while (sent < fileSize && running) {
-            // Espera ter dados disponíveis
-            if (torrentHandle.havePiece((int)(sent / ti.pieceLength()))) {
-                File tempFile = new File(cacheDir, 
-                    ti.files().filePath(fileIndex));
-                    
+            int pieceIndex = (int)(sent / ti.pieceLength());
+            if (torrentHandle.havePiece(pieceIndex)) {
+                File tempFile = new File(cacheDir, ti.files().filePath(fileIndex));
                 if (tempFile.exists()) {
                     try (RandomAccessFile raf = new RandomAccessFile(tempFile, "r")) {
                         raf.seek(sent);
@@ -121,8 +111,7 @@ public class StreamServer {
                     }
                 }
             }
-            
-            Thread.sleep(10); // Pequena pausa para não sobrecarregar
+            Thread.sleep(10);
         }
     }
     
