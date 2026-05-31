@@ -21,8 +21,13 @@ jobs:
         
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
+      
+    - name: Download Native Libraries
+      run: |
+        chmod +x download_libs.sh
+        ./download_libs.sh
         
-    - name: Setup Gradle
+    - name: Setup Gradle Wrapper
       run: |
         mkdir -p gradle/wrapper
         
@@ -52,5 +57,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: MeuApp-APK
+        name: TorrentPlayer-UDP
         path: app/build/outputs/apk/release/
