@@ -21,13 +21,8 @@ jobs:
         
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
-      
-    - name: Download Native Libraries
-      run: |
-        chmod +x download_libs.sh
-        ./download_libs.sh
         
-    - name: Setup Gradle Wrapper
+    - name: Setup Gradle
       run: |
         mkdir -p gradle/wrapper
         
@@ -48,14 +43,11 @@ jobs:
           https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew
         chmod +x gradlew
         
-        wget -q -O gradlew.bat \
-          https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew.bat
-        
-    - name: Build APK
-      run: ./gradlew assembleRelease
+    - name: Build Debug APK
+      run: ./gradlew assembleDebug
         
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: TorrentPlayer-UDP
-        path: app/build/outputs/apk/release/
+        name: TorrentPlayer-APK
+        path: app/build/outputs/apk/debug/app-debug.apk
