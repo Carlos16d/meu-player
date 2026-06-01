@@ -56,11 +56,8 @@ public class MainActivity extends AppCompatActivity {
         public void startDownload(String magnet) {
             new Thread(() -> {
                 try {
-                    // Usa AddTorrentParams para magnet
-                    AddTorrentParams params = new AddTorrentParams();
-                    params.setMagnetUri(magnet);
-                    params.setSavePath(savePath);
-                    
+                    // AddTorrentParams com magnet no construtor
+                    AddTorrentParams params = new AddTorrentParams(magnet, savePath);
                     session.addTorrent(params);
                     
                     runOnUiThread(() -> 
