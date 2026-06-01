@@ -72,7 +72,16 @@ public class MainActivity extends AppCompatActivity {
                     trackers.add("udp://explodie.org:6969/announce");
                     p.setTrackers(trackers);
                     
-                    p.setFlags(torrent_flags_t.from_int(8 | 1));
+                    // Flags corretas para download sequencial
+                    // 1 = auto_managed, 8 = sequential_download
+                    p.setFlags(torrent_flags_t.from_int(9));
+                    
+                    // Limita velocidade de download para 2MB/s (não sugar toda internet)
+                    p.setDownload_limit(2 * 1024 * 1024);
+                    
+                    // Limita conexões
+                    p.setMax_connections(50);
+                    p.setMax_uploads(5);
                     
                     session.swig().async_add_torrent(p);
                     
@@ -81,10 +90,22 @@ public class MainActivity extends AppCompatActivity {
                     torrent_handle_vector handles = session.swig().get_torrents();
                     if (handles.size() > 0) {
                         torrent = handles.get(0);
+                        
+                        // Prioriza as primeiras peças (streaming)
+                        torrent.set_sequential_download(true);
+                        
+                        // Prioridade alta para as primeiras 100 peças
+                        int numPieces = torrent.get_torrent_info().num_pieces();
+                        int firstPieces = Math.min(100, numPieces);
+                        int[] priorities = new int[numPieces];
+                        for (int i = 0; i < numPieces; i++) {
+                            priorities[i] = (i < firstPieces) ? 7 : 4;
+                        }
+                        torrent.prioritize_pieces(new int_vector(priorities));
                     }
                     
                     runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Baixando com UDP!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(MainActivity.this, "Baixando com UDP! (Streaming)", Toast.LENGTH_SHORT).show()
                     );
                 } catch (Exception e) {
                     downloading = false;
@@ -115,8 +136,8 @@ public class MainActivity extends AppCompatActivity {
         public String getSpeed() {
             if (torrent != null && torrent.is_valid()) {
                 long speed = torrent.status().getDownload_rate();
-                if (speed > 1048576) return (speed / 1048576) + " MB/s";
-                if (speed > 1024) return (speed / 1024) + " KB/s";
+                if (speed > 1048576) return String.format("%.1f MB/s", speed / 1048576.0);
+                if (speed > 1024) return String.format("%.1f KB/s", speed / 1024.0);
                 return speed + " B/s";
             }
             return "0 B/s";
