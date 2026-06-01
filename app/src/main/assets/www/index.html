@@ -1,477 +1,99 @@
 <!DOCTYPE html>
-<html lang="pt-BR">
+<html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Torrent Player UDP</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torrent UDP Player</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        
-        body {
-            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-            background: #0a0a0a;
-            color: #fff;
-            min-height: 100vh;
-            display: flex;
-            flex-direction: column;
-        }
-        
-        .header {
-            background: #111;
-            padding: 12px 15px;
-            text-align: center;
-            border-bottom: 2px solid #e74c3c;
-            position: sticky;
-            top: 0;
-            z-index: 100;
-        }
-        
-        .header h1 {
-            font-size: 1.3em;
-            background: linear-gradient(135deg, #e74c3c, #c0392b);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            font-weight: 700;
-        }
-        
-        .container {
-            flex: 1;
-            padding: 10px;
-            max-width: 800px;
-            margin: 0 auto;
-            width: 100%;
-        }
-        
-        .player-wrapper {
-            background: #000;
-            border-radius: 8px;
-            overflow: hidden;
-            margin-bottom: 12px;
-            position: relative;
-            aspect-ratio: 16/9;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 4px 20px rgba(231, 76, 60, 0.3);
-        }
-        
-        #torrentPlayer {
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            background: #000;
-        }
-        
-        .player-placeholder {
-            position: absolute;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 10px;
-            color: #555;
-            pointer-events: none;
-            text-align: center;
-            padding: 20px;
-        }
-        
-        .player-placeholder .icon {
-            font-size: 3em;
-            opacity: 0.4;
-        }
-        
-        .player-placeholder p {
-            font-size: 0.85em;
-        }
-        
-        .controls-panel {
-            background: #1a1a1a;
-            border-radius: 8px;
-            padding: 15px;
-            margin-bottom: 10px;
-        }
-        
-        .controls-panel h3 {
-            color: #e74c3c;
-            margin-bottom: 12px;
-            font-size: 1em;
-        }
-        
-        .tabs {
-            display: flex;
-            gap: 5px;
-            margin-bottom: 12px;
-        }
-        
-        .tab-btn {
-            flex: 1;
-            padding: 8px;
-            border: none;
-            background: #252525;
-            color: #999;
-            border-radius: 6px;
-            cursor: pointer;
-            font-size: 0.8em;
-            transition: all 0.3s;
-        }
-        
-        .tab-btn.active {
-            background: #e74c3c;
-            color: #fff;
-            font-weight: 600;
-        }
-        
-        .tab-content { display: none; }
-        .tab-content.active { display: block; }
-        
-        .input-group {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        
-        input[type="text"] {
-            flex: 1;
-            padding: 10px 12px;
-            background: #252525;
-            border: 2px solid #333;
-            border-radius: 6px;
-            color: #fff;
-            font-size: 0.85em;
-            outline: none;
-            transition: border 0.3s;
-        }
-        
-        input[type="text"]:focus { border-color: #e74c3c; }
-        input[type="file"] { display: none; }
-        
-        .btn {
-            padding: 10px 16px;
-            border: none;
-            border-radius: 6px;
-            font-size: 0.85em;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        
-        .btn-primary {
-            background: linear-gradient(135deg, #e74c3c, #c0392b);
-            color: #fff;
-            flex: 1;
-        }
-        
-        .btn-secondary {
-            background: #252525;
-            color: #e74c3c;
-            border: 2px solid #e74c3c;
-            width: 100%;
-        }
-        
-        .btn-danger {
-            background: #555;
-            color: #fff;
-            width: 100%;
-            margin-top: 8px;
-        }
-        
-        .btn-small {
-            padding: 6px 12px;
-            font-size: 0.75em;
-            background: #e74c3c;
-            color: #fff;
-            border-radius: 4px;
-            border: none;
-            cursor: pointer;
-        }
-        
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-            margin-bottom: 12px;
-        }
-        
-        .stat-card {
-            background: #252525;
-            padding: 10px;
-            border-radius: 6px;
-            text-align: center;
-        }
-        
-        .stat-value {
-            font-size: 1.1em;
-            font-weight: 700;
-            color: #e74c3c;
-        }
-        
-        .stat-label {
-            font-size: 0.65em;
-            color: #888;
-            margin-top: 4px;
-            text-transform: uppercase;
-        }
-        
-        .progress-container {
-            background: #252525;
-            border-radius: 8px;
-            height: 6px;
-            margin: 10px 0;
-            overflow: hidden;
-        }
-        
-        .progress-bar {
-            height: 100%;
-            background: linear-gradient(90deg, #e74c3c, #c0392b);
-            border-radius: 8px;
-            transition: width 0.3s;
-            width: 0%;
-        }
-        
-        .toast {
-            position: fixed;
-            bottom: 30px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #333;
-            color: #fff;
-            padding: 10px 20px;
-            border-radius: 20px;
-            font-size: 0.85em;
-            z-index: 1000;
-            opacity: 0;
-            transition: opacity 0.3s;
-            text-align: center;
-            max-width: 90%;
-        }
-        
-        .toast.show { opacity: 1; }
-        .toast.error { background: #c0392b; }
-        
-        @media (max-width: 600px) {
-            .stats-grid {
-                grid-template-columns: repeat(3, 1fr);
-                gap: 5px;
-            }
-            .stat-card { padding: 8px; }
-            .stat-value { font-size: 0.9em; }
-        }
+        body { background: #0a0a0a; color: #fff; font-family: sans-serif; padding: 15px; min-height: 100vh; }
+        h1 { text-align: center; color: #e74c3c; margin-bottom: 20px; font-size: 1.2em; }
+        video { width: 100%; background: #000; border-radius: 8px; margin-bottom: 15px; }
+        input { width: 100%; padding: 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 10px; }
+        button { width: 100%; padding: 14px; background: #e74c3c; border: none; border-radius: 8px; color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 8px; }
+        .stop { background: #555; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 15px; }
+        .stat { background: #1a1a1a; padding: 12px; border-radius: 8px; text-align: center; }
+        .stat .v { color: #e74c3c; font-size: 18px; font-weight: bold; }
+        .stat .l { color: #888; font-size: 11px; margin-top: 4px; }
+        .info { background: #1a1a1a; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 12px; color: #888; line-height: 1.6; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>🎬 Torrent Player UDP</h1>
+    <h1>🎬 Torrent UDP Player</h1>
+    
+    <video id="player" controls playsinline></video>
+    
+    <input type="text" id="magnetInput" placeholder="Cole o magnet link aqui...">
+    <button onclick="play()">▶️ Reproduzir com UDP</button>
+    <button class="stop" onclick="stop()">⏹️ Parar</button>
+    
+    <div class="stats">
+        <div class="stat"><div class="v" id="progress">0%</div><div class="l">Progresso</div></div>
+        <div class="stat"><div class="v" id="speed">0 KB/s</div><div class="l">Velocidade</div></div>
+        <div class="stat"><div class="v" id="peers">0</div><div class="l">Peers UDP</div></div>
     </div>
     
-    <div class="container">
-        <!-- Player -->
-        <div class="player-wrapper" id="playerWrapper">
-            <video id="torrentPlayer" controls playsinline crossorigin="anonymous"></video>
-            <div class="player-placeholder" id="playerPlaceholder">
-                <span class="icon">▶️</span>
-                <p>Adicione um magnet link<br>para começar a reprodução UDP</p>
-            </div>
-        </div>
-        
-        <!-- Estatísticas -->
-        <div class="stats-grid" id="statsPanel" style="display:none;">
-            <div class="stat-card">
-                <div class="stat-value" id="statProgress">0%</div>
-                <div class="stat-label">Progresso</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="statSpeed">0 KB/s</div>
-                <div class="stat-label">Velocidade</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value" id="statPeers">0</div>
-                <div class="stat-label">Peers UDP</div>
-            </div>
-        </div>
-        
-        <!-- Barra de progresso -->
-        <div class="progress-container" id="progressContainer" style="display:none;">
-            <div class="progress-bar" id="progressBar"></div>
-        </div>
-        
-        <!-- Controles -->
-        <div class="controls-panel">
-            <h3>📥 Adicionar Torrent (UDP)</h3>
-            
-            <div class="tabs">
-                <button class="tab-btn active" onclick="switchTab('magnet')">🔗 Magnet Link</button>
-                <button class="tab-btn" onclick="switchTab('info')">ℹ️ Trackers UDP</button>
-            </div>
-            
-            <div class="tab-content active" id="tabMagnet">
-                <div class="input-group">
-                    <input type="text" id="magnetInput" 
-                        placeholder="magnet:?xt=urn:btih:...">
-                </div>
-                <button class="btn btn-primary" onclick="addTorrent()">
-                    ▶️ Reproduzir com UDP
-                </button>
-            </div>
-            
-            <div class="tab-content" id="tabInfo">
-                <p style="font-size:0.8em;color:#888;line-height:1.6;">
-                    ✅ Trackers UDP ativos:<br>
-                    • udp://tracker.opentrackr.org:1337<br>
-                    • udp://tracker.openbittorrent.com:6969<br>
-                    • udp://open.stealth.si:80<br>
-                    • udp://tracker.torrent.eu.org:451<br>
-                    • udp://explodie.org:6969<br><br>
-                    ✅ DHT: Ativado<br>
-                    ✅ LSD: Ativado<br>
-                    ✅ UPnP/NAT-PMP: Ativado
-                </p>
-            </div>
-        </div>
-        
-        <!-- Botões de controle -->
-        <button class="btn btn-danger" id="btnStop" style="display:none;" 
-            onclick="stopTorrent()">⏹️ Parar</button>
+    <div class="info">
+        ✅ Trackers UDP ativos<br>
+        ✅ DHT • LSD • UPnP<br>
+        ✅ Download sequencial<br>
+        ✅ Streaming enquanto baixa
     </div>
-    
-    <div class="toast" id="toast"></div>
 
     <script>
-        let statsInterval = null;
-        let isPlaying = false;
+        let interval = null;
         
-        function switchTab(tab) {
-            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-            document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
-            
-            if (tab === 'magnet') {
-                document.querySelectorAll('.tab-btn')[0].classList.add('active');
-                document.getElementById('tabMagnet').classList.add('active');
-            } else {
-                document.querySelectorAll('.tab-btn')[1].classList.add('active');
-                document.getElementById('tabInfo').classList.add('active');
-            }
-        }
-        
-        function showToast(msg, isError = false) {
-            const toast = document.getElementById('toast');
-            toast.textContent = msg;
-            toast.className = 'toast ' + (isError ? 'error' : '') + ' show';
-            setTimeout(() => toast.classList.remove('show'), 3000);
-        }
-        
-        function addTorrent() {
-            const input = document.getElementById('magnetInput').value.trim();
-            
-            if (!input) {
-                showToast('Cole um magnet link', true);
+        function play() {
+            const magnet = document.getElementById('magnetInput').value.trim();
+            if (!magnet.startsWith('magnet:')) {
+                alert('Cole um magnet link!');
                 return;
             }
             
-            if (!input.startsWith('magnet:')) {
-                showToast('Apenas magnet links são suportados', true);
-                return;
-            }
-            
-            // Adiciona trackers UDP ao magnet
-            let magnet = input;
-            const udpTrackers = [
+            // Adiciona trackers UDP
+            let m = magnet;
+            const trackers = [
                 'udp://tracker.opentrackr.org:1337/announce',
                 'udp://tracker.openbittorrent.com:6969/announce',
                 'udp://open.stealth.si:80/announce',
                 'udp://tracker.torrent.eu.org:451/announce',
                 'udp://explodie.org:6969/announce',
-                'udp://tracker.cyberia.is:6969/announce',
-                'udp://tracker.moeking.me:6969/announce',
-                'udp://9.rarbg.to:2710/announce',
-                'udp://tracker.coppersurfer.tk:6969/announce',
-                'udp://tracker.leechers-paradise.org:6969/announce'
+                'udp://tracker.moeking.me:6969/announce'
             ];
-            
-            udpTrackers.forEach(tr => {
-                if (!magnet.includes(tr)) {
-                    magnet += '&tr=' + encodeURIComponent(tr);
-                }
+            trackers.forEach(tr => {
+                if (!m.includes(tr)) m += '&tr=' + encodeURIComponent(tr);
             });
             
-            // Envia para o backend nativo (UDP real)
-            if (typeof AndroidTorrent !== 'undefined') {
-                AndroidTorrent.addTorrent(magnet);
-                
-                // Aguarda e inicia reprodução
-                setTimeout(() => {
-                    startPlayback();
-                }, 4000);
-                
-                showToast('Conectando via UDP...');
-            } else {
-                showToast('App Android necessário para UDP', true);
-            }
-        }
-        
-        function startPlayback() {
-            const player = document.getElementById('torrentPlayer');
-            const placeholder = document.getElementById('playerPlaceholder');
+            // Envia para o motor nativo (UDP real!)
+            AndroidTorrent.addTorrent(m);
             
-            const streamUrl = typeof AndroidTorrent !== 'undefined' 
-                ? AndroidTorrent.getStreamUrl() 
-                : '';
-            
-            player.src = streamUrl;
-            player.style.display = 'block';
-            placeholder.style.display = 'none';
-            
-            player.load();
-            player.play().catch(() => {
-                // Autoplay pode ser bloqueado
-                player.controls = true;
-            });
-            
-            // Mostra UI
-            document.getElementById('statsPanel').style.display = 'grid';
-            document.getElementById('progressContainer').style.display = 'block';
-            document.getElementById('btnStop').style.display = 'block';
-            
-            isPlaying = true;
-            startStatsUpdate();
-        }
-        
-        function startStatsUpdate() {
-            if (statsInterval) clearInterval(statsInterval);
-            
-            statsInterval = setInterval(() => {
-                if (typeof AndroidTorrent !== 'undefined') {
-                    const progress = AndroidTorrent.getProgress();
-                    const peers = AndroidTorrent.getPeers();
-                    const speed = AndroidTorrent.getDownloadSpeed();
-                    
-                    document.getElementById('statProgress').textContent = progress + '%';
-                    document.getElementById('statSpeed').textContent = speed;
-                    document.getElementById('statPeers').textContent = peers;
-                    document.getElementById('progressBar').style.width = progress + '%';
+            // Aguarda e inicia player
+            setTimeout(() => {
+                const url = AndroidTorrent.getStreamUrl();
+                if (url) {
+                    document.getElementById('player').src = url;
+                    document.getElementById('player').play();
                 }
+            }, 5000);
+            
+            // Monitora stats
+            if (interval) clearInterval(interval);
+            interval = setInterval(() => {
+                document.getElementById('progress').textContent = AndroidTorrent.getProgress() + '%';
+                document.getElementById('speed').textContent = AndroidTorrent.getDownloadSpeed();
+                document.getElementById('peers').textContent = AndroidTorrent.getPeers();
             }, 1000);
         }
         
-        function stopTorrent() {
-            const player = document.getElementById('torrentPlayer');
-            player.pause();
-            player.removeAttribute('src');
-            player.style.display = 'none';
-            document.getElementById('playerPlaceholder').style.display = 'flex';
-            
-            if (statsInterval) clearInterval(statsInterval);
-            
-            document.getElementById('statsPanel').style.display = 'none';
-            document.getElementById('progressContainer').style.display = 'none';
-            document.getElementById('btnStop').style.display = 'none';
-            
-            if (typeof AndroidTorrent !== 'undefined') {
-                AndroidTorrent.stopTorrent();
-            }
-            
-            isPlaying = false;
-            showToast('Reprodução parada');
+        function stop() {
+            AndroidTorrent.stopTorrent();
+            document.getElementById('player').pause();
+            document.getElementById('player').removeAttribute('src');
+            if (interval) clearInterval(interval);
+            document.getElementById('progress').textContent = '0%';
+            document.getElementById('speed').textContent = '0 KB/s';
+            document.getElementById('peers').textContent = '0';
         }
     </script>
 </body>
