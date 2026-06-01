@@ -14,12 +14,13 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.File;
-import java.lang.reflect.Method;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private String savePath;
     private SessionManager session;
+    private torrent_handle torrent;
+    private boolean downloading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -54,49 +55,97 @@ public class MainActivity extends AppCompatActivity {
     
     public class Bridge {
         @JavascriptInterface
-        public String getMethods() {
-            StringBuilder sb = new StringBuilder();
-            try {
-                Method[] methods = SessionManager.class.getDeclaredMethods();
-                sb.append("SessionManager methods:\n");
-                for (Method m : methods) {
-                    sb.append(m.getName()).append("\n");
-                }
-                
-                sb.append("\nadd_torrent_params setters:\n");
-                add_torrent_params p = new add_torrent_params();
-                Method[] pm = add_torrent_params.class.getDeclaredMethods();
-                for (Method m : pm) {
-                    if (m.getName().startsWith("set")) {
-                        sb.append(m.getName()).append("\n");
-                    }
-                }
-                
-                sb.append("\nlibtorrent static methods:\n");
-                Method[] lm = libtorrent.class.getDeclaredMethods();
-                for (Method m : lm) {
-                    if (m.getName().contains("magnet") || m.getName().contains("parse")) {
-                        sb.append(">>> ").append(m.getName()).append("\n");
-                    }
-                }
-            } catch (Exception e) {
-                sb.append("Erro: ").append(e.getMessage());
-            }
-            return sb.toString();
-        }
-        
-        @JavascriptInterface
         public void startDownload(String magnet) {
-            Toast.makeText(MainActivity.this, "Veja os métodos", Toast.LENGTH_SHORT).show();
+            if (downloading) return;
+            downloading = true;
+            
+            new Thread(() -> {
+                try {
+                    // Usa libtorrent.parse_magnet_uri
+                    add_torrent_params p = libtorrent.parse_magnet_uri(magnet);
+                    p.setSave_path(savePath);
+                    
+                    // Adiciona trackers UDP extras
+                    string_vector trackers = new string_vector();
+                    trackers.add("udp://tracker.opentrackr.org:1337/announce");
+                    trackers.add("udp://tracker.openbittorrent.com:6969/announce");
+                    trackers.add("udp://open.stealth.si:80/announce");
+                    trackers.add("udp://tracker.torrent.eu.org:451/announce");
+                    trackers.add("udp://explodie.org:6969/announce");
+                    p.setTrackers(trackers);
+                    
+                    // Flags: sequential download + auto managed
+                    p.setFlags(8 | 1); // flag_sequential_download=8, flag_auto_managed=1
+                    
+                    session.swig().async_add_torrent(p);
+                    
+                    Thread.sleep(4000);
+                    
+                    torrent_handle_vector handles = session.swig().get_torrents();
+                    if (handles.size() > 0) {
+                        torrent = handles.get(0);
+                    }
+                    
+                    runOnUiThread(() -> 
+                        Toast.makeText(MainActivity.this, "Baixando com UDP!", Toast.LENGTH_SHORT).show()
+                    );
+                } catch (Exception e) {
+                    downloading = false;
+                    runOnUiThread(() -> 
+                        Toast.makeText(MainActivity.this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show()
+                    );
+                }
+            }).start();
         }
         
         @JavascriptInterface
-        public String checkVideo() { return ""; }
+        public String getProgress() {
+            if (torrent != null && torrent.is_valid()) {
+                return String.valueOf((int)(torrent.status().getProgress() * 100));
+            }
+            return "0";
+        }
+        
         @JavascriptInterface
-        public String getProgress() { return "0"; }
+        public String getPeers() {
+            if (torrent != null && torrent.is_valid()) {
+                return String.valueOf(torrent.status().getNum_peers());
+            }
+            return "0";
+        }
+        
         @JavascriptInterface
-        public String getPeers() { return "0"; }
+        public String getSpeed() {
+            if (torrent != null && torrent.is_valid()) {
+                long speed = torrent.status().getDownload_rate();
+                if (speed > 1048576) return (speed / 1048576) + " MB/s";
+                if (speed > 1024) return (speed / 1024) + " KB/s";
+                return speed + " B/s";
+            }
+            return "0 B/s";
+        }
+        
         @JavascriptInterface
-        public String getSpeed() { return "0 B/s"; }
+        public String checkVideo() {
+            return findVideoInDir(new File(savePath));
+        }
+        
+        private String findVideoInDir(File dir) {
+            File[] files = dir.listFiles();
+            if (files == null) return "";
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    String found = findVideoInDir(f);
+                    if (!found.isEmpty()) return found;
+                } else {
+                    String n = f.getName().toLowerCase();
+                    if (n.endsWith(".mp4") || n.endsWith(".mkv") || 
+                        n.endsWith(".avi") || n.endsWith(".webm")) {
+                        return "file://" + f.getAbsolutePath();
+                    }
+                }
+            }
+            return "";
+        }
     }
 }
