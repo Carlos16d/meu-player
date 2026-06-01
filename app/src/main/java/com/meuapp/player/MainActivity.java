@@ -14,6 +14,7 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.File;
+import java.lang.reflect.Method;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
@@ -33,7 +34,6 @@ public class MainActivity extends AppCompatActivity {
         try {
             session = new SessionManager();
             session.start();
-            Toast.makeText(this, "UDP rodando!", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -55,6 +55,24 @@ public class MainActivity extends AppCompatActivity {
     
     public class Bridge {
         @JavascriptInterface
+        public String getTorrentMethods() {
+            StringBuilder sb = new StringBuilder();
+            torrent_handle_vector handles = session.swig().get_torrents();
+            if (handles.size() > 0) {
+                torrent_handle th = handles.get(0);
+                Method[] methods = th.getClass().getDeclaredMethods();
+                for (Method m : methods) {
+                    if (m.getName().contains("sequent") || m.getName().contains("prior") || 
+                        m.getName().contains("piece") || m.getName().contains("download") ||
+                        m.getName().contains("stream")) {
+                        sb.append(">>> ").append(m.getName()).append("\n");
+                    }
+                }
+            }
+            return sb.toString().isEmpty() ? "Nenhum torrent ativo" : sb.toString();
+        }
+        
+        @JavascriptInterface
         public void startDownload(String magnet) {
             if (downloading) return;
             downloading = true;
@@ -67,18 +85,10 @@ public class MainActivity extends AppCompatActivity {
                     string_vector trackers = new string_vector();
                     trackers.add("udp://tracker.opentrackr.org:1337/announce");
                     trackers.add("udp://tracker.openbittorrent.com:6969/announce");
-                    trackers.add("udp://open.stealth.si:80/announce");
-                    trackers.add("udp://tracker.torrent.eu.org:451/announce");
-                    trackers.add("udp://explodie.org:6969/announce");
                     p.setTrackers(trackers);
                     
-                    // Download sequencial
                     p.setFlags(torrent_flags_t.from_int(9));
-                    
-                    // Limita a 2MB/s
                     p.setDownload_limit(2 * 1024 * 1024);
-                    p.setMax_connections(50);
-                    p.setMax_uploads(5);
                     
                     session.swig().async_add_torrent(p);
                     
@@ -90,13 +100,10 @@ public class MainActivity extends AppCompatActivity {
                     }
                     
                     runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Baixando com UDP! (2MB/s max)", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(MainActivity.this, "Baixando! Veja métodos disponíveis", Toast.LENGTH_SHORT).show()
                     );
                 } catch (Exception e) {
                     downloading = false;
-                    runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show()
-                    );
                 }
             }).start();
         }
