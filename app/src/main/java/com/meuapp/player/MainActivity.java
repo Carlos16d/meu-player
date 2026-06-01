@@ -11,7 +11,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.AddTorrentParams;
+import org.libtorrent4j.swig.*;
 
 import java.io.File;
 
@@ -56,9 +56,13 @@ public class MainActivity extends AppCompatActivity {
         public void startDownload(String magnet) {
             new Thread(() -> {
                 try {
-                    // AddTorrentParams com magnet no construtor
-                    AddTorrentParams params = new AddTorrentParams(magnet, savePath);
-                    session.addTorrent(params);
+                    session ses = session.swig();
+                    
+                    add_torrent_params p = new add_torrent_params();
+                    p.set_str_url(magnet);
+                    p.set_str_save_path(savePath);
+                    
+                    ses.async_add_torrent(p);
                     
                     runOnUiThread(() -> 
                         Toast.makeText(MainActivity.this, "Conectando trackers UDP...", Toast.LENGTH_SHORT).show()
