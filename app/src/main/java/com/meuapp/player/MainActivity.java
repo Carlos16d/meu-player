@@ -14,13 +14,12 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.File;
+import java.lang.reflect.Method;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private String savePath;
     private SessionManager session;
-    private torrent_handle torrent;
-    private boolean downloading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -55,99 +54,41 @@ public class MainActivity extends AppCompatActivity {
     
     public class Bridge {
         @JavascriptInterface
-        public void startDownload(String magnet) {
-            if (downloading) return;
-            downloading = true;
-            
-            new Thread(() -> {
-                try {
-                    session ses = session.swig();
-                    
-                    add_torrent_params p = new add_torrent_params();
-                    p.setName(magnet);          // URL do magnet
-                    p.setSave_path(savePath);   // Pasta de download
-                    
-                    // Trackers UDP para garantir conexão
-                    string_vector trackers = new string_vector();
-                    trackers.add("udp://tracker.opentrackr.org:1337/announce");
-                    trackers.add("udp://tracker.openbittorrent.com:6969/announce");
-                    trackers.add("udp://open.stealth.si:80/announce");
-                    trackers.add("udp://tracker.torrent.eu.org:451/announce");
-                    trackers.add("udp://explodie.org:6969/announce");
-                    trackers.add("udp://tracker.moeking.me:6969/announce");
-                    trackers.add("udp://9.rarbg.to:2710/announce");
-                    p.setTrackers(trackers);
-                    
-                    ses.async_add_torrent(p);
-                    
-                    Thread.sleep(4000);
-                    
-                    torrent_handle_vector handles = ses.get_torrents();
-                    if (handles.size() > 0) {
-                        torrent = handles.get(0);
+        public String getMethods() {
+            StringBuilder sb = new StringBuilder();
+            try {
+                session ses = session.swig();
+                Method[] methods = ses.getClass().getDeclaredMethods();
+                sb.append("session methods:\n");
+                for (Method m : methods) {
+                    String name = m.getName();
+                    if (name.contains("magnet") || name.contains("add") || name.contains("torrent") || name.contains("parse")) {
+                        sb.append(">>> ").append(name).append("\n");
+                    } else {
+                        sb.append(name).append("\n");
                     }
-                    
-                    runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Baixando com UDP!", Toast.LENGTH_SHORT).show()
-                    );
-                } catch (Exception e) {
-                    downloading = false;
-                    runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show()
-                    );
                 }
-            }).start();
+            } catch (Exception e) {
+                sb.append("Erro: ").append(e.getMessage());
+            }
+            return sb.toString();
         }
         
         @JavascriptInterface
-        public String getProgress() {
-            if (torrent != null && torrent.is_valid()) {
-                torrent_status st = torrent.status();
-                return String.valueOf((int)(st.getProgress() * 100));
-            }
-            return "0";
-        }
-        
-        @JavascriptInterface
-        public String getPeers() {
-            if (torrent != null && torrent.is_valid()) {
-                return String.valueOf(torrent.status().getNum_peers());
-            }
-            return "0";
-        }
-        
-        @JavascriptInterface
-        public String getSpeed() {
-            if (torrent != null && torrent.is_valid()) {
-                long speed = torrent.status().getDownload_rate();
-                if (speed > 1048576) return (speed / 1048576) + " MB/s";
-                if (speed > 1024) return (speed / 1024) + " KB/s";
-                return speed + " B/s";
-            }
-            return "0 B/s";
+        public void startDownload(String magnet) {
+            Toast.makeText(MainActivity.this, "Veja os métodos primeiro", Toast.LENGTH_SHORT).show();
         }
         
         @JavascriptInterface
         public String checkVideo() {
-            return findVideoInDir(new File(savePath));
-        }
-        
-        private String findVideoInDir(File dir) {
-            File[] files = dir.listFiles();
-            if (files == null) return "";
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    String found = findVideoInDir(f);
-                    if (!found.isEmpty()) return found;
-                } else {
-                    String n = f.getName().toLowerCase();
-                    if (n.endsWith(".mp4") || n.endsWith(".mkv") || 
-                        n.endsWith(".avi") || n.endsWith(".webm")) {
-                        return "file://" + f.getAbsolutePath();
-                    }
-                }
-            }
             return "";
         }
+        
+        @JavascriptInterface
+        public String getProgress() { return "0"; }
+        @JavascriptInterface
+        public String getPeers() { return "0"; }
+        @JavascriptInterface
+        public String getSpeed() { return "0 B/s"; }
     }
 }
