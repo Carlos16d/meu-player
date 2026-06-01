@@ -10,23 +10,38 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-    - name: Checkout
+    - name: Baixar código
       uses: actions/checkout@v4
       
-    - name: Setup Java
+    - name: Instalar Java
       uses: actions/setup-java@v4
       with:
         distribution: 'temurin'
         java-version: '17'
         
-    - name: Setup Android SDK
+    - name: Instalar Android SDK
       uses: android-actions/setup-android@v3
+      
+    - name: Baixar bibliotecas nativas
+      run: |
+        mkdir -p app/src/main/jniLibs/arm64-v8a
+        mkdir -p app/src/main/jniLibs/armeabi-v7a
+        mkdir -p app/src/main/jniLibs/x86_64
+        mkdir -p app/src/main/jniLibs/x86
         
-    - name: Setup Gradle
+        wget -q -O /tmp/lib.apk https://github.com/proninyaroslav/libretorrent/releases/download/v3.6/libretorrent-v3.6.apk
+        unzip -q -j /tmp/lib.apk "lib/arm64-v8a/*.so" -d app/src/main/jniLibs/arm64-v8a/
+        unzip -q -j /tmp/lib.apk "lib/armeabi-v7a/*.so" -d app/src/main/jniLibs/armeabi-v7a/
+        unzip -q -j /tmp/lib.apk "lib/x86_64/*.so" -d app/src/main/jniLibs/x86_64/
+        unzip -q -j /tmp/lib.apk "lib/x86/*.so" -d app/src/main/jniLibs/x86/
+        
+        echo "Bibliotecas extraidas!"
+        
+    - name: Configurar Gradle
       run: |
         mkdir -p gradle/wrapper
-        wget -q -O gradle/wrapper/gradle-wrapper.jar \
-          https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar
+        wget -q -O gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar
+        
         cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
@@ -36,15 +51,15 @@ jobs:
         zipStoreBase=GRADLE_USER_HOME
         zipStorePath=wrapper/dists
         EOF
-        wget -q -O gradlew \
-          https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew
+        
+        wget -q -O gradlew https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew
         chmod +x gradlew
         
-    - name: Build Debug APK
+    - name: Compilar APK
       run: ./gradlew assembleDebug
         
-    - name: Upload APK
+    - name: Disponibilizar APK
       uses: actions/upload-artifact@v4
       with:
-        name: TorrentPlayer-UDP
+        name: MeuApp-Torrent
         path: app/build/outputs/apk/debug/app-debug.apk
