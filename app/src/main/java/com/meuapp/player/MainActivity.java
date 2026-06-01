@@ -72,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
                     trackers.add("udp://explodie.org:6969/announce");
                     p.setTrackers(trackers);
                     
-                    p.setFlags(new torrent_flags_t(8 | 1));
+                    p.setFlags(new torrent_flags_t(8 | 1, false));
                     
                     session.swig().async_add_torrent(p);
                     
