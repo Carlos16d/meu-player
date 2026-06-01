@@ -28,11 +28,7 @@ android {
 
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
-    
-    // libtorrent4j - MOTOR UDP NATIVO
     implementation 'org.libtorrent4j:libtorrent4j:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm:2.1.0-38'
-    implementation 'org.libtorrent4j:libtorrent4j-android-x86_64:2.1.0-38'
-    implementation 'org.libtorrent4j:libtorrent4j-android-x86:2.1.0-38'
 }
