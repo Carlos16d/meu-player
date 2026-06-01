@@ -13,13 +13,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.TorrentHandle;
-import org.libtorrent4j.swig.libtorrent;
-import org.libtorrent4j.swig.settings_pack;
-import org.libtorrent4j.swig.add_torrent_params;
-import org.libtorrent4j.swig.torrent_handle;
-import org.libtorrent4j.swig.torrent_status;
-import org.libtorrent4j.swig.session;
+import org.libtorrent4j.swig.*;
 
 import java.io.File;
 
@@ -68,21 +62,19 @@ public class MainActivity extends AppCompatActivity {
             
             new Thread(() -> {
                 try {
-                    session swig = session.swig();
+                    session ses = session.swig();
                     
-                    // Configura o magnet
-                    add_torrent_params params = swig.parse_magnet_uri(magnet);
+                    add_torrent_params params = new add_torrent_params();
+                    params.set_url(magnet);
                     params.set_save_path(savePath);
                     
-                    // Adiciona o torrent
-                    swig.async_add_torrent(params);
+                    ses.async_add_torrent(params);
                     
                     Thread.sleep(3000);
                     
-                    // Pega o torrent adicionado
-                    torrent_handle[] handles = swig.get_torrents().to_array();
-                    if (handles.length > 0) {
-                        torrent = handles[0];
+                    torrent_handle_vector handles = ses.get_torrents();
+                    if (handles.size() > 0) {
+                        torrent = handles.get(0);
                         
                         runOnUiThread(() -> 
                             Toast.makeText(MainActivity.this, "Baixando!", Toast.LENGTH_SHORT).show()
@@ -98,7 +90,7 @@ public class MainActivity extends AppCompatActivity {
         public String getProgress() {
             if (torrent != null && torrent.is_valid()) {
                 torrent_status status = torrent.status();
-                return String.valueOf((int)(status.get_progress() * 100));
+                return String.valueOf((int)(status.get_progress_ppm() / 10000));
             }
             return "0";
         }
