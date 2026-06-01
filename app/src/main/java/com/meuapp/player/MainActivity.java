@@ -9,14 +9,17 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
+import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
+
+import org.libtorrent4j.SessionManager;
 
 import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
-    private Handler handler = new Handler(Looper.getMainLooper());
     private String savePath;
+    private SessionManager session;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -25,6 +28,14 @@ public class MainActivity extends AppCompatActivity {
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
+        
+        // Inicia o motor torrent
+        try {
+            session = new SessionManager();
+            Toast.makeText(this, "Motor UDP iniciado!", Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
         
         webView = findViewById(R.id.webview);
         WebSettings s = webView.getSettings();
