@@ -2,94 +2,120 @@
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Torrent UDP Player</title>
+    <script src="https://cdn.jsdelivr.net/npm/webtorrent@latest/webtorrent.min.js"></script>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0a0a; color: #fff; font-family: sans-serif; padding: 15px; min-height: 100vh; }
-        h1 { text-align: center; color: #e74c3c; margin-bottom: 20px; font-size: 1.2em; }
-        video { width: 100%; background: #000; border-radius: 8px; margin-bottom: 15px; }
-        input { width: 100%; padding: 12px; background: #1a1a1a; border: 1px solid #333; border-radius: 8px; color: #fff; font-size: 14px; margin-bottom: 10px; }
-        button { width: 100%; padding: 14px; background: #e74c3c; border: none; border-radius: 8px; color: #fff; font-size: 16px; font-weight: bold; cursor: pointer; margin-bottom: 8px; }
-        .stop { background: #555; }
-        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 15px; }
-        .stat { background: #1a1a1a; padding: 12px; border-radius: 8px; text-align: center; }
-        .stat .v { color: #e74c3c; font-size: 18px; font-weight: bold; }
-        .stat .l { color: #888; font-size: 11px; margin-top: 4px; }
-        .info { background: #1a1a1a; padding: 12px; border-radius: 8px; margin-top: 15px; font-size: 12px; color: #888; line-height: 1.6; }
+        body { background: #0a0a0a; color: #fff; font-family: system-ui, sans-serif; padding: 12px; min-height: 100vh; }
+        .header { text-align: center; padding: 10px 0 15px; border-bottom: 2px solid #6c5ce7; margin-bottom: 15px; }
+        .header h1 { font-size: 1.2em; color: #6c5ce7; }
+        video { width: 100%; background: #000; border-radius: 8px; margin-bottom: 12px; aspect-ratio: 16/9; }
+        input { width: 100%; padding: 12px; background: #1a1a1a; border: 2px solid #333; border-radius: 8px; color: #fff; font-size: 13px; margin-bottom: 10px; outline: none; }
+        input:focus { border-color: #6c5ce7; }
+        button { width: 100%; padding: 14px; border: none; border-radius: 8px; color: #fff; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 8px; }
+        .btn-play { background: #6c5ce7; }
+        .btn-stop { background: #555; }
+        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 15px 0; }
+        .stat { background: #1a1a1a; padding: 10px; border-radius: 8px; text-align: center; }
+        .stat .value { color: #6c5ce7; font-size: 17px; font-weight: bold; }
+        .stat .label { color: #888; font-size: 10px; margin-top: 3px; text-transform: uppercase; }
+        .info { background: #1a1a1a; padding: 12px; border-radius: 8px; font-size: 11px; color: #888; line-height: 1.8; margin-top: 10px; }
     </style>
 </head>
 <body>
-    <h1>🎬 Torrent UDP Player</h1>
+    <div class="header"><h1>🎬 Torrent Player</h1></div>
     
-    <video id="player" controls playsinline></video>
+    <video id="player" controls playsinline crossorigin="anonymous"></video>
     
     <input type="text" id="magnetInput" placeholder="Cole o magnet link aqui...">
-    <button onclick="play()">▶️ Reproduzir com UDP</button>
-    <button class="stop" onclick="stop()">⏹️ Parar</button>
+    <button class="btn-play" onclick="play()">▶️ Reproduzir</button>
+    <button class="btn-stop" onclick="stop()">⏹️ Parar</button>
     
     <div class="stats">
-        <div class="stat"><div class="v" id="progress">0%</div><div class="l">Progresso</div></div>
-        <div class="stat"><div class="v" id="speed">0 KB/s</div><div class="l">Velocidade</div></div>
-        <div class="stat"><div class="v" id="peers">0</div><div class="l">Peers UDP</div></div>
+        <div class="stat"><div class="value" id="progress">0%</div><div class="label">Progresso</div></div>
+        <div class="stat"><div class="value" id="speed">0 KB/s</div><div class="label">Velocidade</div></div>
+        <div class="stat"><div class="value" id="peers">0</div><div class="label">Peers</div></div>
     </div>
     
     <div class="info">
-        ✅ Trackers UDP ativos<br>
-        ✅ DHT • LSD • UPnP<br>
-        ✅ Download sequencial<br>
-        ✅ Streaming enquanto baixa
+        ✅ P2P via WebRTC (UDP quando disponível)<br>
+        ✅ DHT • Trackers WebSocket<br>
+        ✅ Streaming sequencial<br>
+        ✅ Magnet links
     </div>
 
     <script>
+        let client = null;
+        let currentTorrent = null;
         let interval = null;
         
         function play() {
             const magnet = document.getElementById('magnetInput').value.trim();
-            if (!magnet.startsWith('magnet:')) {
-                alert('Cole um magnet link!');
-                return;
+            if (!magnet.startsWith('magnet:')) { alert('Cole um magnet link!'); return; }
+            
+            if (!client) {
+                client = new WebTorrent({
+                    tracker: {
+                        rtcConfig: {
+                            iceServers: [
+                                { urls: 'stun:stun.l.google.com:19302' },
+                                { urls: 'stun:global.stun.twilio.com:3478' }
+                            ]
+                        }
+                    }
+                });
             }
             
-            // Adiciona trackers UDP
             let m = magnet;
             const trackers = [
-                'udp://tracker.opentrackr.org:1337/announce',
-                'udp://tracker.openbittorrent.com:6969/announce',
-                'udp://open.stealth.si:80/announce',
-                'udp://tracker.torrent.eu.org:451/announce',
-                'udp://explodie.org:6969/announce',
-                'udp://tracker.moeking.me:6969/announce'
+                'wss://tracker.openwebtorrent.com',
+                'wss://tracker.btorrent.xyz',
+                'wss://tracker.files.fm:7073',
+                'wss://tracker.webtorrent.dev',
+                'wss://tracker.sloppyta.co:443/announce'
             ];
             trackers.forEach(tr => {
-                if (!m.includes(tr)) m += '&tr=' + encodeURIComponent(tr);
+                if (!m.includes(tr.replace('wss://', ''))) {
+                    m += '&tr=' + encodeURIComponent(tr);
+                }
             });
             
-            // Envia para o motor nativo (UDP real!)
-            AndroidTorrent.addTorrent(m);
-            
-            // Aguarda e inicia player
-            setTimeout(() => {
-                const url = AndroidTorrent.getStreamUrl();
-                if (url) {
-                    document.getElementById('player').src = url;
-                    document.getElementById('player').play();
+            client.add(m, (torrent) => {
+                currentTorrent = torrent;
+                console.log('Torrent:', torrent.name);
+                
+                const file = torrent.files
+                    .filter(f => /\.(mp4|mkv|avi|webm|mov)$/i.test(f.name))
+                    .sort((a, b) => b.length - a.length)[0];
+                
+                if (file) {
+                    const player = document.getElementById('player');
+                    file.renderTo(player, { autoplay: true, controls: true });
+                    
+                    if (interval) clearInterval(interval);
+                    interval = setInterval(() => {
+                        document.getElementById('progress').textContent = 
+                            (torrent.progress * 100).toFixed(1) + '%';
+                        document.getElementById('peers').textContent = 
+                            torrent.numPeers;
+                        const speed = torrent.downloadSpeed;
+                        document.getElementById('speed').textContent = 
+                            speed > 1048576 ? (speed/1048576).toFixed(1)+' MB/s' :
+                            speed > 1024 ? (speed/1024).toFixed(1)+' KB/s' :
+                            speed + ' B/s';
+                    }, 1000);
+                } else {
+                    alert('Nenhum vídeo encontrado!');
                 }
-            }, 5000);
-            
-            // Monitora stats
-            if (interval) clearInterval(interval);
-            interval = setInterval(() => {
-                document.getElementById('progress').textContent = AndroidTorrent.getProgress() + '%';
-                document.getElementById('speed').textContent = AndroidTorrent.getDownloadSpeed();
-                document.getElementById('peers').textContent = AndroidTorrent.getPeers();
-            }, 1000);
+            });
         }
         
         function stop() {
-            AndroidTorrent.stopTorrent();
-            document.getElementById('player').pause();
-            document.getElementById('player').removeAttribute('src');
+            if (currentTorrent) { currentTorrent.destroy(); currentTorrent = null; }
+            const player = document.getElementById('player');
+            player.pause();
+            player.removeAttribute('src');
             if (interval) clearInterval(interval);
             document.getElementById('progress').textContent = '0%';
             document.getElementById('speed').textContent = '0 KB/s';
