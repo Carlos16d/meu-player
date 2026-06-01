@@ -12,30 +12,29 @@ import android.webkit.WebSettings;
 import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
+import org.libtorrent4j.AlertListener;
+import org.libtorrent4j.SessionManager;
+import org.libtorrent4j.TorrentHandle;
+import org.libtorrent4j.TorrentInfo;
+import org.libtorrent4j.TorrentStatus;
+import org.libtorrent4j.alerts.AddTorrentAlert;
+import org.libtorrent4j.alerts.Alert;
+import org.libtorrent4j.alerts.AlertType;
+import org.libtorrent4j.alerts.TorrentFinishedAlert;
+
 import java.io.File;
+import java.io.FileOutputStream;
 import java.util.Arrays;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private Handler handler = new Handler(Looper.getMainLooper());
-    private Runnable watcher;
-    private String lastVideo = null;
     private Bridge bridge = new Bridge();
-    private long sessionPtr = 0;
-    private long torrentPtr = 0;
+    private SessionManager session;
+    private TorrentHandle torrentHandle;
     private String savePath;
     private boolean downloading = false;
-
-    static {
-        System.loadLibrary("torrent4j");
-    }
-
-    private native long nativeCreateSession(String listenAddr, int portStart, int portEnd);
-    private native long nativeAddMagnet(long sessionPtr, String magnet, String savePath);
-    private native void nativeRemoveTorrent(long sessionPtr, long torrentPtr);
-    private native float nativeGetProgress(long torrentPtr);
-    private native int nativeGetPeers(long torrentPtr);
-    private native long nativeGetDownloadSpeed(long torrentPtr);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -45,13 +44,14 @@ public class MainActivity extends AppCompatActivity {
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
-        new Thread(() -> {
+        Executors.newSingleThreadExecutor().execute(() -> {
             try {
-                sessionPtr = nativeCreateSession("0.0.0.0", 6881, 6889);
+                session = new SessionManager();
+                session.start();
             } catch (Exception e) {
                 e.printStackTrace();
             }
-        }).start();
+        });
         
         webView = findViewById(R.id.webview);
         WebSettings s = webView.getSettings();
@@ -71,41 +71,52 @@ public class MainActivity extends AppCompatActivity {
     public class Bridge {
         @JavascriptInterface
         public void startDownload(String magnet) {
-            if (downloading) return;
+            if (downloading || session == null) return;
             downloading = true;
             
-            new Thread(() -> {
+            Executors.newSingleThreadExecutor().execute(() -> {
                 try {
-                    torrentPtr = nativeAddMagnet(sessionPtr, magnet, savePath);
-                    startWatching();
+                    byte[] data = magnet.getBytes("UTF-8");
+                    session.download(data, new File(savePath));
+                    
+                    Thread.sleep(3000);
+                    
+                    TorrentHandle[] handles = session.swig().get_torrents();
+                    if (handles.length > 0) {
+                        torrentHandle = handles[0];
+                        torrentHandle.setSequentialDownload(true);
+                        
+                        startWatching();
+                    }
                 } catch (Exception e) {
                     downloading = false;
                 }
-            }).start();
+            });
         }
         
         @JavascriptInterface
         public String getProgress() {
-            if (torrentPtr != 0) {
-                return String.valueOf((int)(nativeGetProgress(torrentPtr) * 100));
+            if (torrentHandle != null && torrentHandle.isValid()) {
+                TorrentStatus status = torrentHandle.status();
+                return String.valueOf((int)(status.progress() * 100));
             }
             return "0";
         }
         
         @JavascriptInterface
         public String getPeers() {
-            if (torrentPtr != 0) {
-                return String.valueOf(nativeGetPeers(torrentPtr));
+            if (torrentHandle != null && torrentHandle.isValid()) {
+                return String.valueOf(torrentHandle.status().numPeers());
             }
             return "0";
         }
         
         @JavascriptInterface
         public String getSpeed() {
-            if (torrentPtr != 0) {
-                long speed = nativeGetDownloadSpeed(torrentPtr);
-                if (speed > 1048576) return (speed / 1048576.0) + " MB/s";
-                if (speed > 1024) return (speed / 1024.0) + " KB/s";
+            if (torrentHandle != null && torrentHandle.isValid()) {
+                long speed = torrentHandle.status().downloadRate();
+                if (speed > 1048576) return String.format("%.1f MB/s", speed / 1048576.0);
+                if (speed > 1024) return String.format("%.1f KB/s", speed / 1024.0);
                 return speed + " B/s";
             }
             return "0 KB/s";
@@ -114,19 +125,29 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String checkVideo() {
             File dir = new File(savePath);
-            if (dir.exists()) {
-                File[] videos = dir.listFiles(f -> {
-                    String n = f.getName().toLowerCase();
-                    return (n.endsWith(".mp4") || n.endsWith(".mkv") || 
-                            n.endsWith(".avi") || n.endsWith(".webm"));
-                });
-                if (videos != null && videos.length > 0) {
-                    Arrays.sort(videos, (a, b) -> 
-                        Long.compare(b.lastModified(), a.lastModified()));
-                    String path = "file://" + videos[0].getAbsolutePath();
-                    if (!path.equals(lastVideo)) {
-                        lastVideo = path;
-                        return path;
+            File[] videos = dir.listFiles(f -> {
+                String n = f.getName().toLowerCase();
+                return n.endsWith(".mp4") || n.endsWith(".mkv") || 
+                       n.endsWith(".avi") || n.endsWith(".webm");
+            });
+            
+            if (videos != null && videos.length > 0) {
+                Arrays.sort(videos, (a, b) -> 
+                    Long.compare(b.lastModified(), a.lastModified()));
+                return "file://" + videos[0].getAbsolutePath();
+            }
+            
+            // Procura em subpastas
+            File[] dirs = dir.listFiles(File::isDirectory);
+            if (dirs != null) {
+                for (File d : dirs) {
+                    File[] subVideos = d.listFiles(f -> {
+                        String n = f.getName().toLowerCase();
+                        return n.endsWith(".mp4") || n.endsWith(".mkv") || 
+                               n.endsWith(".avi") || n.endsWith(".webm");
+                    });
+                    if (subVideos != null && subVideos.length > 0) {
+                        return "file://" + subVideos[0].getAbsolutePath();
                     }
                 }
             }
@@ -135,32 +156,34 @@ public class MainActivity extends AppCompatActivity {
         
         @JavascriptInterface
         public void stop() {
-            if (torrentPtr != 0) {
-                nativeRemoveTorrent(sessionPtr, torrentPtr);
-                torrentPtr = 0;
+            if (torrentHandle != null) {
+                session.remove(torrentHandle);
+                torrentHandle = null;
                 downloading = false;
             }
         }
     }
     
     private void startWatching() {
-        watcher = new Runnable() {
-            @Override
-            public void run() {
-                String video = bridge.checkVideo();
-                if (!video.isEmpty()) {
-                    webView.evaluateJavascript("playVideo('" + video + "')", null);
-                }
-                handler.postDelayed(this, 3000);
+        new Thread(() -> {
+            while (downloading) {
+                try {
+                    Thread.sleep(3000);
+                    String video = bridge.checkVideo();
+                    if (!video.isEmpty()) {
+                        final String path = video;
+                        handler.post(() -> {
+                            webView.evaluateJavascript("playVideo('" + path + "')", null);
+                        });
+                    }
+                } catch (Exception e) {}
             }
-        };
-        handler.post(watcher);
+        }).start();
     }
     
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (torrentPtr != 0) nativeRemoveTorrent(sessionPtr, torrentPtr);
-        if (watcher != null) handler.removeCallbacks(watcher);
+        if (session != null) session.stop();
     }
 }
