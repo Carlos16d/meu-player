@@ -25,10 +25,8 @@ jobs:
     - name: Setup Gradle
       run: |
         mkdir -p gradle/wrapper
-        
         wget -q -O gradle/wrapper/gradle-wrapper.jar \
           https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradle/wrapper/gradle-wrapper.jar
-        
         cat > gradle/wrapper/gradle-wrapper.properties << 'EOF'
         distributionBase=GRADLE_USER_HOME
         distributionPath=wrapper/dists
@@ -38,7 +36,6 @@ jobs:
         zipStoreBase=GRADLE_USER_HOME
         zipStorePath=wrapper/dists
         EOF
-        
         wget -q -O gradlew \
           https://raw.githubusercontent.com/gradle/gradle/v8.4.0/gradlew
         chmod +x gradlew
@@ -49,5 +46,5 @@ jobs:
     - name: Upload APK
       uses: actions/upload-artifact@v4
       with:
-        name: TorrentPlayer-APK
+        name: TorrentPlayer-UDP
         path: app/build/outputs/apk/debug/app-debug.apk
