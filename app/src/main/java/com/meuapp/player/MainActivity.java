@@ -9,25 +9,25 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
-import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.TorrentHandle;
-import org.libtorrent4j.TorrentInfo;
-import org.libtorrent4j.TorrentStatus;
+import org.libtorrent4j.Priority;
 import org.libtorrent4j.swig.libtorrent;
 import org.libtorrent4j.swig.settings_pack;
 import org.libtorrent4j.swig.add_torrent_params;
 import org.libtorrent4j.swig.torrent_handle;
-import org.libtorrent4j.swig.torrent_info;
 import org.libtorrent4j.swig.torrent_status;
+import org.libtorrent4j.swig.torrent_info;
+import org.libtorrent4j.swig.string_view;
+import org.libtorrent4j.swig.entry;
+import org.libtorrent4j.swig.byte_span;
 import org.libtorrent4j.swig.error_code;
-import org.libtorrent4j.swig.string_vector;
-import org.libtorrent4j.swig.byte_vector;
 
 import java.io.File;
 import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity {
@@ -49,21 +49,20 @@ public class MainActivity extends AppCompatActivity {
         
         Executors.newSingleThreadExecutor().execute(() -> {
             try {
+                // Configurações UDP/DHT
                 settings_pack sp = new settings_pack();
-                sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.enable_lsd.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.enable_upnp.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.enable_natpmp.swigValue(), true);
-                sp.set_int(settings_pack.int_types.alert_mask.swigValue(), 
-                    org.libtorrent4j.swig.alert.category_t.all_categories.swigValue());
+                sp.set_bool(settings_pack.bool_types.enable_dht, true);
+                sp.set_bool(settings_pack.bool_types.enable_lsd, true);
+                sp.set_bool(settings_pack.bool_types.enable_upnp, true);
+                sp.set_bool(settings_pack.bool_types.enable_natpmp, true);
                 
                 session = new SessionManager(sp);
                 session.start();
                 
-                // Adiciona DHT routers
-                session.addDhtNode("router.bittorrent.com", 6881);
-                session.addDhtNode("dht.transmissionbt.com", 6881);
-                session.addDhtNode("dht.libtorrent.org", 25401);
+                // DHT routers
+                session.swig().add_dht_router("router.bittorrent.com", 6881);
+                session.swig().add_dht_router("dht.transmissionbt.com", 6881);
+                session.swig().add_dht_router("dht.libtorrent.org", 25401);
                 
             } catch (Exception e) {
                 e.printStackTrace();
@@ -93,22 +92,27 @@ public class MainActivity extends AppCompatActivity {
             
             Executors.newSingleThreadExecutor().execute(() -> {
                 try {
-                    add_torrent_params params = new add_torrent_params();
-                    params.set_url(magnet);
+                    add_torrent_params params = session.swig().parse_magnet_uri(magnet);
                     params.set_save_path(savePath);
-                    params.set_flags(add_torrent_params.flags_t.flag_sequential_download.swigValue() |
-                                    add_torrent_params.flags_t.flag_auto_managed.swigValue());
+                    
+                    // Download sequencial
+                    int flags = params.get_flags();
+                    flags |= add_torrent_params.flags_t.flag_sequential_download;
+                    flags |= add_torrent_params.flags_t.flag_auto_managed;
+                    params.set_flags(flags);
                     
                     session.swig().async_add_torrent(params);
                     
-                    Thread.sleep(4000);
+                    Thread.sleep(5000);
                     
-                    torrent_handle[] handles = session.swig().get_torrents().to_array();
+                    // Pega o torrent adicionado
+                    long[] handles = session.swig().get_torrents();
                     if (handles.length > 0) {
-                        torrentHandle = handles[0];
+                        torrentHandle = new torrent_handle(handles[0]);
                         startWatching();
                     }
                 } catch (Exception e) {
+                    e.printStackTrace();
                     downloading = false;
                 }
             });
@@ -145,28 +149,22 @@ public class MainActivity extends AppCompatActivity {
         @JavascriptInterface
         public String checkVideo() {
             File dir = new File(savePath);
-            File[] videos = dir.listFiles(f -> {
-                String n = f.getName().toLowerCase();
-                return n.endsWith(".mp4") || n.endsWith(".mkv") || 
-                       n.endsWith(".avi") || n.endsWith(".webm");
-            });
+            return findVideo(dir);
+        }
+        
+        private String findVideo(File dir) {
+            File[] files = dir.listFiles();
+            if (files == null) return "";
             
-            if (videos != null && videos.length > 0) {
-                Arrays.sort(videos, (a, b) -> 
-                    Long.compare(b.lastModified(), a.lastModified()));
-                return "file://" + videos[0].getAbsolutePath();
-            }
-            
-            File[] dirs = dir.listFiles(File::isDirectory);
-            if (dirs != null) {
-                for (File d : dirs) {
-                    File[] subVideos = d.listFiles(f -> {
-                        String n = f.getName().toLowerCase();
-                        return n.endsWith(".mp4") || n.endsWith(".mkv") || 
-                               n.endsWith(".avi") || n.endsWith(".webm");
-                    });
-                    if (subVideos != null && subVideos.length > 0) {
-                        return "file://" + subVideos[0].getAbsolutePath();
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    String found = findVideo(f);
+                    if (!found.isEmpty()) return found;
+                } else {
+                    String n = f.getName().toLowerCase();
+                    if (n.endsWith(".mp4") || n.endsWith(".mkv") || 
+                        n.endsWith(".avi") || n.endsWith(".webm")) {
+                        return "file://" + f.getAbsolutePath();
                     }
                 }
             }
