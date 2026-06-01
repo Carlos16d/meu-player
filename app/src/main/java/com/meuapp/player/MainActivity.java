@@ -14,6 +14,7 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.File;
+import java.lang.reflect.Method;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
@@ -53,63 +54,28 @@ public class MainActivity extends AppCompatActivity {
     
     public class Bridge {
         @JavascriptInterface
-        public void startDownload(String magnet) {
-            new Thread(() -> {
-                try {
-                    session ses = session.swig();
-                    
-                    add_torrent_params p = new add_torrent_params();
-                    p.set_str_url(magnet);
-                    p.set_str_save_path(savePath);
-                    
-                    ses.async_add_torrent(p);
-                    
-                    runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Conectando trackers UDP...", Toast.LENGTH_SHORT).show()
-                    );
-                } catch (Exception e) {
-                    runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show()
-                    );
+        public String getMethods() {
+            StringBuilder sb = new StringBuilder();
+            try {
+                add_torrent_params p = new add_torrent_params();
+                Method[] methods = add_torrent_params.class.getDeclaredMethods();
+                sb.append("add_torrent_params methods:\n");
+                for (Method m : methods) {
+                    sb.append(m.getName()).append("\n");
                 }
-            }).start();
+            } catch (Exception e) {
+                sb.append("Erro: ").append(e.getMessage());
+            }
+            return sb.toString();
         }
         
         @JavascriptInterface
-        public String getProgress() {
-            return "0";
-        }
-        
-        @JavascriptInterface
-        public String getPeers() {
-            return "0";
-        }
-        
-        @JavascriptInterface
-        public String getSpeed() {
-            return "0 B/s";
+        public void startDownload(String magnet) {
+            Toast.makeText(MainActivity.this, "Abrindo...", Toast.LENGTH_SHORT).show();
         }
         
         @JavascriptInterface
         public String checkVideo() {
-            return findVideoInDir(new File(savePath));
-        }
-        
-        private String findVideoInDir(File dir) {
-            File[] files = dir.listFiles();
-            if (files == null) return "";
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    String found = findVideoInDir(f);
-                    if (!found.isEmpty()) return found;
-                } else {
-                    String n = f.getName().toLowerCase();
-                    if (n.endsWith(".mp4") || n.endsWith(".mkv") || 
-                        n.endsWith(".avi") || n.endsWith(".webm")) {
-                        return "file://" + f.getAbsolutePath();
-                    }
-                }
-            }
             return "";
         }
     }
