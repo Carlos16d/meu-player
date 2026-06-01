@@ -72,14 +72,11 @@ public class MainActivity extends AppCompatActivity {
                     trackers.add("udp://explodie.org:6969/announce");
                     p.setTrackers(trackers);
                     
-                    // Flags corretas para download sequencial
-                    // 1 = auto_managed, 8 = sequential_download
+                    // Download sequencial
                     p.setFlags(torrent_flags_t.from_int(9));
                     
-                    // Limita velocidade de download para 2MB/s (não sugar toda internet)
+                    // Limita a 2MB/s
                     p.setDownload_limit(2 * 1024 * 1024);
-                    
-                    // Limita conexões
                     p.setMax_connections(50);
                     p.setMax_uploads(5);
                     
@@ -90,22 +87,10 @@ public class MainActivity extends AppCompatActivity {
                     torrent_handle_vector handles = session.swig().get_torrents();
                     if (handles.size() > 0) {
                         torrent = handles.get(0);
-                        
-                        // Prioriza as primeiras peças (streaming)
-                        torrent.set_sequential_download(true);
-                        
-                        // Prioridade alta para as primeiras 100 peças
-                        int numPieces = torrent.get_torrent_info().num_pieces();
-                        int firstPieces = Math.min(100, numPieces);
-                        int[] priorities = new int[numPieces];
-                        for (int i = 0; i < numPieces; i++) {
-                            priorities[i] = (i < firstPieces) ? 7 : 4;
-                        }
-                        torrent.prioritize_pieces(new int_vector(priorities));
                     }
                     
                     runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Baixando com UDP! (Streaming)", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(MainActivity.this, "Baixando com UDP! (2MB/s max)", Toast.LENGTH_SHORT).show()
                     );
                 } catch (Exception e) {
                     downloading = false;
