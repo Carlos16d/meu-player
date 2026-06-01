@@ -1,77 +1,39 @@
 package com.seuapp;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
-import android.os.Build;
 import android.os.Bundle;
+import android.os.Environment;
+import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
-import android.webkit.PermissionRequest;
 import android.widget.Toast;
-import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
+
+import org.proninyaroslav.libretorrent.core.TorrentEngine;
+import org.proninyaroslav.libretorrent.core.model.TorrentEngineCallback;
+
+import java.io.File;
 
 public class MainActivity extends AppCompatActivity {
-    private static final int PERMISSION_REQUEST_CODE = 100;
     private WebView webView;
-    private StreamServer streamServer;
-    private TorrentEngine torrentEngine;
+    private TorrentEngine engine;
+    private String currentMagnet = null;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        // Solicita permissões
-        requestPermissions();
+        // Inicializa o motor torrent NATIVO (UDP REAL)
+        engine = TorrentEngine.getInstance(this);
         
-        // Inicia o motor torrent nativo (UDP real)
-        torrentEngine = new TorrentEngine(this);
-        torrentEngine.start();
+        File savePath = new File(getExternalFilesDir(null), "torrents");
+        savePath.mkdirs();
         
-        // Inicia servidor de streaming HTTP
-        streamServer = new StreamServer(8080, torrentEngine);
-        try {
-            streamServer.start();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        engine.setDownloadPath(savePath.getAbsolutePath());
         
         // Configura WebView
-        setupWebView();
-        
-        // Carrega o HTML5
-        webView.loadUrl("file:///android_asset/www/index.html");
-    }
-    
-    private void requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            String[] permissions = {
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            };
-            
-            boolean allGranted = true;
-            for (String perm : permissions) {
-                if (ContextCompat.checkSelfPermission(this, perm) 
-                    != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            
-            if (!allGranted) {
-                ActivityCompat.requestPermissions(this, permissions, 
-                    PERMISSION_REQUEST_CODE);
-            }
-        }
-    }
-    
-    private void setupWebView() {
         webView = findViewById(R.id.webview);
         
         WebSettings settings = webView.getSettings();
@@ -82,108 +44,91 @@ public class MainActivity extends AppCompatActivity {
         settings.setAllowContentAccess(true);
         settings.setMixedContentMode(WebSettings.MIXED_CONTENT_ALWAYS_ALLOW);
         settings.setCacheMode(WebSettings.LOAD_NO_CACHE);
-        settings.setJavaScriptCanOpenWindowsAutomatically(true);
-        settings.setUseWideViewPort(true);
-        settings.setLoadWithOverviewMode(true);
         
-        webView.setWebChromeClient(new WebChromeClient() {
-            @Override
-            public void onPermissionRequest(PermissionRequest request) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-                    request.grant(request.getResources());
-                }
-            }
-        });
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient());
         
-        webView.setWebViewClient(new WebViewClient() {
-            @Override
-            public boolean shouldOverrideUrlLoading(WebView view, 
-                android.webkit.WebResourceRequest request) {
-                return false;
-            }
-        });
-        
-        // Bridge JavaScript ↔ Java
+        // Bridge para o HTML5 controlar o torrent nativo
         webView.addJavascriptInterface(new TorrentBridge(), "AndroidTorrent");
+        
+        webView.loadUrl("file:///android_asset/www/index.html");
     }
     
     public class TorrentBridge {
-        @android.webkit.JavascriptInterface
-        public void addTorrent(String magnetURI) {
+        @JavascriptInterface
+        public void addTorrent(String magnet) {
+            currentMagnet = magnet;
             runOnUiThread(() -> {
-                torrentEngine.addMagnet(magnetURI);
+                engine.startDownload(magnet);
                 Toast.makeText(MainActivity.this, 
-                    "Torrent adicionado! Conectando UDP...", 
-                    Toast.LENGTH_SHORT).show();
+                    "Torrent iniciado com UDP!", Toast.LENGTH_SHORT).show();
             });
         }
         
-        @android.webkit.JavascriptInterface
-        public String getStreamUrl() {
-            return "http://127.0.0.1:8080/stream";
-        }
-        
-        @android.webkit.JavascriptInterface
+        @JavascriptInterface
         public String getProgress() {
-            return String.valueOf(torrentEngine.getProgress());
+            if (currentMagnet != null) {
+                float progress = engine.getProgress(currentMagnet);
+                return String.valueOf((int)(progress * 100));
+            }
+            return "0";
         }
         
-        @android.webkit.JavascriptInterface
+        @JavascriptInterface
         public String getPeers() {
-            return String.valueOf(torrentEngine.getPeers());
+            if (currentMagnet != null) {
+                return String.valueOf(engine.getPeers(currentMagnet));
+            }
+            return "0";
         }
         
-        @android.webkit.JavascriptInterface
+        @JavascriptInterface
         public String getDownloadSpeed() {
-            long speed = torrentEngine.getDownloadSpeed();
-            if (speed > 1048576)
-                return String.format("%.1f MB/s", speed / 1048576.0);
-            else if (speed > 1024)
-                return String.format("%.1f KB/s", speed / 1024.0);
-            else
-                return speed + " B/s";
+            if (currentMagnet != null) {
+                long speed = engine.getDownloadSpeed(currentMagnet);
+                if (speed > 1048576)
+                    return String.format("%.1f MB/s", speed / 1048576.0);
+                else if (speed > 1024)
+                    return String.format("%.1f KB/s", speed / 1024.0);
+                else
+                    return speed + " B/s";
+            }
+            return "0 KB/s";
         }
         
-        @android.webkit.JavascriptInterface
+        @JavascriptInterface
+        public String getStreamUrl() {
+            // LibreTorrent salva o arquivo, retorna o caminho
+            if (currentMagnet != null) {
+                File dir = new File(getExternalFilesDir(null), "torrents");
+                File[] files = dir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        String name = f.getName().toLowerCase();
+                        if (name.endsWith(".mp4") || name.endsWith(".mkv") || 
+                            name.endsWith(".avi") || name.endsWith(".webm")) {
+                            return "file://" + f.getAbsolutePath();
+                        }
+                    }
+                }
+            }
+            return "";
+        }
+        
+        @JavascriptInterface
         public void stopTorrent() {
-            torrentEngine.stop();
-        }
-        
-        @android.webkit.JavascriptInterface
-        public void pauseTorrent() {
-            torrentEngine.pause();
-        }
-        
-        @android.webkit.JavascriptInterface
-        public void resumeTorrent() {
-            torrentEngine.resume();
+            if (currentMagnet != null) {
+                engine.stopDownload(currentMagnet);
+                currentMagnet = null;
+            }
         }
     }
     
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (streamServer != null) streamServer.stop();
-        if (torrentEngine != null) torrentEngine.shutdown();
-    }
-    
-    @Override
-    public void onRequestPermissionsResult(int requestCode, 
-        @NonNull String[] permissions, @NonNull int[] grantResults) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == PERMISSION_REQUEST_CODE) {
-            boolean allGranted = true;
-            for (int result : grantResults) {
-                if (result != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
-                    break;
-                }
-            }
-            if (!allGranted) {
-                Toast.makeText(this, 
-                    "Permissões necessárias para salvar arquivos", 
-                    Toast.LENGTH_LONG).show();
-            }
+        if (engine != null) {
+            engine.shutdown();
         }
     }
 }
