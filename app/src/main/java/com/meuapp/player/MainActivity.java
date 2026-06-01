@@ -2,8 +2,6 @@ package com.meuapp.player;
 
 import android.os.Bundle;
 import android.os.Environment;
-import android.os.Handler;
-import android.os.Looper;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
@@ -62,55 +60,37 @@ public class MainActivity extends AppCompatActivity {
             
             new Thread(() -> {
                 try {
-                    session ses = session.swig();
+                    libtorrent lt = new libtorrent();
                     
-                    add_torrent_params params = new add_torrent_params();
-                    params.set_url(magnet);
-                    params.set_save_path(savePath);
-                    
-                    ses.async_add_torrent(params);
+                    // Usa os métodos que existem
+                    lt.async_add_torrent(magnet, savePath);
                     
                     Thread.sleep(3000);
                     
-                    torrent_handle_vector handles = ses.get_torrents();
-                    if (handles.size() > 0) {
-                        torrent = handles.get(0);
-                        
-                        runOnUiThread(() -> 
-                            Toast.makeText(MainActivity.this, "Baixando!", Toast.LENGTH_SHORT).show()
-                        );
-                    }
+                    runOnUiThread(() -> 
+                        Toast.makeText(MainActivity.this, "Magnet enviado!", Toast.LENGTH_SHORT).show()
+                    );
                 } catch (Exception e) {
                     downloading = false;
+                    runOnUiThread(() -> 
+                        Toast.makeText(MainActivity.this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show()
+                    );
                 }
             }).start();
         }
         
         @JavascriptInterface
         public String getProgress() {
-            if (torrent != null && torrent.is_valid()) {
-                torrent_status status = torrent.status();
-                return String.valueOf((int)(status.get_progress_ppm() / 10000));
-            }
             return "0";
         }
         
         @JavascriptInterface
         public String getPeers() {
-            if (torrent != null && torrent.is_valid()) {
-                return String.valueOf(torrent.status().get_num_peers());
-            }
             return "0";
         }
         
         @JavascriptInterface
         public String getSpeed() {
-            if (torrent != null && torrent.is_valid()) {
-                long speed = torrent.status().get_download_rate();
-                if (speed > 1048576) return (speed / 1048576) + " MB/s";
-                if (speed > 1024) return (speed / 1024) + " KB/s";
-                return speed + " B/s";
-            }
             return "0 B/s";
         }
         
