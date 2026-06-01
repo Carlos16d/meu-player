@@ -61,11 +61,9 @@ public class MainActivity extends AppCompatActivity {
             
             new Thread(() -> {
                 try {
-                    // Usa libtorrent.parse_magnet_uri
-                    add_torrent_params p = libtorrent.parse_magnet_uri(magnet);
+                    add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                     p.setSave_path(savePath);
                     
-                    // Adiciona trackers UDP extras
                     string_vector trackers = new string_vector();
                     trackers.add("udp://tracker.opentrackr.org:1337/announce");
                     trackers.add("udp://tracker.openbittorrent.com:6969/announce");
@@ -74,8 +72,7 @@ public class MainActivity extends AppCompatActivity {
                     trackers.add("udp://explodie.org:6969/announce");
                     p.setTrackers(trackers);
                     
-                    // Flags: sequential download + auto managed
-                    p.setFlags(8 | 1); // flag_sequential_download=8, flag_auto_managed=1
+                    p.setFlags(new torrent_flags_t(8 | 1));
                     
                     session.swig().async_add_torrent(p);
                     
