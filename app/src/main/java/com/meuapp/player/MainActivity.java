@@ -11,10 +11,9 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.TorrentInfo;
+import org.libtorrent4j.AddTorrentParams;
 
 import java.io.File;
-import java.io.FileOutputStream;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
@@ -57,19 +56,15 @@ public class MainActivity extends AppCompatActivity {
         public void startDownload(String magnet) {
             new Thread(() -> {
                 try {
-                    // Salva o magnet como arquivo .torrent temporário
-                    byte[] data = magnet.getBytes("UTF-8");
-                    File torrentFile = new File(savePath, "temp.torrent");
-                    FileOutputStream fos = new FileOutputStream(torrentFile);
-                    fos.write(data);
-                    fos.close();
+                    // Usa AddTorrentParams para magnet
+                    AddTorrentParams params = new AddTorrentParams();
+                    params.setMagnetUri(magnet);
+                    params.setSavePath(savePath);
                     
-                    // Cria TorrentInfo e adiciona
-                    TorrentInfo ti = new TorrentInfo(torrentFile);
-                    session.download(ti, new File(savePath));
+                    session.addTorrent(params);
                     
                     runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Baixando com UDP!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(MainActivity.this, "Conectando trackers UDP...", Toast.LENGTH_SHORT).show()
                     );
                 } catch (Exception e) {
                     runOnUiThread(() -> 
