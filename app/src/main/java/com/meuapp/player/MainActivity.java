@@ -84,16 +84,7 @@ public class MainActivity extends AppCompatActivity {
                     torrent_handle_vector handles = session.swig().get_torrents();
                     if (handles.size() > 0) {
                         torrent = handles.get(0);
-                        
-                        // Ativa download sequencial (streaming)
-                        torrent.set_sequential_range(0, 99); // Prioriza primeiras 100 peças
-                        
-                        // Prioridade alta para peças iniciais
-                        piece_index_vector pieces = new piece_index_vector();
-                        for (int i = 0; i < 50; i++) {
-                            pieces.add(i);
-                        }
-                        torrent.set_piece_deadline(pieces, 100); // 100ms deadline
+                        torrent.set_sequential_range(0, 99);
                     }
                     
                     runOnUiThread(() -> 
