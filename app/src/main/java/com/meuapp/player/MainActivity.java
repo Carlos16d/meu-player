@@ -11,6 +11,7 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
+import org.libtorrent4j.swig.*;
 
 import java.io.File;
 import java.lang.reflect.Method;
@@ -62,7 +63,7 @@ public class MainActivity extends AppCompatActivity {
                     sb.append(m.getName()).append("\n");
                 }
                 
-                sb.append("\n\nadd_torrent_params setters:\n");
+                sb.append("\nadd_torrent_params setters:\n");
                 add_torrent_params p = new add_torrent_params();
                 Method[] pm = add_torrent_params.class.getDeclaredMethods();
                 for (Method m : pm) {
@@ -71,7 +72,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 
-                sb.append("\n\nlibtorrent static methods:\n");
+                sb.append("\nlibtorrent static methods:\n");
                 Method[] lm = libtorrent.class.getDeclaredMethods();
                 for (Method m : lm) {
                     if (m.getName().contains("magnet") || m.getName().contains("parse")) {
