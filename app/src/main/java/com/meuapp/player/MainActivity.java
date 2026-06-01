@@ -11,7 +11,6 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.swig.*;
 
 import java.io.File;
 import java.lang.reflect.Method;
@@ -57,15 +56,26 @@ public class MainActivity extends AppCompatActivity {
         public String getMethods() {
             StringBuilder sb = new StringBuilder();
             try {
-                session ses = session.swig();
-                Method[] methods = ses.getClass().getDeclaredMethods();
-                sb.append("session methods:\n");
+                Method[] methods = SessionManager.class.getDeclaredMethods();
+                sb.append("SessionManager methods:\n");
                 for (Method m : methods) {
-                    String name = m.getName();
-                    if (name.contains("magnet") || name.contains("add") || name.contains("torrent") || name.contains("parse")) {
-                        sb.append(">>> ").append(name).append("\n");
-                    } else {
-                        sb.append(name).append("\n");
+                    sb.append(m.getName()).append("\n");
+                }
+                
+                sb.append("\n\nadd_torrent_params setters:\n");
+                add_torrent_params p = new add_torrent_params();
+                Method[] pm = add_torrent_params.class.getDeclaredMethods();
+                for (Method m : pm) {
+                    if (m.getName().startsWith("set")) {
+                        sb.append(m.getName()).append("\n");
+                    }
+                }
+                
+                sb.append("\n\nlibtorrent static methods:\n");
+                Method[] lm = libtorrent.class.getDeclaredMethods();
+                for (Method m : lm) {
+                    if (m.getName().contains("magnet") || m.getName().contains("parse")) {
+                        sb.append(">>> ").append(m.getName()).append("\n");
                     }
                 }
             } catch (Exception e) {
@@ -76,14 +86,11 @@ public class MainActivity extends AppCompatActivity {
         
         @JavascriptInterface
         public void startDownload(String magnet) {
-            Toast.makeText(MainActivity.this, "Veja os métodos primeiro", Toast.LENGTH_SHORT).show();
+            Toast.makeText(MainActivity.this, "Veja os métodos", Toast.LENGTH_SHORT).show();
         }
         
         @JavascriptInterface
-        public String checkVideo() {
-            return "";
-        }
-        
+        public String checkVideo() { return ""; }
         @JavascriptInterface
         public String getProgress() { return "0"; }
         @JavascriptInterface
