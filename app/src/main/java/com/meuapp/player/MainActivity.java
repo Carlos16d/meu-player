@@ -20,6 +20,7 @@ public class MainActivity extends AppCompatActivity {
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable watcher;
     private String lastVideo = null;
+    private Bridge bridge = new Bridge();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -37,7 +38,7 @@ public class MainActivity extends AppCompatActivity {
         
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient());
-        webView.addJavascriptInterface(new Bridge(), "App");
+        webView.addJavascriptInterface(bridge, "App");
         webView.loadUrl("file:///android_asset/www/index.html");
     }
     
@@ -79,7 +80,7 @@ public class MainActivity extends AppCompatActivity {
         watcher = new Runnable() {
             @Override
             public void run() {
-                String video = ((Bridge)webView.getJavascriptInterface()).checkVideo();
+                String video = bridge.checkVideo();
                 if (!video.isEmpty()) {
                     webView.evaluateJavascript("playVideo('" + video + "')", null);
                 }
