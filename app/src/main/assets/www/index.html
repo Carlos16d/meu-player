@@ -35,7 +35,7 @@
         <div class="stat"><div class="v" id="peers">0</div><div class="l">Peers UDP</div></div>
     </div>
     
-    <textarea id="magnet" placeholder="Cole seu magnet link aqui...">magnet:?xt=urn:btih:dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c&dn=Big+Buck+Bunny&tr=udp%3A%2F%2Ftracker.opentrackr.org%3A1337%2Fannounce</textarea>
+    <textarea id="magnet" placeholder="Cole seu magnet link aqui..."></textarea>
     
     <button class="btn-play" onclick="download()">▶️ BAIXAR COM UDP</button>
     <button class="btn-stop" onclick="stop()">⏹️ Parar</button>
@@ -47,11 +47,13 @@
 
     <script>
         let interval = null;
+        let videoStarted = false;
         
         function download() {
             const m = document.getElementById('magnet').value.trim();
             if (!m.startsWith('magnet:')) return;
             
+            videoStarted = false;
             document.getElementById('status').innerHTML = '<div class="icon">⏳</div><div class="msg">Conectando trackers UDP...</div>';
             App.startDownload(m);
             
@@ -64,18 +66,25 @@
         }
         
         function stop() {
+            videoStarted = false;
             document.getElementById('player').pause();
             document.getElementById('player').removeAttribute('src');
             if (interval) clearInterval(interval);
             document.getElementById('status').innerHTML = '<div class="icon">⏹️</div><div class="msg">Parado</div>';
+            document.getElementById('prog').textContent = '0%';
+            document.getElementById('speed').textContent = '0 B/s';
+            document.getElementById('peers').textContent = '0';
         }
         
         setInterval(() => {
-            const video = App.checkVideo();
-            if (video) {
-                document.getElementById('player').src = video;
-                document.getElementById('player').play();
-                document.getElementById('status').innerHTML = '<div class="icon">▶️</div><div class="msg" style="color:#4ecb71;">Reproduzindo com UDP!</div>';
+            if (!videoStarted) {
+                const video = App.checkVideo();
+                if (video) {
+                    document.getElementById('player').src = video;
+                    document.getElementById('player').play();
+                    document.getElementById('status').innerHTML = '<div class="icon">▶️</div><div class="msg" style="color:#4ecb71;">Reproduzindo com UDP!</div>';
+                    videoStarted = true;
+                }
             }
         }, 3000);
     </script>
