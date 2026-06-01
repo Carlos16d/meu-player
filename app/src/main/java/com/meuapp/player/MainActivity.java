@@ -11,7 +11,6 @@ import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.swig.*;
 
 import java.io.File;
 
@@ -19,8 +18,6 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private String savePath;
     private SessionManager session;
-    private torrent_handle torrent;
-    private boolean downloading = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -32,7 +29,8 @@ public class MainActivity extends AppCompatActivity {
         
         try {
             session = new SessionManager();
-            Toast.makeText(this, "UDP pronto!", Toast.LENGTH_SHORT).show();
+            session.start();
+            Toast.makeText(this, "UDP rodando!", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -55,23 +53,16 @@ public class MainActivity extends AppCompatActivity {
     public class Bridge {
         @JavascriptInterface
         public void startDownload(String magnet) {
-            if (downloading) return;
-            downloading = true;
-            
             new Thread(() -> {
                 try {
-                    libtorrent lt = new libtorrent();
-                    
-                    // Usa os métodos que existem
-                    lt.async_add_torrent(magnet, savePath);
-                    
-                    Thread.sleep(3000);
+                    byte[] data = magnet.getBytes("UTF-8");
+                    File f = new File(savePath);
+                    session.download(data, f);
                     
                     runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Magnet enviado!", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(MainActivity.this, "Baixando com UDP!", Toast.LENGTH_SHORT).show()
                     );
                 } catch (Exception e) {
-                    downloading = false;
                     runOnUiThread(() -> 
                         Toast.makeText(MainActivity.this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show()
                     );
