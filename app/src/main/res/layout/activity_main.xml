@@ -133,9 +133,10 @@
                 android:orientation="vertical"
                 android:background="#1a1a1a"
                 android:padding="8dp"
-                android:layout_margin="2dp">
-                <TextView android:id="@+id/stat_progress" android:text="0%" android:textColor="#e74c3c" android:textSize="16sp" android:textStyle="bold" />
-                <TextView android:text="Progresso" android:textColor="#888" android:textSize="10sp" />
+                android:layout_marginLeft="2dp"
+                android:layout_marginRight="2dp">
+                <TextView android:id="@+id/stat_progress" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0%" android:textColor="#e74c3c" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Progresso" android:textColor="#888" android:textSize="10sp" />
             </LinearLayout>
             
             <LinearLayout
@@ -146,9 +147,10 @@
                 android:orientation="vertical"
                 android:background="#1a1a1a"
                 android:padding="8dp"
-                android:layout_margin="2dp">
-                <TextView android:id="@+id/stat_speed" android:text="0 KB/s" android:textColor="#e74c3c" android:textSize="16sp" android:textStyle="bold" />
-                <TextView android:text="Velocidade" android:textColor="#888" android:textSize="10sp" />
+                android:layout_marginLeft="2dp"
+                android:layout_marginRight="2dp">
+                <TextView android:id="@+id/stat_speed" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0 KB/s" android:textColor="#e74c3c" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Velocidade" android:textColor="#888" android:textSize="10sp" />
             </LinearLayout>
             
             <LinearLayout
@@ -159,9 +161,10 @@
                 android:orientation="vertical"
                 android:background="#1a1a1a"
                 android:padding="8dp"
-                android:layout_margin="2dp">
-                <TextView android:id="@+id/stat_peers" android:text="0" android:textColor="#e74c3c" android:textSize="16sp" android:textStyle="bold" />
-                <TextView android:text="Peers UDP" android:textColor="#888" android:textSize="10sp" />
+                android:layout_marginLeft="2dp"
+                android:layout_marginRight="2dp">
+                <TextView android:id="@+id/stat_peers" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="0" android:textColor="#e74c3c" android:textSize="16sp" android:textStyle="bold" />
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Peers UDP" android:textColor="#888" android:textSize="10sp" />
             </LinearLayout>
         </LinearLayout>
         
