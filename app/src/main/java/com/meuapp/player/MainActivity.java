@@ -36,27 +36,13 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         
         try {
-            // Configura sessão com DHT ativado
-            settings_pack sp = new settings_pack();
-            sp.set_bool(settings_pack.bool_types.enable_dht, true);
-            sp.set_bool(settings_pack.bool_types.enable_lsd, true);
-            sp.set_bool(settings_pack.bool_types.enable_upnp, true);
-            sp.set_bool(settings_pack.bool_types.enable_natpmp, true);
-            
-            session = new SessionManager(sp);
+            session = new SessionManager();
             session.start();
-            
-            // Adiciona DHT routers para encontrar mais peers
-            session.swig().add_dht_router("router.bittorrent.com", 6881);
-            session.swig().add_dht_router("dht.transmissionbt.com", 6881);
-            session.swig().add_dht_router("dht.libtorrent.org", 25401);
-            session.swig().add_dht_router("router.utorrent.com", 6881);
-            session.swig().add_dht_router("dht.aelitis.com", 6881);
             
             streamServer = new StreamServer(8080);
             streamServer.start();
             
-            Toast.makeText(this, "UDP + DHT + Streaming OK!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "UDP + Streaming OK!", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -79,15 +65,11 @@ public class MainActivity extends AppCompatActivity {
     class StreamServer extends NanoHTTPD {
         private static final int MAX_CHUNK = 512 * 1024;
         
-        public StreamServer(int port) {
-            super(port);
-        }
+        public StreamServer(int port) { super(port); }
         
         @Override
         public Response serve(IHTTPSession ses) {
-            if ("/video".equals(ses.getUri())) {
-                return serveVideo(ses);
-            }
+            if ("/video".equals(ses.getUri())) return serveVideo(ses);
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found");
         }
         
@@ -96,7 +78,6 @@ public class MainActivity extends AppCompatActivity {
                 if (videoFile == null || !videoFile.exists()) {
                     videoFile = findVideoFile(new File(savePath));
                 }
-                
                 if (videoFile == null) {
                     return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Arquivo nao encontrado");
                 }
@@ -106,6 +87,10 @@ public class MainActivity extends AppCompatActivity {
                     return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Arquivo vazio");
                 }
                 
+                String name = videoFile.getName().toLowerCase();
+                String mimeType = name.endsWith(".mkv") ? "video/x-matroska" :
+                                name.endsWith(".webm") ? "video/webm" : "video/mp4";
+                
                 Map<String, String> headers = ses.getHeaders();
                 String rangeHeader = headers.get("range");
                 
@@ -113,64 +98,42 @@ public class MainActivity extends AppCompatActivity {
                 long end = Math.min(MAX_CHUNK - 1, fileLength - 1);
                 
                 if (rangeHeader != null) {
-                    String range = rangeHeader.replace("bytes=", "");
-                    String[] parts = range.split("-");
+                    String[] parts = rangeHeader.replace("bytes=", "").split("-");
                     start = Long.parseLong(parts[0]);
-                    if (parts.length > 1 && !parts[1].isEmpty()) {
-                        end = Long.parseLong(parts[1]);
-                    } else {
-                        end = Math.min(start + MAX_CHUNK - 1, fileLength - 1);
-                    }
+                    end = (parts.length > 1 && !parts[1].isEmpty()) ? 
+                        Long.parseLong(parts[1]) : Math.min(start + MAX_CHUNK - 1, fileLength - 1);
                 }
                 
-                if (end - start + 1 > MAX_CHUNK) {
-                    end = start + MAX_CHUNK - 1;
-                }
-                
+                if (end - start + 1 > MAX_CHUNK) end = start + MAX_CHUNK - 1;
                 if (start >= fileLength) {
-                    return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, 
-                        "text/plain", "Range not satisfiable");
+                    return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, "text/plain", "Range");
                 }
-                if (end >= fileLength) {
-                    end = fileLength - 1;
-                }
+                if (end >= fileLength) end = fileLength - 1;
                 
                 int length = (int)(end - start + 1);
                 byte[] data = new byte[length];
                 
                 try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
                     raf.seek(start);
-                    int totalRead = 0;
-                    while (totalRead < length) {
-                        int read = raf.read(data, totalRead, length - totalRead);
-                        if (read == -1) break;
-                        totalRead += read;
-                    }
-                    
+                    int totalRead = raf.read(data);
                     if (totalRead == 0) {
-                        return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, 
-                            "text/plain", "Parte ainda nao baixada");
+                        return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Aguardando");
                     }
-                    
                     if (totalRead < length) {
                         byte[] trimmed = new byte[totalRead];
                         System.arraycopy(data, 0, trimmed, 0, totalRead);
                         data = trimmed;
-                        length = totalRead;
                     }
                 }
                 
                 Response resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT,
-                    "video/mp4", new ByteArrayInputStream(data), length);
-                resp.addHeader("Content-Range", "bytes " + start + "-" + (start + length - 1) + "/" + fileLength);
+                    mimeType, new ByteArrayInputStream(data), data.length);
+                resp.addHeader("Content-Range", "bytes " + start + "-" + (start + data.length - 1) + "/" + fileLength);
                 resp.addHeader("Accept-Ranges", "bytes");
                 resp.addHeader("Access-Control-Allow-Origin", "*");
-                resp.addHeader("Content-Type", "video/mp4");
                 return resp;
-                
             } catch (Exception e) {
-                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, 
-                    "text/plain", e.getMessage());
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.getMessage());
             }
         }
     }
@@ -204,7 +167,6 @@ public class MainActivity extends AppCompatActivity {
                     add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                     p.setSave_path(savePath);
                     
-                    // MUITOS trackers UDP públicos para maximizar peers
                     string_vector trackers = new string_vector();
                     trackers.add("udp://tracker.opentrackr.org:1337/announce");
                     trackers.add("udp://tracker.openbittorrent.com:6969/announce");
@@ -214,17 +176,11 @@ public class MainActivity extends AppCompatActivity {
                     trackers.add("udp://tracker.moeking.me:6969/announce");
                     trackers.add("udp://tracker.cyberia.is:6969/announce");
                     trackers.add("udp://tracker.coppersurfer.tk:6969/announce");
-                    trackers.add("udp://tracker.leechers-paradise.org:6969/announce");
-                    trackers.add("udp://tracker.internetwarriors.net:1337/announce");
                     trackers.add("udp://9.rarbg.to:2710/announce");
-                    trackers.add("udp://tracker.dler.org:6969/announce");
-                    // Trackers HTTP também
-                    trackers.add("http://tracker.opentrackr.org:1337/announce");
-                    trackers.add("http://tracker.openbittorrent.com:80/announce");
                     p.setTrackers(trackers);
                     
                     p.setFlags(torrent_flags_t.from_int(9));
-                    p.setDownload_limit(3 * 1024 * 1024); // 3 MB/s
+                    p.setDownload_limit(3 * 1024 * 1024);
                     p.setMax_connections(200);
                     p.setMax_uploads(10);
                     
@@ -242,7 +198,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                     
                     runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Buscando peers UDP/DHT...", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(MainActivity.this, "Streaming UDP 3MB/s ativado!", Toast.LENGTH_SHORT).show()
                     );
                 } catch (Exception e) {
                     downloading = false;
