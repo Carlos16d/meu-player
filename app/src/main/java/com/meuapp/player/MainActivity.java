@@ -1,7 +1,5 @@
 package com.meuapp.player;
 
-import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -9,7 +7,9 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.FileProvider;
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
@@ -17,12 +17,14 @@ import org.libtorrent4j.swig.*;
 import java.io.*;
 
 public class MainActivity extends AppCompatActivity {
+    private PlayerView playerView;
+    private ExoPlayer player;
     private LinearLayout loadingOverlay, controlPanel, statsRow;
     private TextView loadingTitle, loadingProgress, loadingSpeed, loadingPeers, loadingStatus;
     private TextView statProgress, statSpeed, statPeers;
     private ProgressBar bufferBar;
     private EditText magnetInput;
-    private Button btnPlay, btnStop, btnOpenVideo;
+    private Button btnPlay, btnStop;
     
     private String savePath;
     private SessionManager session;
@@ -38,6 +40,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
+        playerView = findViewById(R.id.player_view);
         loadingOverlay = findViewById(R.id.loading_overlay);
         controlPanel = findViewById(R.id.control_panel);
         statsRow = findViewById(R.id.stats_row);
@@ -53,10 +56,13 @@ public class MainActivity extends AppCompatActivity {
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
-        btnOpenVideo = findViewById(R.id.btn_open_video);
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
+        
+        // Inicializa ExoPlayer
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
         
         new Thread(() -> {
             try {
@@ -70,8 +76,6 @@ public class MainActivity extends AppCompatActivity {
         
         btnPlay.setOnClickListener(v -> startStream());
         btnStop.setOnClickListener(v -> stopStream());
-        btnOpenVideo.setOnClickListener(v -> openVideo());
-        
         showLog("📱 App pronto");
     }
     
@@ -79,25 +83,6 @@ public class MainActivity extends AppCompatActivity {
         handler.post(() -> {
             if (loadingStatus != null) loadingStatus.setText(msg);
         });
-    }
-    
-    private void openVideo() {
-        if (videoFile != null && videoFile.exists()) {
-            try {
-                Uri uri = FileProvider.getUriForFile(this, 
-                    "com.meuapp.player.fileprovider", videoFile);
-                Intent intent = new Intent(Intent.ACTION_VIEW);
-                intent.setDataAndType(uri, "video/*");
-                intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                startActivity(intent);
-                showLog("▶️ Abrindo no player externo...");
-            } catch (Exception e) {
-                // Fallback: tenta abrir direto
-                Intent intent = new Intent(Intent.ACTION_VIEW);
-                intent.setDataAndType(Uri.fromFile(videoFile), "video/*");
-                startActivity(intent);
-            }
-        }
     }
     
     private void startStream() {
@@ -112,10 +97,10 @@ public class MainActivity extends AppCompatActivity {
         videoFile = null;
         
         loadingOverlay.setVisibility(View.VISIBLE);
+        playerView.setVisibility(View.VISIBLE);
         controlPanel.setVisibility(View.GONE);
         statsRow.setVisibility(View.VISIBLE);
         btnStop.setVisibility(View.VISIBLE);
-        btnOpenVideo.setVisibility(View.GONE);
         
         showLog("⏳ Iniciando...");
         
@@ -135,6 +120,7 @@ public class MainActivity extends AppCompatActivity {
                 p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(3 * 1024 * 1024);
                 p.setMax_connections(200);
+                p.setMax_uploads(10);
                 
                 byte_vector priorities = new byte_vector();
                 priorities.add((byte)7);
@@ -200,11 +186,14 @@ public class MainActivity extends AppCompatActivity {
                     long size = videoFile.length();
                     showLog("📁 " + videoFile.getName() + " (" + (size/1024) + "KB)");
                     
-                    if (size > 50000) {
+                    if (size > 100000) {
                         handler.post(() -> {
+                            MediaItem item = MediaItem.fromUri("file://" + videoFile.getAbsolutePath());
+                            player.setMediaItem(item);
+                            player.prepare();
+                            player.play();
                             loadingOverlay.setVisibility(View.GONE);
-                            btnOpenVideo.setVisibility(View.VISIBLE);
-                            showLog("✅ Pronto! Clique para assistir");
+                            showLog("▶️ Reproduzindo com ExoPlayer!");
                         });
                         return;
                     }
@@ -218,13 +207,15 @@ public class MainActivity extends AppCompatActivity {
     
     private void stopStream() {
         downloading = false;
+        player.stop();
+        player.clearMediaItems();
         handler.removeCallbacks(statsUpdater);
         handler.removeCallbacks(fileWatcher);
+        playerView.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
         controlPanel.setVisibility(View.VISIBLE);
         statsRow.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
-        btnOpenVideo.setVisibility(View.GONE);
         showLog("⏹️ Parado");
     }
     
@@ -252,6 +243,7 @@ public class MainActivity extends AppCompatActivity {
         downloading = false;
         handler.removeCallbacks(statsUpdater);
         handler.removeCallbacks(fileWatcher);
+        if (player != null) player.release();
         if (session != null) session.stop();
     }
 }
