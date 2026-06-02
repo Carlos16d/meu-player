@@ -13,9 +13,8 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.*;
-import java.util.Map;
-
-import fi.iki.elonen.NanoHTTPD;
+import java.net.*;
+import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
     private VideoView videoView;
@@ -30,11 +29,11 @@ public class MainActivity extends AppCompatActivity {
     private SessionManager session;
     private torrent_handle torrent;
     private boolean downloading = false;
-    private StreamServer streamServer;
     private File videoFile = null;
     private Handler handler = new Handler(Looper.getMainLooper());
     private Runnable statsUpdater;
     private Runnable fileWatcher;
+    private HttpStreamServer httpServer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -65,10 +64,11 @@ public class MainActivity extends AppCompatActivity {
             session = new SessionManager();
             session.start();
             
-            streamServer = new StreamServer(8080);
-            streamServer.start();
+            // Inicia servidor HTTP customizado
+            httpServer = new HttpStreamServer(8080);
+            httpServer.start();
             
-            Toast.makeText(this, "UDP + Streaming OK!", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "UDP + Servidor HTTP OK!", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -76,6 +76,173 @@ public class MainActivity extends AppCompatActivity {
         btnPlay.setOnClickListener(v -> startStream());
         btnStop.setOnClickListener(v -> stopStream());
     }
+    
+    // ==================== SERVIDOR HTTP CUSTOMIZADO ====================
+    class HttpStreamServer {
+        private int port;
+        private ServerSocket serverSocket;
+        private boolean running = false;
+        
+        public HttpStreamServer(int port) {
+            this.port = port;
+        }
+        
+        public void start() {
+            running = true;
+            new Thread(() -> {
+                try {
+                    serverSocket = new ServerSocket(port);
+                    serverSocket.setReuseAddress(true);
+                    
+                    while (running) {
+                        try {
+                            Socket client = serverSocket.accept();
+                            new Thread(() -> handleClient(client)).start();
+                        } catch (IOException e) {
+                            if (running) e.printStackTrace();
+                        }
+                    }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                }
+            }).start();
+        }
+        
+        public void stop() {
+            running = false;
+            try {
+                if (serverSocket != null) serverSocket.close();
+            } catch (IOException e) {}
+        }
+        
+        private void handleClient(Socket client) {
+            try {
+                BufferedReader reader = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                OutputStream out = client.getOutputStream();
+                
+                // Lê a requisição HTTP
+                String requestLine = reader.readLine();
+                if (requestLine == null) { client.close(); return; }
+                
+                // Lê headers para encontrar Range
+                String line;
+                String rangeHeader = null;
+                while ((line = reader.readLine()) != null && !line.isEmpty()) {
+                    if (line.toLowerCase().startsWith("range:")) {
+                        rangeHeader = line.substring(6).trim();
+                    }
+                }
+                
+                // Só aceita /video
+                String[] requestParts = requestLine.split(" ");
+                if (requestParts.length < 2 || !"/video".equals(requestParts[1])) {
+                    sendError(out, 404, "Not Found");
+                    client.close();
+                    return;
+                }
+                
+                // Verifica se arquivo existe
+                if (videoFile == null || !videoFile.exists()) {
+                    sendError(out, 503, "Arquivo ainda nao disponivel");
+                    client.close();
+                    return;
+                }
+                
+                long fileLength = videoFile.length();
+                if (fileLength < 1024) {
+                    sendError(out, 503, "Arquivo muito pequeno");
+                    client.close();
+                    return;
+                }
+                
+                // Processa Range
+                long start = 0;
+                long end = fileLength - 1;
+                int chunkSize = 256 * 1024; // 256KB
+                
+                if (rangeHeader != null) {
+                    String range = rangeHeader.replace("bytes=", "");
+                    String[] parts = range.split("-");
+                    try {
+                        start = Long.parseLong(parts[0]);
+                        if (parts.length > 1 && !parts[1].isEmpty()) {
+                            end = Long.parseLong(parts[1]);
+                        } else {
+                            end = Math.min(start + chunkSize, fileLength - 1);
+                        }
+                    } catch (NumberFormatException e) {}
+                } else {
+                    end = Math.min(chunkSize, fileLength - 1);
+                }
+                
+                // Limita tamanho
+                if (end - start > chunkSize) {
+                    end = start + chunkSize;
+                }
+                if (start >= fileLength) {
+                    sendError(out, 416, "Range Not Satisfiable");
+                    client.close();
+                    return;
+                }
+                if (end >= fileLength) end = fileLength - 1;
+                
+                // Lê os bytes do arquivo
+                int length = (int)(end - start + 1);
+                byte[] buffer = new byte[length];
+                int totalRead = 0;
+                
+                RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
+                raf.seek(start);
+                
+                while (totalRead < length) {
+                    int read = raf.read(buffer, totalRead, length - totalRead);
+                    if (read == -1) break;
+                    totalRead += read;
+                }
+                raf.close();
+                
+                // Se não leu nada
+                if (totalRead == 0) {
+                    sendError(out, 503, "Parte ainda nao baixada");
+                    client.close();
+                    return;
+                }
+                
+                // Envia resposta HTTP
+                String statusLine = "HTTP/1.1 206 Partial Content\r\n";
+                out.write(statusLine.getBytes());
+                out.write(("Content-Type: video/mp4\r\n").getBytes());
+                out.write(("Content-Range: bytes " + start + "-" + (start + totalRead - 1) + "/" + fileLength + "\r\n").getBytes());
+                out.write(("Content-Length: " + totalRead + "\r\n").getBytes());
+                out.write(("Accept-Ranges: bytes\r\n").getBytes());
+                out.write(("Connection: close\r\n").getBytes());
+                out.write(("Access-Control-Allow-Origin: *\r\n").getBytes());
+                out.write(("\r\n").getBytes());
+                
+                // Envia os dados
+                out.write(buffer, 0, totalRead);
+                out.flush();
+                
+                client.close();
+                
+            } catch (Exception e) {
+                try { client.close(); } catch (IOException ex) {}
+            }
+        }
+        
+        private void sendError(OutputStream out, int code, String message) {
+            try {
+                String response = "HTTP/1.1 " + code + " " + message + "\r\n";
+                response += "Content-Type: text/plain\r\n";
+                response += "Connection: close\r\n";
+                response += "\r\n";
+                response += message;
+                out.write(response.getBytes());
+                out.flush();
+            } catch (IOException e) {}
+        }
+    }
+    // ==================== FIM DO SERVIDOR ====================
     
     private void startStream() {
         String magnet = magnetInput.getText().toString().trim();
@@ -93,9 +260,6 @@ public class MainActivity extends AppCompatActivity {
         controlPanel.setVisibility(View.GONE);
         statsRow.setVisibility(View.VISIBLE);
         btnStop.setVisibility(View.VISIBLE);
-        
-        loadingTitle.setText("Conectando...");
-        loadingStatus.setText("Iniciando trackers UDP...");
         
         new Thread(() -> {
             try {
@@ -125,7 +289,6 @@ public class MainActivity extends AppCompatActivity {
                     torrent = handles.get(0);
                 }
                 
-                // Espera arquivo e conecta ao servidor HTTP
                 handler.post(() -> startFileWatcher());
                 
             } catch (Exception e) {
@@ -149,15 +312,10 @@ public class MainActivity extends AppCompatActivity {
                     statProgress.setText(prog + "%");
                     statSpeed.setText(speedStr);
                     statPeers.setText(String.valueOf(peers));
-                    
                     loadingProgress.setText(prog + "%");
                     loadingSpeed.setText(speedStr);
                     loadingPeers.setText(peers + " peers");
                     bufferBar.setProgress(prog);
-                    
-                    if (prog < 1) loadingStatus.setText("Conectando peers UDP...");
-                    else if (prog < 5) loadingStatus.setText("Baixando metadados...");
-                    else loadingStatus.setText("Download em andamento...");
                 }
                 handler.postDelayed(this, 1000);
             }
@@ -202,87 +360,6 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.GONE);
     }
     
-    // Servidor HTTP ultra simples - máximo 128KB por resposta
-    class StreamServer extends NanoHTTPD {
-        public StreamServer(int port) { super(port); }
-        
-        @Override
-        public Response serve(IHTTPSession ses) {
-            if (!"/video".equals(ses.getUri())) {
-                return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found");
-            }
-            
-            try {
-                if (videoFile == null || !videoFile.exists()) {
-                    return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Aguardando arquivo...");
-                }
-                
-                long fileLength = videoFile.length();
-                
-                // Range request
-                Map<String, String> headers = ses.getHeaders();
-                String range = headers.get("range");
-                
-                long start = 0;
-                long end = fileLength - 1;
-                
-                if (range != null) {
-                    String[] parts = range.replace("bytes=", "").split("-");
-                    start = Long.parseLong(parts[0]);
-                    if (parts.length > 1 && !parts[1].isEmpty()) {
-                        end = Long.parseLong(parts[1]);
-                    } else {
-                        end = start + 131072; // 128KB máximo
-                    }
-                } else {
-                    end = Math.min(131072, fileLength - 1); // 128KB máximo
-                }
-                
-                // Limita a 128KB
-                if (end - start > 131072) {
-                    end = start + 131072;
-                }
-                
-                if (start >= fileLength) {
-                    return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, "text/plain", "Fora do alcance");
-                }
-                if (end >= fileLength) end = fileLength - 1;
-                
-                // Lê apenas o pedaço necessário
-                int length = (int)(end - start + 1);
-                byte[] data = new byte[length];
-                
-                RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                raf.seek(start);
-                int read = raf.read(data);
-                raf.close();
-                
-                if (read <= 0) {
-                    return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Aguardando dados...");
-                }
-                
-                // Se leu menos, ajusta
-                if (read < length) {
-                    byte[] trimmed = new byte[read];
-                    System.arraycopy(data, 0, trimmed, 0, read);
-                    data = trimmed;
-                    length = read;
-                }
-                
-                Response resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT,
-                    "video/mp4", new ByteArrayInputStream(data), length);
-                resp.addHeader("Content-Range", "bytes " + start + "-" + (start + length - 1) + "/" + fileLength);
-                resp.addHeader("Accept-Ranges", "bytes");
-                resp.addHeader("Access-Control-Allow-Origin", "*");
-                resp.addHeader("Connection", "close");
-                return resp;
-                
-            } catch (Exception e) {
-                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Erro");
-            }
-        }
-    }
-    
     private File findVideoFile(File dir) {
         File[] files = dir.listFiles();
         if (files != null) {
@@ -307,7 +384,7 @@ public class MainActivity extends AppCompatActivity {
         downloading = false;
         handler.removeCallbacks(statsUpdater);
         handler.removeCallbacks(fileWatcher);
-        if (streamServer != null) streamServer.stop();
+        if (httpServer != null) httpServer.stop();
         if (session != null) session.stop();
     }
 }
