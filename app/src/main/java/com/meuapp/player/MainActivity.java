@@ -13,7 +13,6 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.*;
-import java.net.*;
 
 public class MainActivity extends AppCompatActivity {
     private VideoView videoView;
@@ -29,7 +28,6 @@ public class MainActivity extends AppCompatActivity {
     private torrent_handle torrent;
     private volatile boolean downloading = false;
     private volatile File videoFile = null;
-    private Thread serverThread;
     private Handler handler = new Handler(Looper.getMainLooper());
     private StringBuilder fullLog = new StringBuilder();
 
@@ -66,20 +64,23 @@ public class MainActivity extends AppCompatActivity {
             }
         }).start();
         
-        startServer();
-        
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
         
         videoView.setOnPreparedListener(mp -> {
-            log("✅ VideoView preparado!");
-            loading(false);
+            log("✅ Reproduzindo!");
+            handler.post(() -> {
+                logScroll.setVisibility(View.GONE);
+                statsRow.setVisibility(View.VISIBLE);
+                btnStop.setVisibility(View.VISIBLE);
+                bufferBar.setVisibility(View.VISIBLE);
+            });
         });
         videoView.setOnErrorListener((mp, what, extra) -> {
-            log("❌ Erro VideoView: " + what + " extra: " + extra);
+            log("❌ Erro VideoView: " + what);
             return true;
         });
-        videoView.setOnCompletionListener(mp -> log("🏁 Reprodução concluída"));
+        videoView.setOnCompletionListener(mp -> log("🏁 Fim"));
     }
     
     private void log(String msg) {
@@ -90,140 +91,18 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    private void loading(boolean show) {
-        handler.post(() -> {
-            if (show) {
-                videoView.setVisibility(View.VISIBLE);
-                controlPanel.setVisibility(View.GONE);
-                statsRow.setVisibility(View.VISIBLE);
-                btnStop.setVisibility(View.VISIBLE);
-            }
-        });
-    }
-    
-    private void startServer() {
-        serverThread = new Thread(() -> {
-            try {
-                ServerSocket server = new ServerSocket(8080, 10);
-                server.setReuseAddress(true);
-                log("🌐 Servidor HTTP na porta 8080");
-                
-                while (!Thread.interrupted()) {
-                    try {
-                        Socket client = server.accept();
-                        handleClient(client);
-                    } catch (IOException e) {}
-                }
-                server.close();
-            } catch (IOException e) {
-                log("❌ Servidor: " + e.getMessage());
-            }
-        });
-        serverThread.setDaemon(true);
-        serverThread.start();
-    }
-    
-    private void handleClient(Socket client) {
-        try {
-            client.setSoTimeout(10000);
-            OutputStream out = client.getOutputStream();
-            BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
-            
-            String request = in.readLine();
-            String range = null;
-            String line;
-            while ((line = in.readLine()) != null && !line.isEmpty()) {
-                if (line.toLowerCase().startsWith("range:")) {
-                    range = line.substring(6).trim();
-                }
-            }
-            
-            if (request == null || !request.contains("/video")) {
-                send(out, "HTTP/1.1 404\r\nConnection: close\r\n\r\n");
-                client.close();
-                return;
-            }
-            
-            File vf = videoFile;
-            if (vf == null || !vf.exists() || vf.length() < 4096) {
-                send(out, "HTTP/1.1 503\r\nRetry-After: 1\r\nConnection: close\r\n\r\n");
-                client.close();
-                return;
-            }
-            
-            long fileLen = vf.length();
-            long start = 0, end = fileLen - 1;
-            
-            if (range != null) {
-                String r = range.replace("bytes=", "");
-                String[] parts = r.split("-");
-                start = Long.parseLong(parts[0]);
-                end = (parts.length > 1 && !parts[1].isEmpty()) ? 
-                    Long.parseLong(parts[1]) : fileLen - 1;
-            }
-            
-            if (start >= fileLen) {
-                send(out, "HTTP/1.1 416\r\nConnection: close\r\n\r\n");
-                client.close();
-                return;
-            }
-            if (end >= fileLen) end = fileLen - 1;
-            if (end - start > 131072) end = start + 131072;
-            
-            int len = (int)(end - start + 1);
-            byte[] buf = new byte[len];
-            int total = 0;
-            
-            try (RandomAccessFile raf = new RandomAccessFile(vf, "r")) {
-                raf.seek(start);
-                while (total < len) {
-                    int r = raf.read(buf, total, len - total);
-                    if (r == -1) break;
-                    total += r;
-                }
-            }
-            
-            if (total == 0) {
-                send(out, "HTTP/1.1 503\r\nRetry-After: 1\r\nConnection: close\r\n\r\n");
-                client.close();
-                return;
-            }
-            
-            String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-            
-            StringBuilder headers = new StringBuilder();
-            headers.append("HTTP/1.1 206\r\n");
-            headers.append("Content-Type: ").append(mime).append("\r\n");
-            headers.append("Content-Range: bytes ").append(start).append("-")
-                .append(start + total - 1).append("/").append(fileLen).append("\r\n");
-            headers.append("Content-Length: ").append(total).append("\r\n");
-            headers.append("Accept-Ranges: bytes\r\n");
-            headers.append("Connection: close\r\n");
-            headers.append("Access-Control-Allow-Origin: *\r\n");
-            headers.append("\r\n");
-            
-            out.write(headers.toString().getBytes());
-            out.write(buf, 0, total);
-            out.flush();
-            client.close();
-            
-        } catch (Exception e) {
-            try { client.close(); } catch (IOException ex) {}
-        }
-    }
-    
-    private void send(OutputStream out, String s) throws IOException {
-        out.write(s.getBytes());
-        out.flush();
-    }
-    
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
         
         downloading = true;
         videoFile = null;
-        loading(true);
+        
+        handler.post(() -> {
+            videoView.setVisibility(View.VISIBLE);
+            controlPanel.setVisibility(View.GONE);
+            logScroll.setVisibility(View.VISIBLE);
+        });
         
         log("═══ INICIANDO ═══");
         
@@ -233,7 +112,6 @@ public class MainActivity extends AppCompatActivity {
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(0);
-                p.setMax_connections(200);
                 
                 byte_vector pr = new byte_vector();
                 pr.add((byte)7);
@@ -246,20 +124,21 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) torrent = h.get(0);
                 
-                // Espera o arquivo aparecer
+                // Espera arquivo aparecer e tenta reproduzir
                 while (downloading && videoFile == null) {
-                    handler.post(() -> {
-                        File f = find(new File(savePath));
-                        if (f != null && f.exists() && f.length() > 4096) {
-                            videoFile = f;
-                            log("📁 " + f.getName() + " (" + (f.length()/1024) + "KB)");
-                            
-                            // Conecta o VideoView ao servidor HTTP
-                            videoView.setVideoURI(Uri.parse("http://127.0.0.1:8080/video"));
+                    File f = find(new File(savePath));
+                    if (f != null && f.exists() && f.length() > 50000) {
+                        videoFile = f;
+                        log("📁 " + f.getName() + " (" + (f.length()/1024) + "KB)");
+                        
+                        handler.post(() -> {
+                            // Lê direto do arquivo (sem servidor HTTP)
+                            videoView.setVideoPath(videoFile.getAbsolutePath());
                             videoView.start();
-                            log("▶️ VideoView iniciado");
-                        }
-                    });
+                            log("▶️ Player iniciado");
+                        });
+                        break;
+                    }
                     Thread.sleep(2000);
                 }
                 
@@ -275,12 +154,8 @@ public class MainActivity extends AppCompatActivity {
                     torrent_status ts = torrent.status();
                     statProgress.setText((int)(ts.getProgress() * 100) + "%");
                     long speed = ts.getDownload_rate();
-                    if (speed > 1048576)
-                        statSpeed.setText(String.format("%.1f MB/s", speed / 1048576.0));
-                    else if (speed > 1024)
-                        statSpeed.setText(String.format("%.1f KB/s", speed / 1024.0));
-                    else
-                        statSpeed.setText(speed + " B/s");
+                    statSpeed.setText(speed > 1048576 ? String.format("%.1f MB/s", speed/1048576.0) :
+                        speed > 1024 ? String.format("%.1f KB/s", speed/1024.0) : speed + " B/s");
                     statPeers.setText(String.valueOf(ts.getNum_peers()));
                     bufferBar.setProgress((int)(ts.getProgress() * 100));
                 }
@@ -297,6 +172,8 @@ public class MainActivity extends AppCompatActivity {
         controlPanel.setVisibility(View.VISIBLE);
         statsRow.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
+        bufferBar.setVisibility(View.GONE);
+        logScroll.setVisibility(View.GONE);
         log("⏹️ Parado");
     }
     
@@ -320,7 +197,6 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         downloading = false;
-        if (serverThread != null) serverThread.interrupt();
         if (session != null) session.stop();
     }
 }
