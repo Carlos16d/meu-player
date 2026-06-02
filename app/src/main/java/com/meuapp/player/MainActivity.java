@@ -7,7 +7,6 @@ import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.webkit.WebSettings;
-import android.widget.Toast;
 import androidx.appcompat.app.AppCompatActivity;
 
 import org.libtorrent4j.SessionManager;
@@ -21,9 +20,9 @@ public class MainActivity extends AppCompatActivity {
     private String savePath;
     private SessionManager session;
     private torrent_handle torrent;
-    private boolean downloading = false;
-    private File videoFile = null;
-    private HttpServer httpServer;
+    private volatile boolean downloading = false;
+    private volatile File videoFile = null;
+    private Thread serverThread;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -40,9 +39,7 @@ public class MainActivity extends AppCompatActivity {
             e.printStackTrace();
         }
         
-        // Inicia servidor HTTP
-        httpServer = new HttpServer(8080);
-        httpServer.start();
+        startServer();
         
         webView = findViewById(R.id.webview);
         WebSettings s = webView.getSettings();
@@ -59,134 +56,150 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("file:///android_asset/www/index.html");
     }
     
-    // Servidor HTTP ultra simples
-    class HttpServer {
-        private int port;
-        private ServerSocket serverSocket;
-        private volatile boolean running;
-        
-        HttpServer(int port) { this.port = port; }
-        
-        void start() {
-            running = true;
-            new Thread(() -> {
-                try {
-                    serverSocket = new ServerSocket(port, 5);
-                    serverSocket.setReuseAddress(true);
-                    while (running) {
-                        try {
-                            Socket client = serverSocket.accept();
-                            handleClient(client);
-                        } catch (IOException e) {
-                            if (running) e.printStackTrace();
-                        }
-                    }
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-            }).start();
-        }
-        
-        void stop() {
-            running = false;
-            try { serverSocket.close(); } catch (IOException e) {}
-        }
-        
-        private void handleClient(Socket client) {
+    private void startServer() {
+        serverThread = new Thread(() -> {
             try {
-                client.setSoTimeout(5000);
-                OutputStream out = client.getOutputStream();
-                BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
+                ServerSocket server = new ServerSocket(8080, 10);
+                server.setReuseAddress(true);
                 
-                String line = in.readLine();
-                if (line == null || !line.startsWith("GET /video")) {
-                    sendError(out, 404);
-                    client.close();
-                    return;
-                }
-                
-                // Lê headers
-                String rangeStr = null;
-                while ((line = in.readLine()) != null && !line.isEmpty()) {
-                    if (line.toLowerCase().startsWith("range:")) {
-                        rangeStr = line.substring(6).trim();
+                while (!Thread.interrupted()) {
+                    try {
+                        Socket client = server.accept();
+                        new Thread(() -> handle(client)).start();
+                    } catch (IOException e) {
+                        if (!server.isClosed()) e.printStackTrace();
                     }
                 }
-                
-                // Verifica arquivo
-                File vf = videoFile;
-                if (vf == null || !vf.exists() || vf.length() < 4096) {
-                    sendError(out, 503);
-                    client.close();
-                    return;
+                server.close();
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+        serverThread.setDaemon(true);
+        serverThread.start();
+    }
+    
+    private void handle(Socket client) {
+        try {
+            client.setSoTimeout(10000);
+            OutputStream out = client.getOutputStream();
+            InputStream in = client.getInputStream();
+            
+            // Lê request
+            StringBuilder sb = new StringBuilder();
+            int c;
+            while ((c = in.read()) != -1 && c != '\n') sb.append((char)c);
+            String request = sb.toString();
+            
+            // Lê headers
+            String range = null;
+            sb.setLength(0);
+            boolean headerDone = false;
+            while (!headerDone && (c = in.read()) != -1) {
+                if (c == '\r') continue;
+                if (c == '\n') {
+                    String line = sb.toString().trim();
+                    if (line.isEmpty()) headerDone = true;
+                    else if (line.toLowerCase().startsWith("range:")) range = line.substring(6).trim();
+                    sb.setLength(0);
+                } else {
+                    sb.append((char)c);
                 }
-                
-                long fileLen = vf.length();
-                long start = 0;
-                long end = Math.min(65535, fileLen - 1);
-                
-                if (rangeStr != null) {
-                    String r = rangeStr.replace("bytes=", "");
+            }
+            
+            if (!request.contains("/video")) {
+                write(out, "HTTP/1.1 404 Not Found\r\nConnection: close\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            File vf = videoFile;
+            if (vf == null || !vf.exists() || vf.length() < 8192) {
+                write(out, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nConnection: close\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            long fileLen = vf.length();
+            long start = 0, end = fileLen - 1;
+            
+            if (range != null) {
+                try {
+                    String r = range.replace("bytes=", "");
                     String[] parts = r.split("-");
                     start = Long.parseLong(parts[0]);
-                    if (parts.length > 1 && !parts[1].isEmpty()) {
-                        end = Math.min(Long.parseLong(parts[1]), start + 65535);
-                    } else {
-                        end = Math.min(start + 65535, fileLen - 1);
-                    }
-                }
-                
-                if (start >= fileLen || end >= fileLen) {
-                    sendError(out, 416);
-                    client.close();
-                    return;
-                }
-                
-                int len = (int)(end - start + 1);
-                if (len > 65536) len = 65536;
-                
-                byte[] buf = new byte[len];
-                RandomAccessFile raf = new RandomAccessFile(vf, "r");
+                    end = (parts.length > 1 && !parts[1].isEmpty()) ? 
+                        Long.parseLong(parts[1]) : fileLen - 1;
+                } catch (NumberFormatException e) {}
+            }
+            
+            // Verifica se o pedaço solicitado já existe no arquivo
+            if (start >= fileLen) {
+                write(out, "HTTP/1.1 416 Range Not Satisfiable\r\nConnection: close\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            // Se pediu além do que existe, limita ao que tem
+            if (end >= fileLen) end = fileLen - 1;
+            
+            // Máximo 256KB por resposta
+            if (end - start > 262143) end = start + 262143;
+            
+            int len = (int)(end - start + 1);
+            if (len <= 0 || len > 262144) {
+                write(out, "HTTP/1.1 416 Range Not Satisfiable\r\nConnection: close\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            byte[] buf = new byte[len];
+            int total = 0;
+            
+            try (RandomAccessFile raf = new RandomAccessFile(vf, "r")) {
                 raf.seek(start);
-                int total = 0;
                 while (total < len) {
                     int r = raf.read(buf, total, len - total);
                     if (r == -1) break;
                     total += r;
                 }
-                raf.close();
-                
-                if (total == 0) {
-                    sendError(out, 503);
-                    client.close();
-                    return;
-                }
-                
-                String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-                
-                out.write("HTTP/1.1 206 Partial Content\r\n".getBytes());
-                out.write(("Content-Type: " + mime + "\r\n").getBytes());
-                out.write(("Content-Range: bytes " + start + "-" + (start + total - 1) + "/" + fileLen + "\r\n").getBytes());
-                out.write(("Content-Length: " + total + "\r\n").getBytes());
-                out.write("Accept-Ranges: bytes\r\n".getBytes());
-                out.write("Connection: close\r\n".getBytes());
-                out.write("Access-Control-Allow-Origin: *\r\n".getBytes());
-                out.write("\r\n".getBytes());
-                out.write(buf, 0, total);
-                out.flush();
-                client.close();
-                
-            } catch (Exception e) {
-                try { client.close(); } catch (IOException ex) {}
+            } catch (IOException e) {
+                // Erro ao ler - retorna o que conseguiu
             }
+            
+            if (total == 0) {
+                write(out, "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nConnection: close\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            
+            StringBuilder headers = new StringBuilder();
+            headers.append("HTTP/1.1 206 Partial Content\r\n");
+            headers.append("Content-Type: ").append(mime).append("\r\n");
+            headers.append("Content-Range: bytes ").append(start).append("-").append(start + total - 1).append("/").append(fileLen).append("\r\n");
+            headers.append("Content-Length: ").append(total).append("\r\n");
+            headers.append("Accept-Ranges: bytes\r\n");
+            headers.append("Connection: close\r\n");
+            headers.append("Access-Control-Allow-Origin: *\r\n");
+            headers.append("\r\n");
+            
+            out.write(headers.toString().getBytes());
+            out.write(buf, 0, total);
+            out.flush();
+            client.close();
+            
+        } catch (Exception e) {
+            try { client.close(); } catch (IOException ex) {}
         }
-        
-        private void sendError(OutputStream out, int code) {
-            try {
-                out.write(("HTTP/1.1 " + code + " Error\r\nConnection: close\r\n\r\n").getBytes());
-                out.flush();
-            } catch (IOException e) {}
-        }
+    }
+    
+    private void write(OutputStream out, String s) {
+        try {
+            out.write(s.getBytes());
+            out.flush();
+        } catch (IOException e) {}
     }
     
     public class Bridge {
@@ -209,7 +222,6 @@ public class MainActivity extends AppCompatActivity {
                     p.set_file_priorities(pr);
                     
                     session.swig().async_add_torrent(p);
-                    
                     Thread.sleep(3000);
                     
                     torrent_handle_vector h = session.swig().get_torrents();
@@ -223,11 +235,8 @@ public class MainActivity extends AppCompatActivity {
         
         @JavascriptInterface
         public String getStreamUrl() {
-            // Verifica se o arquivo já existe
-            if (videoFile == null) {
-                videoFile = findVideo(new File(savePath));
-            }
-            if (videoFile != null && videoFile.exists() && videoFile.length() > 10000) {
+            if (videoFile == null) videoFile = findVideo(new File(savePath));
+            if (videoFile != null && videoFile.exists() && videoFile.length() > 8192) {
                 return "http://127.0.0.1:8080/video";
             }
             return "";
@@ -282,7 +291,8 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (httpServer != null) httpServer.stop();
+        downloading = false;
+        if (serverThread != null) serverThread.interrupt();
         if (session != null) session.stop();
     }
 }
