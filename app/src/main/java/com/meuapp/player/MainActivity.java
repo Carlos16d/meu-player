@@ -13,7 +13,11 @@ import androidx.appcompat.app.AppCompatActivity;
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
-import java.io.File;
+import java.io.*;
+import java.net.*;
+import java.util.*;
+
+import fi.iki.elonen.NanoHTTPD;
 
 public class MainActivity extends AppCompatActivity {
     private WebView webView;
@@ -21,6 +25,7 @@ public class MainActivity extends AppCompatActivity {
     private SessionManager session;
     private torrent_handle torrent;
     private boolean downloading = false;
+    private StreamServer streamServer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -33,7 +38,12 @@ public class MainActivity extends AppCompatActivity {
         try {
             session = new SessionManager();
             session.start();
-            Toast.makeText(this, "UDP rodando!", Toast.LENGTH_SHORT).show();
+            
+            // Inicia servidor de streaming na porta 8080
+            streamServer = new StreamServer(8080);
+            streamServer.start();
+            
+            Toast.makeText(this, "UDP + Streaming OK!", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -53,6 +63,84 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("file:///android_asset/www/index.html");
     }
     
+    // Servidor HTTP que entrega pedaços do vídeo sob demanda
+    class StreamServer extends NanoHTTPD {
+        public StreamServer(int port) {
+            super(port);
+        }
+        
+        @Override
+        public Response serve(IHTTPSession session) {
+            String uri = session.getUri();
+            if ("/video".equals(uri) && torrent != null && torrent.is_valid()) {
+                return serveVideoStream(session);
+            }
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not found");
+        }
+        
+        private Response serveVideoStream(IHTTPSession ses) {
+            try {
+                torrent_info info = torrent.torrent_file();
+                if (info == null) return null;
+                
+                long fileSize = info.total_size();
+                long pieceLength = info.piece_length();
+                
+                // Pega o Range header (qual parte do vídeo o player quer)
+                String rangeHeader = ses.getHeaders().get("range");
+                long start = 0;
+                long end = Math.min(pieceLength * 50, fileSize - 1); // Primeiros 50 pedaços
+                
+                if (rangeHeader != null) {
+                    String[] parts = rangeHeader.replace("bytes=", "").split("-");
+                    start = Long.parseLong(parts[0]);
+                    if (parts.length > 1 && !parts[1].isEmpty()) {
+                        end = Long.parseLong(parts[1]);
+                    } else {
+                        end = Math.min(start + pieceLength * 10, fileSize - 1);
+                    }
+                }
+                
+                // Lê os pedaços necessários do torrent
+                int startPiece = (int)(start / pieceLength);
+                int endPiece = (int)(end / pieceLength);
+                
+                ByteArrayOutputStream baos = new ByteArrayOutputStream();
+                for (int i = startPiece; i <= endPiece; i++) {
+                    byte[] piece = readPieceBytes(i, (int)pieceLength);
+                    if (piece != null) {
+                        baos.write(piece);
+                    }
+                }
+                
+                byte[] data = baos.toByteArray();
+                long offset = start % pieceLength;
+                int length = (int)Math.min(data.length - offset, end - start + 1);
+                
+                byte[] responseData = new byte[length];
+                System.arraycopy(data, (int)offset, responseData, 0, length);
+                
+                Response resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT,
+                    "video/mp4", new ByteArrayInputStream(responseData), length);
+                resp.addHeader("Content-Range", "bytes " + start + "-" + (start + length - 1) + "/" + fileSize);
+                resp.addHeader("Accept-Ranges", "bytes");
+                resp.addHeader("Access-Control-Allow-Origin", "*");
+                return resp;
+                
+            } catch (Exception e) {
+                return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", e.getMessage());
+            }
+        }
+        
+        private byte[] readPieceBytes(int pieceIndex, int pieceLength) {
+            if (torrent.have_piece(pieceIndex)) {
+                return torrent.read_piece(pieceIndex);
+            }
+            // Se não tem a peça, retorna zeros (silêncio/sem vídeo)
+            return new byte[pieceLength];
+        }
+    }
+    
     public class Bridge {
         @JavascriptInterface
         public void startDownload(String magnet) {
@@ -67,15 +155,14 @@ public class MainActivity extends AppCompatActivity {
                     string_vector trackers = new string_vector();
                     trackers.add("udp://tracker.opentrackr.org:1337/announce");
                     trackers.add("udp://tracker.openbittorrent.com:6969/announce");
-                    trackers.add("udp://open.stealth.si:80/announce");
-                    trackers.add("udp://tracker.torrent.eu.org:451/announce");
-                    trackers.add("udp://explodie.org:6969/announce");
                     p.setTrackers(trackers);
                     
                     p.setFlags(torrent_flags_t.from_int(9));
-                    p.setDownload_limit(2 * 1024 * 1024);
-                    p.setMax_connections(50);
-                    p.setMax_uploads(5);
+                    p.setDownload_limit(0);
+                    
+                    byte_vector priorities = new byte_vector();
+                    priorities.add((byte)7);
+                    p.set_file_priorities(priorities);
                     
                     session.swig().async_add_torrent(p);
                     
@@ -84,7 +171,17 @@ public class MainActivity extends AppCompatActivity {
                     torrent_handle_vector handles = session.swig().get_torrents();
                     if (handles.size() > 0) {
                         torrent = handles.get(0);
-                        torrent.set_sequential_range(0, 99);
+                        
+                        torrent_info info = torrent.torrent_file();
+                        if (info != null) {
+                            int totalPieces = info.num_pieces();
+                            byte_vector piecePriorities = new byte_vector();
+                            for (int i = 0; i < totalPieces; i++) {
+                                byte priority = (i < 20) ? 7 : (i < 50) ? 6 : (i < 100) ? 5 : 4;
+                                piecePriorities.add(priority);
+                            }
+                            torrent.prioritize_pieces_ex(piecePriorities);
+                        }
                     }
                     
                     runOnUiThread(() -> 
@@ -92,11 +189,13 @@ public class MainActivity extends AppCompatActivity {
                     );
                 } catch (Exception e) {
                     downloading = false;
-                    runOnUiThread(() -> 
-                        Toast.makeText(MainActivity.this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show()
-                    );
                 }
             }).start();
+        }
+        
+        @JavascriptInterface
+        public String getStreamUrl() {
+            return "http://127.0.0.1:8080/video";
         }
         
         @JavascriptInterface
@@ -124,29 +223,6 @@ public class MainActivity extends AppCompatActivity {
                 return speed + " B/s";
             }
             return "0 B/s";
-        }
-        
-        @JavascriptInterface
-        public String checkVideo() {
-            return findVideoInDir(new File(savePath));
-        }
-        
-        private String findVideoInDir(File dir) {
-            File[] files = dir.listFiles();
-            if (files == null) return "";
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    String found = findVideoInDir(f);
-                    if (!found.isEmpty()) return found;
-                } else {
-                    String n = f.getName().toLowerCase();
-                    if (n.endsWith(".mp4") || n.endsWith(".mkv") || 
-                        n.endsWith(".avi") || n.endsWith(".webm")) {
-                        return "file://" + f.getAbsolutePath();
-                    }
-                }
-            }
-            return "";
         }
     }
 }
