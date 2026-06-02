@@ -17,7 +17,6 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.*;
-import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
@@ -67,7 +66,6 @@ public class MainActivity extends AppCompatActivity {
         playerView.setPlayer(player);
         playerView.setVisibility(View.GONE);
         
-        // Listener do ExoPlayer para debug
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
@@ -85,7 +83,6 @@ public class MainActivity extends AppCompatActivity {
         
         log("══════ APP INICIADO ══════");
         log("📁 Pasta: " + savePath);
-        log("📱 Android: " + android.os.Build.VERSION.SDK_INT);
         
         new Thread(() -> {
             try {
@@ -93,7 +90,6 @@ public class MainActivity extends AppCompatActivity {
                 session = new SessionManager();
                 session.start();
                 log("✅ Sessão torrent OK");
-                log("🌐 DHT: " + (session.swig().is_dht_running() ? "ATIVO" : "OFF"));
             } catch (Exception e) {
                 log("❌ Sessão: " + e.getMessage());
             }
@@ -136,31 +132,22 @@ public class MainActivity extends AppCompatActivity {
         logScroll.setVisibility(View.VISIBLE);
         
         log("══════ INICIANDO DOWNLOAD ══════");
-        log("📡 Magnet: " + magnet.substring(0, Math.min(80, magnet.length())) + "...");
         
         new Thread(() -> {
             try {
-                log("🔍 Parseando magnet...");
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(0);
                 p.setMax_connections(200);
                 
-                log("📊 Flags: 9 (sequential + auto)");
-                log("📊 Download limit: ILIMITADO");
-                log("📊 Max connections: 200");
-                
                 byte_vector pr = new byte_vector();
                 pr.add((byte)7);
                 p.set_file_priorities(pr);
-                log("📊 Prioridade arquivo: 7 (máxima)");
                 
-                log("📤 Enviando para sessão...");
                 session.swig().async_add_torrent(p);
                 log("✅ Magnet enviado!");
                 
-                log("⏳ Aguardando metadados (5s)...");
                 Thread.sleep(5000);
                 
                 torrent_handle_vector h = session.swig().get_torrents();
@@ -172,24 +159,12 @@ public class MainActivity extends AppCompatActivity {
                     log("✅ Torrent obtido!");
                     log("📊 Progresso: " + (int)(ts.getProgress()*100) + "%");
                     log("📊 Peers: " + ts.getNum_peers());
-                    log("📊 Download rate: " + ts.getDownload_rate());
+                    log("📊 Download: " + ts.getDownload_rate() + " B/s");
                     log("📊 Estado: " + ts.getState());
-                    
-                    // Lista arquivos
-                    torrent_info ti = torrent.torrent_file();
-                    if (ti != null) {
-                        log("📁 Total arquivos: " + ti.num_files());
-                        for (int i = 0; i < Math.min(5, ti.num_files()); i++) {
-                            log("   📄 " + ti.files().file_name(i) + " (" + (ti.files().file_size(i)/1048576) + "MB)");
-                        }
-                    } else {
-                        log("⚠️ Metadados ainda não carregados");
-                    }
                 } else {
                     log("❌ Nenhum torrent encontrado!");
                 }
                 
-                // Procura arquivo
                 log("🔍 Procurando arquivo de vídeo...");
                 for (int i = 0; i < 60; i++) {
                     if (videoFile == null) {
@@ -199,7 +174,7 @@ public class MainActivity extends AppCompatActivity {
                         long size = videoFile.length();
                         log("📁 Encontrado: " + videoFile.getName() + " (" + (size/1024) + "KB)");
                         if (size > 100000) {
-                            log("✅ Arquivo pronto para reprodução!");
+                            log("✅ Arquivo pronto!");
                             handler.post(() -> {
                                 btnWatch.setVisibility(View.VISIBLE);
                                 btnWatch.setText("🎬 ASSISTIR (" + (size/1048576) + "MB)");
@@ -210,14 +185,9 @@ public class MainActivity extends AppCompatActivity {
                     Thread.sleep(1000);
                 }
                 
-                if (videoFile == null || !videoFile.exists()) {
-                    log("⚠️ Arquivo não encontrado após 60s");
-                }
-                
             } catch (Exception e) {
                 downloading = false;
                 log("❌ ERRO: " + e.getMessage());
-                e.printStackTrace();
             }
         }).start();
         
@@ -236,10 +206,6 @@ public class MainActivity extends AppCompatActivity {
                     statSpeed.setText(spd);
                     statPeers.setText(String.valueOf(peers));
                     bufferBar.setProgress(prog);
-                    
-                    if (prog > 0 && prog % 10 == 0) {
-                        log("📥 " + prog + "% | " + spd + " | " + peers + " peers | Estado: " + ts.getState());
-                    }
                 }
                 handler.postDelayed(this, 1000);
             }
@@ -253,20 +219,15 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         
-        log("══════ INICIANDO REPRODUÇÃO ══════");
-        log("🎬 Arquivo: " + videoFile.getAbsolutePath());
-        log("📊 Tamanho: " + (videoFile.length()/1048576) + "MB");
-        log("📊 Existe: " + videoFile.exists());
-        log("📊 Pode ler: " + videoFile.canRead());
+        log("══════ REPRODUZINDO ══════");
+        log("🎬 " + videoFile.getAbsolutePath());
+        log("📊 " + (videoFile.length()/1048576) + "MB");
         
         playerView.setVisibility(View.VISIBLE);
         statsRow.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         
-        String uri = "file://" + videoFile.getAbsolutePath();
-        log("🔗 URI: " + uri);
-        
-        MediaItem item = MediaItem.fromUri(uri);
+        MediaItem item = MediaItem.fromUri("file://" + videoFile.getAbsolutePath());
         player.setMediaItem(item);
         player.prepare();
         player.play();
@@ -274,7 +235,6 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void stop() {
-        log("══════ PARANDO ══════");
         downloading = false;
         player.stop();
         player.clearMediaItems();
