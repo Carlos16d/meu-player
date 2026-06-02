@@ -1,9 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/root_layout"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0a0a0a">
+    
+    <androidx.media3.ui.PlayerView
+        android:id="@+id/player_view"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        app:show_buffering="when_playing"
+        app:use_controller="true" />
     
     <LinearLayout
         android:id="@+id/loading_overlay"
@@ -117,17 +125,6 @@
             android:text="▶️ STREAMING UDP"
             android:textColor="#fff"
             android:textStyle="bold" />
-        
-        <Button
-            android:id="@+id/btn_open_video"
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:layout_marginTop="8dp"
-            android:backgroundTint="#4ecb71"
-            android:text="🎬 ASSISTIR AGORA"
-            android:textColor="#000"
-            android:textStyle="bold"
-            android:visibility="gone" />
         
         <LinearLayout
             android:id="@+id/stats_row"
