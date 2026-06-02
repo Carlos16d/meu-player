@@ -118,6 +118,17 @@
             android:textColor="#fff"
             android:textStyle="bold" />
         
+        <Button
+            android:id="@+id/btn_open_video"
+            android:layout_width="match_parent"
+            android:layout_height="50dp"
+            android:layout_marginTop="8dp"
+            android:backgroundTint="#4ecb71"
+            android:text="🎬 ASSISTIR AGORA"
+            android:textColor="#000"
+            android:textStyle="bold"
+            android:visibility="gone" />
+        
         <LinearLayout
             android:id="@+id/stats_row"
             android:layout_width="match_parent"
