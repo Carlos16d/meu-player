@@ -1,12 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#000000">
+    android:background="#0a0a0a"
+    android:padding="12dp">
     
-    <WebView
-        android:id="@+id/webview"
+    <TextView
+        android:id="@+id/log_text"
         android:layout_width="match_parent"
-        android:layout_height="match_parent" />
+        android:layout_height="wrap_content"
+        android:textColor="#4ecb71"
+        android:textSize="11sp"
+        android:fontFamily="monospace"
+        android:text="Iniciando..." />
         
-</FrameLayout>
+</ScrollView>
