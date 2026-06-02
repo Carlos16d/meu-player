@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>UDP Player</title>
+    <title>UDP Streaming Player</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { background: #0a0a0a; color: #fff; font-family: system-ui, sans-serif; padding: 12px; min-height: 100vh; display: flex; flex-direction: column; }
@@ -25,9 +25,9 @@
     </style>
 </head>
 <body>
-    <div class="header"><h1>🎬 Meu Player UDP</h1></div>
+    <div class="header"><h1>🎬 UDP Streaming Player</h1></div>
     
-    <video id="player" controls playsinline></video>
+    <video id="player" controls playsinline crossorigin="anonymous"></video>
     
     <div class="stats">
         <div class="stat"><div class="v" id="prog">0%</div><div class="l">Progresso</div></div>
@@ -42,7 +42,7 @@
     
     <div class="status" id="status">
         <div class="icon">📂</div>
-        <div class="msg">Pronto para download UDP nativo</div>
+        <div class="msg">Pronto para streaming UDP nativo</div>
     </div>
 
     <script>
@@ -56,6 +56,17 @@
             videoStarted = false;
             document.getElementById('status').innerHTML = '<div class="icon">⏳</div><div class="msg">Conectando trackers UDP...</div>';
             App.startDownload(m);
+            
+            // Aguarda e inicia o streaming pelo servidor HTTP
+            setTimeout(() => {
+                if (!videoStarted) {
+                    const streamUrl = App.getStreamUrl();
+                    document.getElementById('player').src = streamUrl;
+                    document.getElementById('player').play();
+                    document.getElementById('status').innerHTML = '<div class="icon">▶️</div><div class="msg" style="color:#e74c3c;">Streaming UDP ativado!</div>';
+                    videoStarted = true;
+                }
+            }, 6000);
             
             if (interval) clearInterval(interval);
             interval = setInterval(() => {
@@ -71,22 +82,7 @@
             document.getElementById('player').removeAttribute('src');
             if (interval) clearInterval(interval);
             document.getElementById('status').innerHTML = '<div class="icon">⏹️</div><div class="msg">Parado</div>';
-            document.getElementById('prog').textContent = '0%';
-            document.getElementById('speed').textContent = '0 B/s';
-            document.getElementById('peers').textContent = '0';
         }
-        
-        setInterval(() => {
-            if (!videoStarted) {
-                const video = App.checkVideo();
-                if (video) {
-                    document.getElementById('player').src = video;
-                    document.getElementById('player').play();
-                    document.getElementById('status').innerHTML = '<div class="icon">▶️</div><div class="msg" style="color:#e74c3c;">Reproduzindo com UDP!</div>';
-                    videoStarted = true;
-                }
-            }
-        }, 3000);
     </script>
 </body>
 </html>
