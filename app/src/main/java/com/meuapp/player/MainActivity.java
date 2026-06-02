@@ -25,6 +25,9 @@ public class MainActivity extends AppCompatActivity {
     private torrent_handle torrent;
     private boolean downloading = false;
     private StreamServer streamServer;
+    private long fileSize = 0;
+    private long pieceLength = 0;
+    private int numPieces = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -41,7 +44,7 @@ public class MainActivity extends AppCompatActivity {
             streamServer = new StreamServer(8080);
             streamServer.start();
             
-            Toast.makeText(this, "UDP + Streaming na porta 8080", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "UDP + Streaming OK!", Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
@@ -77,15 +80,17 @@ public class MainActivity extends AppCompatActivity {
         
         private Response serveVideo(IHTTPSession ses) {
             try {
-                torrent_info info = torrent.get_torrent_info();
-                long fileSize = info.total_size();
-                long pieceLength = info.piece_length();
+                if (fileSize == 0) {
+                    torrent_status st = torrent.status();
+                    fileSize = st.getTotal_wanted();
+                    if (fileSize <= 0) fileSize = st.getAll_time_download();
+                }
                 
                 Map<String, String> headers = ses.getHeaders();
                 String rangeHeader = headers.get("range");
                 
                 long start = 0;
-                long end = Math.min(pieceLength * 30, fileSize - 1);
+                long end = Math.min(1024 * 1024, fileSize - 1);
                 
                 if (rangeHeader != null) {
                     String[] parts = rangeHeader.replace("bytes=", "").split("-");
@@ -93,39 +98,34 @@ public class MainActivity extends AppCompatActivity {
                     if (parts.length > 1 && !parts[1].isEmpty()) {
                         end = Long.parseLong(parts[1]);
                     } else {
-                        end = Math.min(start + pieceLength * 30, fileSize - 1);
+                        end = Math.min(start + 1024 * 1024, fileSize - 1);
                     }
                 }
                 
-                int startPiece = (int)(start / pieceLength);
-                int endPiece = (int)(end / pieceLength);
-                
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                for (int i = startPiece; i <= endPiece && i < info.num_pieces(); i++) {
-                    if (torrent.have_piece(i)) {
-                        File videoFile = findVideoFile(new File(savePath));
-                        if (videoFile != null) {
-                            try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
-                                long pieceStart = i * pieceLength;
-                                raf.seek(pieceStart);
-                                byte[] buffer = new byte[(int)Math.min(pieceLength, fileSize - pieceStart)];
-                                raf.read(buffer);
-                                baos.write(buffer);
-                            }
-                        }
-                    }
+                File videoFile = findVideoFile(new File(savePath));
+                if (videoFile == null || !videoFile.exists()) {
+                    return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Aguardando download...");
                 }
                 
-                byte[] data = baos.toByteArray();
-                long offset = start % pieceLength;
-                int len = (int)Math.min(data.length - offset, end - start + 1);
-                if (len <= 0) len = data.length;
+                int len = (int)(end - start + 1);
+                byte[] data = new byte[len];
                 
-                byte[] responseData = new byte[len];
-                System.arraycopy(data, (int)offset, responseData, 0, len);
+                try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
+                    raf.seek(start);
+                    int read = raf.read(data);
+                    if (read < len) {
+                        byte[] trimmed = new byte[read];
+                        System.arraycopy(data, 0, trimmed, 0, read);
+                        data = trimmed;
+                        len = read;
+                    }
+                } catch (Exception e) {
+                    // Arquivo ainda não tem essa parte
+                    return newFixedLengthResponse(Response.Status.RANGE_NOT_SATISFIABLE, "text/plain", "Parte ainda não baixada");
+                }
                 
                 Response resp = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT,
-                    "video/mp4", new ByteArrayInputStream(responseData), len);
+                    "video/mp4", new ByteArrayInputStream(data), len);
                 resp.addHeader("Content-Range", "bytes " + start + "-" + (start + len - 1) + "/" + fileSize);
                 resp.addHeader("Accept-Ranges", "bytes");
                 resp.addHeader("Access-Control-Allow-Origin", "*");
@@ -186,16 +186,15 @@ public class MainActivity extends AppCompatActivity {
                     if (handles.size() > 0) {
                         torrent = handles.get(0);
                         
-                        torrent_info info = torrent.get_torrent_info();
-                        if (info != null) {
-                            int totalPieces = info.num_pieces();
-                            byte_vector piecePriorities = new byte_vector();
-                            for (int i = 0; i < totalPieces; i++) {
-                                byte priority = (i < 20) ? (byte)7 : (i < 50) ? (byte)6 : (i < 100) ? (byte)5 : (byte)4;
-                                piecePriorities.add(priority);
-                            }
-                            torrent.prioritize_pieces_ex(piecePriorities);
+                        torrent_status st = torrent.status();
+                        fileSize = st.getTotal_wanted();
+                        
+                        byte_vector piecePriorities = new byte_vector();
+                        for (int i = 0; i < 200; i++) {
+                            byte priority = (i < 20) ? (byte)7 : (i < 50) ? (byte)6 : (i < 100) ? (byte)5 : (byte)4;
+                            piecePriorities.add(priority);
                         }
+                        torrent.prioritize_pieces_ex(piecePriorities);
                     }
                     
                     runOnUiThread(() -> 
