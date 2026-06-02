@@ -77,21 +77,19 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override
             public void onPlayerError(PlaybackException error) {
-                log("❌ ExoPlayer ERRO: " + error.getErrorCodeName() + " - " + error.getMessage());
+                log("❌ ExoPlayer ERRO: " + error.getErrorCodeName());
             }
         });
         
         log("══════ APP INICIADO ══════");
-        log("📁 Pasta: " + savePath);
         
         new Thread(() -> {
             try {
-                log("🔄 Iniciando libtorrent...");
                 session = new SessionManager();
                 session.start();
-                log("✅ Sessão torrent OK");
+                log("✅ Sessão OK");
             } catch (Exception e) {
-                log("❌ Sessão: " + e.getMessage());
+                log("❌ " + e.getMessage());
             }
         }).start();
         
@@ -101,37 +99,36 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void log(String msg) {
-        String timestamp = sdf.format(new Date());
-        String line = "[" + timestamp + "] " + msg;
-        fullLog.append(line).append("\n");
+        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
+        fullLog.append(line);
         handler.post(() -> {
             logText.setText(fullLog.toString());
-            logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+            logScroll.fullScroll(View.FOCUS_DOWN);
         });
-        android.util.Log.d("TorrentDebug", msg);
     }
     
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
-        if (!magnet.startsWith("magnet:")) {
-            log("⚠️ Magnet inválido!");
-            return;
-        }
-        if (downloading) {
-            log("⚠️ Já está baixando!");
-            return;
-        }
+        if (!magnet.startsWith("magnet:") || downloading) return;
         
         downloading = true;
         videoFile = null;
-        btnWatch.setVisibility(View.GONE);
         
-        controlPanel.setVisibility(View.GONE);
-        statsRow.setVisibility(View.VISIBLE);
-        btnStop.setVisibility(View.VISIBLE);
-        logScroll.setVisibility(View.VISIBLE);
+        // Mostra stats e esconde controles
+        handler.post(() -> {
+            controlPanel.setVisibility(View.GONE);
+            statsRow.setVisibility(View.VISIBLE);
+            btnStop.setVisibility(View.VISIBLE);
+            btnWatch.setVisibility(View.GONE);
+            logScroll.setVisibility(View.VISIBLE);
+            bufferBar.setVisibility(View.VISIBLE);
+            statProgress.setText("0%");
+            statSpeed.setText("0 B/s");
+            statPeers.setText("0");
+            bufferBar.setProgress(0);
+        });
         
-        log("══════ INICIANDO DOWNLOAD ══════");
+        log("══════ DOWNLOAD ══════");
         
         new Thread(() -> {
             try {
@@ -139,112 +136,105 @@ public class MainActivity extends AppCompatActivity {
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(0);
-                p.setMax_connections(200);
                 
                 byte_vector pr = new byte_vector();
                 pr.add((byte)7);
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
-                log("✅ Magnet enviado!");
+                log("✅ Magnet enviado");
                 
                 Thread.sleep(5000);
                 
                 torrent_handle_vector h = session.swig().get_torrents();
-                log("📊 Torrents na sessão: " + h.size());
-                
                 if (h.size() > 0) {
                     torrent = h.get(0);
-                    torrent_status ts = torrent.status();
-                    log("✅ Torrent obtido!");
-                    log("📊 Progresso: " + (int)(ts.getProgress()*100) + "%");
-                    log("📊 Peers: " + ts.getNum_peers());
-                    log("📊 Download: " + ts.getDownload_rate() + " B/s");
-                    log("📊 Estado: " + ts.getState());
-                } else {
-                    log("❌ Nenhum torrent encontrado!");
+                    log("✅ Torrent OK - " + torrent.status().getNum_peers() + " peers");
                 }
                 
-                log("🔍 Procurando arquivo de vídeo...");
-                for (int i = 0; i < 60; i++) {
-                    if (videoFile == null) {
-                        videoFile = findVideo(new File(savePath));
-                    }
-                    if (videoFile != null && videoFile.exists()) {
-                        long size = videoFile.length();
-                        log("📁 Encontrado: " + videoFile.getName() + " (" + (size/1024) + "KB)");
-                        if (size > 100000) {
-                            log("✅ Arquivo pronto!");
-                            handler.post(() -> {
-                                btnWatch.setVisibility(View.VISIBLE);
-                                btnWatch.setText("🎬 ASSISTIR (" + (size/1048576) + "MB)");
-                            });
-                            break;
+                // Procura arquivo (loop infinito até achar)
+                while (downloading && videoFile == null) {
+                    handler.post(() -> {
+                        File f = findVideo(new File(savePath));
+                        if (f != null && f.exists() && f.length() > 100000) {
+                            videoFile = f;
+                            long mb = f.length() / 1048576;
+                            log("📁 " + f.getName() + " (" + mb + "MB)");
+                            btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
+                            btnWatch.setVisibility(View.VISIBLE);
                         }
-                    }
-                    Thread.sleep(1000);
+                    });
+                    Thread.sleep(2000);
                 }
                 
             } catch (Exception e) {
-                downloading = false;
-                log("❌ ERRO: " + e.getMessage());
+                log("❌ " + e.getMessage());
             }
         }).start();
         
-        statsUpdater = new Runnable() {
+        // Stats updater (roda sempre)
+        handler.post(new Runnable() {
             @Override
             public void run() {
-                if (torrent != null && torrent.is_valid()) {
+                if (downloading && torrent != null && torrent.is_valid()) {
                     torrent_status ts = torrent.status();
                     int prog = (int)(ts.getProgress() * 100);
                     long speed = ts.getDownload_rate();
                     int peers = ts.getNum_peers();
-                    String spd = speed > 1048576 ? String.format("%.1f MB/s", speed/1048576.0) :
-                        speed > 1024 ? String.format("%.1f KB/s", speed/1024.0) : speed + " B/s";
                     
                     statProgress.setText(prog + "%");
-                    statSpeed.setText(spd);
                     statPeers.setText(String.valueOf(peers));
                     bufferBar.setProgress(prog);
+                    
+                    if (speed > 1048576)
+                        statSpeed.setText(String.format("%.1f MB/s", speed / 1048576.0));
+                    else if (speed > 1024)
+                        statSpeed.setText(String.format("%.1f KB/s", speed / 1024.0));
+                    else
+                        statSpeed.setText(speed + " B/s");
                 }
-                handler.postDelayed(this, 1000);
+                if (downloading) handler.postDelayed(this, 500);
             }
-        };
-        handler.post(statsUpdater);
+        });
     }
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) {
-            log("❌ Arquivo não encontrado!");
+            log("❌ Arquivo não encontrado");
             return;
         }
         
-        log("══════ REPRODUZINDO ══════");
-        log("🎬 " + videoFile.getAbsolutePath());
-        log("📊 " + (videoFile.length()/1048576) + "MB");
+        log("▶️ Reproduzindo " + videoFile.getName());
         
-        playerView.setVisibility(View.VISIBLE);
-        statsRow.setVisibility(View.GONE);
-        btnWatch.setVisibility(View.GONE);
+        handler.post(() -> {
+            playerView.setVisibility(View.VISIBLE);
+            statsRow.setVisibility(View.GONE);
+            btnWatch.setVisibility(View.GONE);
+            bufferBar.setVisibility(View.GONE);
+            logScroll.setVisibility(View.GONE);
+        });
         
-        MediaItem item = MediaItem.fromUri("file://" + videoFile.getAbsolutePath());
-        player.setMediaItem(item);
+        player.setMediaItem(MediaItem.fromUri("file://" + videoFile.getAbsolutePath()));
         player.prepare();
         player.play();
-        log("▶️ Play chamado");
     }
     
     private void stop() {
         downloading = false;
         player.stop();
         player.clearMediaItems();
-        handler.removeCallbacks(statsUpdater);
-        playerView.setVisibility(View.GONE);
-        controlPanel.setVisibility(View.VISIBLE);
-        statsRow.setVisibility(View.GONE);
-        btnStop.setVisibility(View.GONE);
-        btnWatch.setVisibility(View.GONE);
-        logScroll.setVisibility(View.GONE);
+        handler.removeCallbacksAndMessages(null);
+        
+        handler.post(() -> {
+            playerView.setVisibility(View.GONE);
+            controlPanel.setVisibility(View.VISIBLE);
+            statsRow.setVisibility(View.GONE);
+            btnStop.setVisibility(View.GONE);
+            btnWatch.setVisibility(View.GONE);
+            bufferBar.setVisibility(View.GONE);
+            logScroll.setVisibility(View.GONE);
+        });
+        
         log("⏹️ Parado");
     }
     
@@ -271,7 +261,7 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         downloading = false;
-        handler.removeCallbacks(statsUpdater);
+        handler.removeCallbacksAndMessages(null);
         if (player != null) player.release();
         if (session != null) session.stop();
     }
