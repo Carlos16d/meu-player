@@ -77,7 +77,7 @@ public class MainActivity extends AppCompatActivity {
         
         private Response serveVideo(IHTTPSession ses) {
             try {
-                torrent_info info = torrent.torrent_file();
+                torrent_info info = torrent.get_torrent_info();
                 long fileSize = info.total_size();
                 long pieceLength = info.piece_length();
                 
@@ -103,8 +103,6 @@ public class MainActivity extends AppCompatActivity {
                 ByteArrayOutputStream baos = new ByteArrayOutputStream();
                 for (int i = startPiece; i <= endPiece && i < info.num_pieces(); i++) {
                     if (torrent.have_piece(i)) {
-                        torrent.read_piece(i);
-                        // Lê do arquivo salvo
                         File videoFile = findVideoFile(new File(savePath));
                         if (videoFile != null) {
                             try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
@@ -188,7 +186,7 @@ public class MainActivity extends AppCompatActivity {
                     if (handles.size() > 0) {
                         torrent = handles.get(0);
                         
-                        torrent_info info = torrent.torrent_file();
+                        torrent_info info = torrent.get_torrent_info();
                         if (info != null) {
                             int totalPieces = info.num_pieces();
                             byte_vector piecePriorities = new byte_vector();
