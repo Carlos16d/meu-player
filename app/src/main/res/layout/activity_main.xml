@@ -4,12 +4,6 @@
     android:layout_height="match_parent"
     android:background="#0a0a0a">
     
-    <VideoView
-        android:id="@+id/video_view"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:visibility="gone" />
-    
     <LinearLayout
         android:id="@+id/loading_overlay"
         android:layout_width="match_parent"
@@ -76,7 +70,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="15dp"
-            android:text="Conectando..."
+            android:text="Aguardando..."
             android:textColor="#4ecb71"
             android:textSize="11sp"
             android:fontFamily="monospace" />
