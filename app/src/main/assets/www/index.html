@@ -3,91 +3,47 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>UDP Player</title>
+    <title>Teste Servidor</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { background: #0a0a0a; color: #fff; font-family: system-ui, sans-serif; padding: 12px; min-height: 100vh; display: flex; flex-direction: column; }
-        .header { text-align: center; padding: 15px 0; border-bottom: 2px solid #e74c3c; margin-bottom: 15px; }
-        .header h1 { font-size: 1.3em; color: #e74c3c; }
-        video { width: 100%; background: #000; border-radius: 8px; margin-bottom: 12px; aspect-ratio: 16/9; }
-        textarea { width: 100%; height: 80px; padding: 12px; background: #1a1a1a; border: 2px solid #333; border-radius: 8px; color: #fff; font-size: 12px; margin-bottom: 10px; outline: none; }
-        textarea:focus { border-color: #e74c3c; }
-        button { width: 100%; padding: 14px; border: none; border-radius: 8px; color: #fff; font-size: 15px; font-weight: bold; cursor: pointer; margin-bottom: 8px; }
-        .btn-play { background: #e74c3c; }
-        .btn-stop { background: #555; }
-        .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: 15px 0; }
-        .stat { background: #1a1a1a; padding: 10px; border-radius: 8px; text-align: center; }
-        .stat .v { color: #e74c3c; font-size: 17px; font-weight: bold; }
-        .stat .l { color: #888; font-size: 10px; }
-        .status { background: #1a1a1a; padding: 15px; border-radius: 8px; text-align: center; margin-top: 10px; }
-        .status .icon { font-size: 2em; }
-        .status .msg { font-size: 0.85em; color: #888; margin-top: 8px; }
+        body { background: #0a0a0a; color: #fff; font-family: system-ui, sans-serif; padding: 12px; }
+        h2 { color: #4ecb71; margin-bottom: 15px; }
+        video { width: 100%; background: #000; border-radius: 8px; aspect-ratio: 16/9; }
+        .info { margin-top: 15px; padding: 12px; background: #1a1a1a; border-radius: 8px; font-size: 12px; color: #4ecb71; font-family: monospace; }
     </style>
 </head>
 <body>
-    <div class="header"><h1>🎬 UDP Streaming Player</h1></div>
+    <h2>🧪 Teste do Servidor HTTP</h2>
     
     <video id="player" controls playsinline crossorigin="anonymous"></video>
     
-    <div class="stats">
-        <div class="stat"><div class="v" id="prog">0%</div><div class="l">Progresso</div></div>
-        <div class="stat"><div class="v" id="speed">0 B/s</div><div class="l">Velocidade</div></div>
-        <div class="stat"><div class="v" id="peers">0</div><div class="l">Peers UDP</div></div>
-    </div>
-    
-    <textarea id="magnet" placeholder="Cole seu magnet link aqui..."></textarea>
-    
-    <button class="btn-play" onclick="download()">▶️ STREAMING UDP</button>
-    <button class="btn-stop" onclick="stop()">⏹️ Parar</button>
-    
-    <div class="status" id="status">
-        <div class="icon">📂</div>
-        <div class="msg">Pronto para streaming UDP</div>
+    <div class="info" id="info">
+        Tentando conectar ao servidor...<br>
+        URL: http://127.0.0.1:8080/video
     </div>
 
     <script>
-        let interval = null;
-        let videoStarted = false;
+        const player = document.getElementById('player');
+        const info = document.getElementById('info');
         
-        function download() {
-            const m = document.getElementById('magnet').value.trim();
-            if (!m.startsWith('magnet:')) return;
-            
-            videoStarted = false;
-            document.getElementById('status').innerHTML = '<div class="icon">⏳</div><div class="msg">Conectando trackers UDP...</div>';
-            App.startDownload(m);
-            
-            if (interval) clearInterval(interval);
-            interval = setInterval(updateStats, 500);
-        }
+        // Tenta carregar o vídeo do servidor
+        player.src = 'http://127.0.0.1:8080/video';
         
-        function updateStats() {
-            document.getElementById('prog').textContent = App.getProgress() + '%';
-            document.getElementById('speed').textContent = App.getSpeed();
-            document.getElementById('peers').textContent = App.getPeers();
-            
-            if (!videoStarted) {
-                const url = App.getStreamUrl();
-                if (url) {
-                    const player = document.getElementById('player');
-                    player.src = url;
-                    player.play();
-                    document.getElementById('status').innerHTML = '<div class="icon">▶️</div><div class="msg" style="color:#e74c3c;">Streaming UDP ativo!</div>';
-                    videoStarted = true;
-                }
-            }
-        }
+        player.addEventListener('loadedmetadata', () => {
+            info.textContent = '✅ Conectado ao servidor!\nDuração: ' + player.duration + 's';
+        });
         
-        function stop() {
-            videoStarted = false;
-            document.getElementById('player').pause();
-            document.getElementById('player').removeAttribute('src');
-            if (interval) clearInterval(interval);
-            document.getElementById('status').innerHTML = '<div class="icon">⏹️</div><div class="msg">Parado</div>';
-            document.getElementById('prog').textContent = '0%';
-            document.getElementById('speed').textContent = '0 B/s';
-            document.getElementById('peers').textContent = '0';
-        }
+        player.addEventListener('error', (e) => {
+            info.textContent = '❌ Erro ao conectar\nCódigo: ' + player.error.code + '\nMensagem: ' + player.error.message;
+        });
+        
+        player.addEventListener('waiting', () => {
+            info.textContent = '⏳ Aguardando dados...';
+        });
+        
+        player.addEventListener('playing', () => {
+            info.textContent = '▶️ Reproduzindo!';
+        });
     </script>
 </body>
 </html>
