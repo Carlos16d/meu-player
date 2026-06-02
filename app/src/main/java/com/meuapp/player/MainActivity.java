@@ -5,7 +5,9 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -16,12 +18,14 @@ import java.io.*;
 import java.net.*;
 
 public class MainActivity extends AppCompatActivity {
+    private FrameLayout rootLayout;
     private LinearLayout loadingOverlay, controlPanel, statsRow;
     private TextView loadingTitle, loadingProgress, loadingSpeed, loadingPeers, loadingStatus;
     private TextView statProgress, statSpeed, statPeers;
     private ProgressBar bufferBar;
     private EditText magnetInput;
     private Button btnPlay, btnStop;
+    private VideoView videoView;
     
     private String savePath;
     private SessionManager session;
@@ -37,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
+        rootLayout = findViewById(R.id.root_layout);
         loadingOverlay = findViewById(R.id.loading_overlay);
         controlPanel = findViewById(R.id.control_panel);
         statsRow = findViewById(R.id.stats_row);
@@ -56,7 +61,6 @@ public class MainActivity extends AppCompatActivity {
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
-        // Inicia sessão torrent em thread separada
         new Thread(() -> {
             try {
                 session = new SessionManager();
@@ -75,8 +79,27 @@ public class MainActivity extends AppCompatActivity {
     
     private void showLog(String msg) {
         handler.post(() -> {
-            if (loadingStatus != null) {
-                loadingStatus.setText(msg);
+            if (loadingStatus != null) loadingStatus.setText(msg);
+        });
+    }
+    
+    private void createVideoPlayer() {
+        handler.post(() -> {
+            try {
+                videoView = new VideoView(MainActivity.this);
+                FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                );
+                params.gravity = Gravity.CENTER;
+                videoView.setLayoutParams(params);
+                
+                rootLayout.addView(videoView, 0); // Adiciona no topo
+                videoView.setZOrderOnTop(true);
+                
+                showLog("🎬 Player criado");
+            } catch (Exception e) {
+                showLog("❌ Player: " + e.getMessage());
             }
         });
     }
@@ -91,6 +114,9 @@ public class MainActivity extends AppCompatActivity {
         if (downloading) return;
         downloading = true;
         videoFile = null;
+        
+        // Cria o player
+        createVideoPlayer();
         
         loadingOverlay.setVisibility(View.VISIBLE);
         controlPanel.setVisibility(View.GONE);
@@ -107,10 +133,15 @@ public class MainActivity extends AppCompatActivity {
                 string_vector trackers = new string_vector();
                 trackers.add("udp://tracker.opentrackr.org:1337/announce");
                 trackers.add("udp://tracker.openbittorrent.com:6969/announce");
+                trackers.add("udp://open.stealth.si:80/announce");
+                trackers.add("udp://tracker.torrent.eu.org:451/announce");
+                trackers.add("udp://explodie.org:6969/announce");
                 p.setTrackers(trackers);
                 
                 p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(3 * 1024 * 1024);
+                p.setMax_connections(200);
+                p.setMax_uploads(10);
                 
                 byte_vector priorities = new byte_vector();
                 priorities.add((byte)7);
@@ -124,10 +155,7 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector handles = session.swig().get_torrents();
                 if (handles.size() > 0) {
                     torrent = handles.get(0);
-                    int peers = torrent.status().getNum_peers();
-                    showLog("✅ Conectado! " + peers + " peers");
-                } else {
-                    showLog("⚠️ Buscando peers...");
+                    showLog("✅ Conectado! " + torrent.status().getNum_peers() + " peers");
                 }
                 
                 handler.post(() -> startFileWatcher());
@@ -179,23 +207,19 @@ public class MainActivity extends AppCompatActivity {
                     long size = videoFile.length();
                     showLog("📁 " + videoFile.getName() + " (" + (size/1024) + "KB)");
                     
-                    if (size > 100000) {
-                        // Reproduz direto do arquivo (sem servidor HTTP)
+                    if (size > 50000 && videoView != null) {
                         handler.post(() -> {
                             try {
-                                android.widget.VideoView vv = new android.widget.VideoView(MainActivity.this);
-                                vv.setVideoPath(videoFile.getAbsolutePath());
-                                vv.start();
+                                videoView.setVideoPath(videoFile.getAbsolutePath());
+                                videoView.start();
                                 loadingOverlay.setVisibility(View.GONE);
-                                showLog("▶️ Reproduzindo!");
+                                showLog("▶️ Reproduzindo! " + videoFile.getName());
                             } catch (Exception e) {
-                                showLog("❌ Player: " + e.getMessage());
+                                showLog("❌ Erro player: " + e.getMessage());
                             }
                         });
                         return;
                     }
-                } else {
-                    showLog("🔍 Procurando arquivo...");
                 }
                 
                 handler.postDelayed(this, 2000);
@@ -208,6 +232,13 @@ public class MainActivity extends AppCompatActivity {
         downloading = false;
         handler.removeCallbacks(statsUpdater);
         handler.removeCallbacks(fileWatcher);
+        
+        if (videoView != null) {
+            videoView.stopPlayback();
+            rootLayout.removeView(videoView);
+            videoView = null;
+        }
+        
         loadingOverlay.setVisibility(View.GONE);
         controlPanel.setVisibility(View.VISIBLE);
         statsRow.setVisibility(View.GONE);
@@ -239,6 +270,10 @@ public class MainActivity extends AppCompatActivity {
         downloading = false;
         handler.removeCallbacks(statsUpdater);
         handler.removeCallbacks(fileWatcher);
+        if (videoView != null) {
+            videoView.stopPlayback();
+            rootLayout.removeView(videoView);
+        }
         if (session != null) session.stop();
     }
 }
