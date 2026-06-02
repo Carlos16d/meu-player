@@ -37,8 +37,10 @@
         <ProgressBar
             android:id="@+id/buffer_bar"
             style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="80%"
+            android:layout_width="match_parent"
             android:layout_height="6dp"
+            android:layout_marginStart="30dp"
+            android:layout_marginEnd="30dp"
             android:layout_marginTop="15dp"
             android:progressTint="#e74c3c" />
         
@@ -104,7 +106,7 @@
             android:background="#1a1a1a"
             android:gravity="top"
             android:hint="Cole seu magnet link aqui..."
-            android:hintTextColor="#555"
+            android:textColorHint="#555"
             android:inputType="textMultiLine"
             android:padding="12dp"
             android:textColor="#fff"
