@@ -71,19 +71,15 @@
             android:progressTint="#e74c3c"
             android:visibility="gone" />
         
-        <LinearLayout
-            android:id="@+id/stats_row"
-            android:layout_width="match_parent"
+        <TextView
+            android:id="@+id/status_text"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="6dp"
-            android:orientation="horizontal"
-            android:visibility="gone">
-            
-            <TextView android:id="@+id/stat_progress" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0%" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" />
-            <TextView android:id="@+id/stat_speed" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0 KB/s" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" android:layout_marginStart="4dp" />
-            <TextView android:id="@+id/stat_peers" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="👥0" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" android:layout_marginStart="4dp" />
-            
-        </LinearLayout>
+            android:text="Pronto"
+            android:textColor="#4ecb71"
+            android:textSize="11sp"
+            android:fontFamily="monospace" />
     </LinearLayout>
     
 </FrameLayout>
