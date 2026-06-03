@@ -74,11 +74,7 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // Player configurado para esperar pacientemente
-        player = new ExoPlayer.Builder(this)
-            .setSeekBackIncrementMs(10000)
-            .setSeekForwardIncrementMs(10000)
-            .build();
+        player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
         playerView.setVisibility(View.GONE);
         
@@ -86,21 +82,17 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) {
-                    log("✅ READY | " + player.getDuration()/1000 + "s");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
                 } else if (state == Player.STATE_BUFFERING) {
-                    // Apenas mostra carregando, NÃO para o player
                     loadingOverlay.setVisibility(View.VISIBLE);
                     spinnerBar.setVisibility(View.VISIBLE);
                 }
-                // Não trata IDLE - deixa o player decidir
             }
         });
         
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); log("✅ OK"); } 
-            catch (Exception e) { log("❌ " + e.getMessage()); }
+            try { session = new SessionManager(); session.start(); } catch (Exception e) {}
         }).start();
         
         startServer();
@@ -221,50 +213,17 @@ public class MainActivity extends AppCompatActivity {
                 Thread.sleep(3000);
                 
                 torrent_handle_vector h = session.swig().get_torrents();
-                final torrent_handle th = (h.size() > 0) ? h.get(0) : null;
                 
-                if (th != null) {
+                if (h.size() > 0) {
+                    torrent_handle th = h.get(0);
                     torrent_status ts = th.status();
                     fileLength = ts.getTotal_wanted();
+                    
                     if (fileLength > 0) {
                         numPieces = (int)(fileLength / pieceLength) + 1;
-                        log("📊 " + (fileLength/1048576) + "MB | ~" + numPieces + " peças");
+                        log("📊 " + (fileLength/1048576) + "MB");
                     }
                 }
-                
-                // Priority updater
-                handler.postDelayed(new Runnable() {
-                    @Override public void run() {
-                        if (downloading && th != null && th.is_valid() && numPieces > 0 && 
-                            player != null && player.getDuration() > 0) {
-                            
-                            long pos = player.getCurrentPosition();
-                            long dur = player.getDuration();
-                            int piece = (int)(((double)pos / dur) * numPieces);
-                            if (piece >= numPieces) piece = numPieces - 1;
-                            if (piece < 0) piece = 0;
-                            
-                            if (piece != lastPiece) {
-                                lastPiece = piece;
-                                int min = (int)(pos / 60000);
-                                int sec = (int)((pos % 60000) / 1000);
-                                log("🎯 " + min + ":" + String.format("%02d", sec) + " → peça " + piece + "/" + numPieces);
-                            }
-                            
-                            try {
-                                byte_vector pv = new byte_vector();
-                                for (int i = 0; i < numPieces; i++) {
-                                    if (i >= piece - 5 && i <= piece + 30) pv.add((byte)7);
-                                    else if (i >= piece - 15 && i <= piece + 80) pv.add((byte)5);
-                                    else if (i < 50) pv.add((byte)4);
-                                    else pv.add((byte)1);
-                                }
-                                th.prioritize_pieces_ex(pv);
-                            } catch (Exception e) {}
-                        }
-                        if (downloading) handler.postDelayed(this, 1500);
-                    }
-                }, 1500);
                 
                 // Aguarda header
                 for (int i = 0; i < 120 && downloading; i++) {
