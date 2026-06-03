@@ -157,14 +157,18 @@ public class MainActivity extends AppCompatActivity {
         log("Abrindo: " + videoFile.getName());
         
         try {
+            Uri uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "com.meuapp.player.fileprovider", videoFile);
+            
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setDataAndType(Uri.fromFile(videoFile), "video/*");
+            intent.setDataAndType(uri, "video/*");
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
             intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             startActivity(intent);
             log("Player externo aberto!");
         } catch (Exception e) {
             log("ERRO: " + e.getMessage());
-            Toast.makeText(this, "Instale um player de video", Toast.LENGTH_LONG).show();
+            Toast.makeText(this, "Instale o VLC ou MX Player", Toast.LENGTH_LONG).show();
         }
     }
     
