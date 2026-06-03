@@ -15,97 +15,74 @@
     
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:orientation="vertical">
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:orientation="vertical"
+        android:padding="12dp"
+        android:background="#cc0a0a0a">
         
-        <ScrollView
-            android:id="@+id/log_scroll"
+        <EditText
+            android:id="@+id/magnet_input"
             android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1"
-            android:background="#0d0d0d"
-            android:padding="6dp">
-            
-            <TextView
-                android:id="@+id/log_text"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:textColor="#4ecb71"
-                android:textSize="8sp"
-                android:fontFamily="monospace" />
-        </ScrollView>
+            android:layout_height="60dp"
+            android:background="#1a1a1a"
+            android:hint="Magnet link..."
+            android:textColorHint="#555"
+            android:inputType="textMultiLine"
+            android:padding="8dp"
+            android:textColor="#fff"
+            android:textSize="12sp" />
         
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="10dp"
-            android:background="#dd0a0a0a">
+            android:orientation="horizontal"
+            android:layout_marginTop="6dp">
             
-            <EditText
-                android:id="@+id/magnet_input"
-                android:layout_width="match_parent"
-                android:layout_height="60dp"
-                android:background="#1a1a1a"
-                android:gravity="top"
-                android:hint="Magnet link..."
-                android:textColorHint="#555"
-                android:inputType="textMultiLine"
-                android:padding="8dp"
+            <Button
+                android:id="@+id/btn_play"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:backgroundTint="#e74c3c"
+                android:text="▶️ STREAMING"
                 android:textColor="#fff"
-                android:textSize="11sp" />
+                android:textStyle="bold" />
             
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:layout_marginTop="6dp">
-                
-                <Button
-                    android:id="@+id/btn_play"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:backgroundTint="#e74c3c"
-                    android:text="▶️ STREAMING"
-                    android:textColor="#fff"
-                    android:textStyle="bold" />
-                
-                <Button
-                    android:id="@+id/btn_stop"
-                    android:layout_width="0dp"
-                    android:layout_height="48dp"
-                    android:layout_weight="1"
-                    android:layout_marginStart="4dp"
-                    android:backgroundTint="#555"
-                    android:text="⏹️ PARAR"
-                    android:textColor="#fff"
-                    android:textStyle="bold"
-                    android:visibility="gone" />
-            </LinearLayout>
-            
-            <ProgressBar
-                android:id="@+id/buffer_bar"
-                style="?android:attr/progressBarStyleHorizontal"
-                android:layout_width="match_parent"
-                android:layout_height="5dp"
-                android:layout_marginTop="6dp"
-                android:progressTint="#e74c3c"
+            <Button
+                android:id="@+id/btn_stop"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:backgroundTint="#555"
+                android:text="⏹️ PARAR"
+                android:textColor="#fff"
+                android:textStyle="bold"
                 android:visibility="gone" />
+        </LinearLayout>
+        
+        <ProgressBar
+            android:id="@+id/buffer_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="5dp"
+            android:layout_marginTop="6dp"
+            android:progressTint="#e74c3c"
+            android:visibility="gone" />
+        
+        <LinearLayout
+            android:id="@+id/stats_row"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="6dp"
+            android:orientation="horizontal"
+            android:visibility="gone">
             
-            <LinearLayout
-                android:id="@+id/stats_row"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="6dp"
-                android:orientation="horizontal"
-                android:visibility="gone">
-                
-                <TextView android:id="@+id/stat_progress" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0%" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" />
-                <TextView android:id="@+id/stat_speed" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0 KB/s" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" android:layout_marginStart="4dp" />
-                <TextView android:id="@+id/stat_peers" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" android:layout_marginStart="4dp" />
-                
-            </LinearLayout>
+            <TextView android:id="@+id/stat_progress" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0%" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" />
+            <TextView android:id="@+id/stat_speed" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="0 KB/s" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" android:layout_marginStart="4dp" />
+            <TextView android:id="@+id/stat_peers" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="👥0" android:textColor="#e74c3c" android:textSize="14sp" android:textStyle="bold" android:gravity="center" android:background="#1a1a1a" android:padding="8dp" android:layout_marginStart="4dp" />
+            
         </LinearLayout>
     </LinearLayout>
     
