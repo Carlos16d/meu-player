@@ -42,16 +42,14 @@ public class MainActivity extends AppCompatActivity {
     private Handler handler;
     private Thread serverThread;
     
-    // Dados do arquivo e pedaços
     private long fileLength = 0;
     private int numPieces = 0;
-    private long pieceLength = 262144; // 256KB por pedaço (padrão comum)
+    private long pieceLength = 262144;
     private int lastPiece = -1;
     
     private StringBuilder fullLog = new StringBuilder();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
 
-    // Controle para parar após 2 segundos (como você queria)
     private static final long TEMPO_REPRODUCAO_MAXIMO = 2000;
     private java.util.concurrent.ScheduledExecutorService timerParada;
 
@@ -72,7 +70,6 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
-        // Ajusta tamanho do player
         playerView.post(() -> {
             int width = (int)(getResources().getDisplayMetrics().widthPixels * 0.92);
             int height = (int)(width * 9.0 / 16.0);
@@ -82,12 +79,10 @@ public class MainActivity extends AppCompatActivity {
             playerView.setLayoutParams(p);
         });
         
-        // Pasta para salvar os arquivos
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // Configuração do player com tratamento de erro
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
         playerView.setVisibility(View.GONE);
@@ -98,7 +93,6 @@ public class MainActivity extends AppCompatActivity {
                 if (state == Player.STATE_READY) {
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
-                    // Inicia contador para parar após 2 segundos
                     iniciarContadorParada();
                 } else if (state == Player.STATE_BUFFERING) {
                     loadingOverlay.setVisibility(View.VISIBLE);
@@ -109,7 +103,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 log("❌ Erro: " + error.getMessage());
-                // Trata erros sem fechar o aplicativo
                 if (error.getCause() instanceof java.io.EOFException) {
                     log("⚠️ Dados incompletos, parando reprodução");
                     pararReproducao();
@@ -117,7 +110,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         
-        // Atualiza prioridade dos pedaços a cada 1 segundo
         handler.postDelayed(new Runnable() {
             @Override public void run() {
                 if (downloading && player != null && player.getDuration() > 0) {
@@ -127,7 +119,6 @@ public class MainActivity extends AppCompatActivity {
             }
         }, 1000);
         
-        // Inicia sessão do torrent
         new Thread(() -> {
             try { 
                 session = new SessionManager(); 
@@ -137,10 +128,8 @@ public class MainActivity extends AppCompatActivity {
             catch (Exception e) { log("❌ Erro sessão: " + e.getMessage()); }
         }).start();
         
-        // Inicia servidor HTTP
         startServer();
         
-        // Botões
         btnPlay.setOnClickListener(v -> iniciarDownload());
         btnStop.setOnClickListener(v -> pararTudo());
         btnWatch.setOnClickListener(v -> assistirVideo());
@@ -148,7 +137,6 @@ public class MainActivity extends AppCompatActivity {
         log("📱 Pronto para usar");
     }
     
-    // Controla o tempo de reprodução
     private void iniciarContadorParada() {
         if (timerParada != null) timerParada.shutdown();
         timerParada = java.util.concurrent.Executors.newSingleThreadScheduledExecutor();
@@ -157,7 +145,6 @@ public class MainActivity extends AppCompatActivity {
                              java.util.concurrent.TimeUnit.MILLISECONDS);
     }
 
-    // Para reprodução de forma segura
     private void pararReproducao() {
         if (player != null) {
             player.pause();
@@ -172,7 +159,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    // Mostra mensagens no log
     private void log(String msg) {
         String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
         fullLog.append(line);
@@ -183,55 +169,43 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    // FUNÇÃO PRINCIPAL: Define quais pedaços baixar quando você avança
     private void atualizarPrioridadePecas() {
         torrent_handle th = torrentRef.get();
         if (th == null || !th.is_valid() || numPieces <= 0 || fileLength <= 0) return;
         
-        // Pega posição atual do vídeo
         long posicaoAtual = player.getCurrentPosition();
         long duracaoTotal = player.getDuration();
         if (duracaoTotal <= 0 || posicaoAtual < 0) return;
         
-        // Calcula qual pedaço corresponde a essa posição
         double percentual = (double) posicaoAtual / duracaoTotal;
         int pedacoAtual = (int) (percentual * numPieces);
         
-        // Ajusta valores para não sair do limite
         if (pedacoAtual >= numPieces) pedacoAtual = numPieces - 1;
         if (pedacoAtual < 0) pedacoAtual = 0;
         
-        // Mostra posição atual
         if (pedacoAtual != lastPiece) {
             lastPiece = pedacoAtual;
             int minutos = (int) (posicaoAtual / 60000);
             int segundos = (int) ((posicaoAtual % 60000) / 1000);
             log("🎯 Posição: " + minutos + ":" + String.format("%02d", segundos) + 
-                " | Pedço: " + pedacoAtual + "/" + numPieces);
+                " | Peça: " + pedacoAtual + "/" + numPieces);
         }
         
         try {
             byte_vector prioridades = new byte_vector();
             
-            // Define prioridade para cada pedaço:
-            // 🟢 Alta prioridade: pedaço atual + próximos 30 (para reproduzir sem parar)
-            // 🟡 Média prioridade: pedaços antes e depois da posição
-            // 🟠 Baixa prioridade: resto do vídeo
-            // 🔵 Muito baixa: início do vídeo (se não estiver usando)
-            
             for (int i = 0; i < numPieces; i++) {
                 if (i >= pedacoAtual - 5 && i <= pedacoAtual + 40) {
-                    prioridades.add((byte) 7); // ALTA
+                    prioridades.add((byte) 7);
                 } else if (i >= pedacoAtual - 15 && i <= pedacoAtual + 80) {
-                    prioridades.add((byte) 5); // MÉDIA
+                    prioridades.add((byte) 5);
                 } else if (i < 30) {
-                    prioridades.add((byte) 3); // BAIXA
+                    prioridades.add((byte) 3);
                 } else {
-                    prioridades.add((byte) 1); // MUITO BAIXA
+                    prioridades.add((byte) 1);
                 }
             }
             
-            // Aplica as prioridades no sistema de torrent
             th.prioritize_pieces_ex(prioridades);
             
         } catch (Exception e) {
@@ -239,11 +213,10 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    // Inicia o servidor HTTP na porta 8080
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
-                ServerSocket server = new ServerSocket(8080, 10); // Mais conexões permitidas
+                ServerSocket server = new ServerSocket(8080, 10);
                 server.setReuseAddress(true);
                 log("🌐 Servidor rodando em: http://127.0.0.1:8080/video");
                 
@@ -264,7 +237,6 @@ public class MainActivity extends AppCompatActivity {
         serverThread.start();
     }
     
-    // Processa requisições do player
     private void processarCliente(Socket client) {
         try {
             OutputStream saida = client.getOutputStream();
@@ -282,7 +254,6 @@ public class MainActivity extends AppCompatActivity {
             long fimDados = -1;
             String linha;
             
-            // Lê qual parte do vídeo o player quer
             while ((linha = entrada.readLine()) != null && !linha.isEmpty()) {
                 if (linha.toLowerCase().startsWith("range:")) {
                     String range = linha.substring(6).trim().replace("bytes=", "");
@@ -302,7 +273,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            // Verifica se o arquivo está disponível
             if (videoFile == null || !videoFile.exists()) {
                 saida.write("HTTP/1.1 503 Aguardando arquivo...\r\nRetry-After: 1\r\n\r\n".getBytes());
                 saida.flush(); 
@@ -319,7 +289,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             
-            // Ajusta valores se necessário
             if (fimDados == -1 || fimDados >= tamanhoArquivo) fimDados = tamanhoArquivo - 1;
             if (inicioDados >= tamanhoArquivo) {
                 saida.write("HTTP/1.1 416 Posição inválida\r\n\r\n".getBytes());
@@ -328,13 +297,11 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             
-            // Limita quantidade de dados enviados (256KB)
             long quantidadeDados = fimDados - inicioDados + 1;
             if (quantidadeDados > 256 * 1024) {
                 fimDados = inicioDados + 256 * 1024 - 1;
             }
             
-            // VERIFICA SE OS DADOS JÁ ESTÃO BAIXADOS
             boolean dadosProntos = verificarDadosProntos(inicioDados, fimDados);
             if (!dadosProntos) {
                 saida.write("HTTP/1.1 503 Dados sendo baixados...\r\nRetry-After: 1\r\n\r\n".getBytes());
@@ -344,7 +311,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             
-            // Lê os dados que já existem no arquivo
             String tipoMime = videoFile.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
             byte[] buffer = new byte[(int) (fimDados - inicioDados + 1)];
             
@@ -360,7 +326,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             
-            // Monta resposta HTTP correta
             String resposta = "HTTP/1.1 206 Partial Content\r\n" +
                     "Content-Type: " + tipoMime + "\r\n" +
                     "Content-Range: bytes " + inicioDados + "-" + (inicioDados + totalLido - 1) + "/" + tamanhoArquivo + "\r\n" +
@@ -369,7 +334,6 @@ public class MainActivity extends AppCompatActivity {
                     "Cache-Control: no-cache\r\n" +
                     "\r\n";
             
-            // Envia os dados para o player
             saida.write(resposta.getBytes());
             saida.write(buffer, 0, totalLido);
             saida.flush();
@@ -384,14 +348,84 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    // Verifica se os dados solicitados já estão baixados
     private boolean verificarDadosProntos(long inicio, long fim) {
         if (numPieces <= 0 || pieceLength <= 0) return false;
         
-        // Calcula quais pedaços correspondem ao intervalo solicitado
         int pedacoInicio = (int) (inicio / pieceLength);
         int pedacoFim = (int) (fim / pieceLength);
         
         try {
             torrent_handle th = torrentRef.get();
-            if (th
+            if (th == null || !th.is_valid()) return false;
+            
+            torrent_status status = th.status();
+            byte_vector pecasDisponiveis = status.get_pieces();
+            
+            for (int i = pedacoInicio; i <= pedacoFim; i++) {
+                if (i < 0 || i >= pecasDisponiveis.size()) return false;
+                if (pecasDisponiveis.get(i) != (byte) 1) {
+                    return false;
+                }
+            }
+            
+            return true;
+            
+        } catch (Exception e) {
+            Log.e("VERIFICAR_DADOS", "Erro ao verificar peças", e);
+            return false;
+        }
+    }
+    
+    private void iniciarDownload() {
+        String magnet = magnetInput.getText().toString().trim();
+        if (!magnet.startsWith("magnet:") || downloading) return;
+        
+        downloading = true;
+        videoFile = null;
+        numPieces = 0;
+        lastPiece = -1;
+        torrentRef.set(null);
+        
+        handler.post(() -> {
+            btnStop.setVisibility(View.VISIBLE);
+            bufferBar.setVisibility(View.VISIBLE);
+            btnWatch.setVisibility(View.GONE);
+        });
+        
+        log("⏳ Baixando...");
+        
+        new Thread(() -> {
+            try {
+                error_code ec = new error_code();
+                add_torrent_params p = libtorrent.parse_magnet_uri(magnet, ec);
+                if (ec.value() != 0) {
+                    log("❌ Erro magnet: " + ec.message());
+                    return;
+                }
+                
+                p.setSave_path(savePath);
+                p.setFlags(torrent_flags_t.from_int(0));
+                p.setDownload_limit(3 * 1024 * 1024);
+                
+                byte_vector pr = new byte_vector();
+                for (int i = 0; i < 1000; i++) pr.add((byte) 7);
+                p.set_file_priorities(pr);
+                
+                session.swig().async_add_torrent(p);
+                Thread.sleep(3000);
+                
+                torrent_handle_vector h = session.swig().get_torrents();
+                if (h.size() > 0) {
+                    torrent_handle th = h.get(0);
+                    torrentRef.set(th);
+                    torrent_status ts = th.status();
+                    fileLength = ts.getTotal_wanted();
+                    
+                    if (fileLength > 0) {
+                        pieceLength = ts.get_piece_length();
+                        numPieces = ts.get_num_pieces();
+                        log("📊 " + (fileLength/1048576) + "MB | ~" + numPieces + " peças");
+                    }
+                }
+                
+                for (int
