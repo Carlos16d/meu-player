@@ -28,19 +28,15 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar bufferBar, spinnerBar;
     private FrameLayout loadingOverlay;
     private EditText magnetInput;
-    private Button btnPlay, btnStop;
+    private Button btnPlay, btnStop, btnWatch;
     private ScrollView logScroll;
     
     private String savePath;
     private SessionManager session;
-    private torrent_handle torrent;
     private volatile boolean downloading;
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
-    private long fileLength;
-    private long pieceLength;
-    private int numPieces;
     private StringBuilder fullLog = new StringBuilder();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
 
@@ -59,6 +55,7 @@ public class MainActivity extends AppCompatActivity {
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
+        btnWatch = findViewById(R.id.btn_watch);
         
         playerView.post(() -> {
             int width = (int)(getResources().getDisplayMetrics().widthPixels * 0.92);
@@ -81,9 +78,9 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) {
+                    log("✅ Reproduzindo");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
-                    updatePriority();
                 } else if (state == Player.STATE_BUFFERING) {
                     loadingOverlay.setVisibility(View.VISIBLE);
                     spinnerBar.setVisibility(View.VISIBLE);
@@ -100,6 +97,7 @@ public class MainActivity extends AppCompatActivity {
         
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
+        btnWatch.setOnClickListener(v -> watch());
         
         log("📱 Pronto");
     }
@@ -114,40 +112,14 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    private void updatePriority() {
-        if (torrent == null || !torrent.is_valid() || player == null || numPieces <= 0) return;
-        
-        long pos = player.getCurrentPosition();
-        long duration = player.getDuration();
-        if (duration <= 0) return;
-        
-        int currentPiece = (int)(((double)pos / duration) * numPieces);
-        
-        byte_vector priorities = new byte_vector();
-        for (int i = 0; i < numPieces; i++) {
-            byte priority;
-            if (i >= currentPiece && i < currentPiece + 20) priority = 7;
-            else if (i >= currentPiece - 5 && i < currentPiece + 50) priority = 5;
-            else priority = 1;
-            priorities.add(priority);
-        }
-        
-        try {
-            torrent.prioritize_pieces_ex(priorities);
-        } catch (Exception e) {}
-    }
-    
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
                 ServerSocket server = new ServerSocket(8080, 5);
                 server.setReuseAddress(true);
-                
                 while (!Thread.interrupted()) {
-                    try {
-                        Socket client = server.accept();
-                        handleClient(client);
-                    } catch (IOException e) {}
+                    try { Socket client = server.accept(); handleClient(client); } 
+                    catch (IOException e) {}
                 }
                 server.close();
             } catch (IOException e) {}
@@ -215,9 +187,7 @@ public class MainActivity extends AppCompatActivity {
             out.flush();
             client.close();
             
-        } catch (Exception e) {
-            try { client.close(); } catch (IOException ex) {}
-        }
+        } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
     private void start() {
@@ -226,12 +196,11 @@ public class MainActivity extends AppCompatActivity {
         
         downloading = true;
         videoFile = null;
-        torrent = null;
-        numPieces = 0;
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
+            btnWatch.setVisibility(View.GONE);
         });
         
         log("⏳ Baixando...");
@@ -247,22 +216,8 @@ public class MainActivity extends AppCompatActivity {
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
-                Thread.sleep(3000);
                 
-                torrent_handle_vector h = session.swig().get_torrents();
-                if (h.size() > 0) {
-                    torrent = h.get(0);
-                    torrent_status ts = torrent.status();
-                    fileLength = ts.getTotal_wanted();
-                    if (fileLength > 0) {
-                        // Estima piece length e número de peças
-                        pieceLength = 262144; // 256KB típico
-                        numPieces = (int)(fileLength / pieceLength) + 1;
-                        log("📊 ~" + numPieces + " peças | " + (fileLength/1048576) + "MB");
-                    }
-                }
-                
-                for (int i = 0; i < 90 && downloading; i++) {
+                for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 65536) {
                         byte[] hdr = new byte[8];
@@ -273,22 +228,12 @@ public class MainActivity extends AppCompatActivity {
                         
                         if (valid) {
                             videoFile = f;
-                            log("▶️ " + f.getName());
-                            
-                            // Prioriza primeiras peças
-                            if (torrent != null && torrent.is_valid() && numPieces > 0) {
-                                byte_vector priorities = new byte_vector();
-                                for (int j = 0; j < numPieces; j++) {
-                                    priorities.add((byte)(j < 30 ? 7 : j < 60 ? 5 : 1));
-                                }
-                                torrent.prioritize_pieces_ex(priorities);
-                            }
+                            long mb = f.length() / 1048576;
+                            log("📁 " + f.getName() + " (" + mb + "MB)");
                             
                             handler.post(() -> {
-                                playerView.setVisibility(View.VISIBLE);
-                                player.setMediaItem(MediaItem.fromUri("http://127.0.0.1:8080/video"));
-                                player.prepare();
-                                player.play();
+                                btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
+                                btnWatch.setVisibility(View.VISIBLE);
                             });
                             break;
                         }
@@ -297,15 +242,24 @@ public class MainActivity extends AppCompatActivity {
                 }
             } catch (Exception e) { log("❌ " + e.getMessage()); }
         }).start();
+    }
+    
+    private void watch() {
+        if (videoFile == null || !videoFile.exists()) {
+            log("❌ Arquivo não encontrado");
+            return;
+        }
         
-        handler.postDelayed(new Runnable() {
-            @Override public void run() {
-                if (downloading) {
-                    updatePriority();
-                    handler.postDelayed(this, 2000);
-                }
-            }
-        }, 2000);
+        log("▶️ " + videoFile.getName());
+        
+        handler.post(() -> {
+            playerView.setVisibility(View.VISIBLE);
+            btnWatch.setVisibility(View.GONE);
+        });
+        
+        player.setMediaItem(MediaItem.fromUri("http://127.0.0.1:8080/video"));
+        player.prepare();
+        player.play();
     }
     
     private void stop() {
@@ -314,6 +268,7 @@ public class MainActivity extends AppCompatActivity {
         if (player != null) { player.stop(); player.clearMediaItems(); }
         playerView.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
+        btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
         spinnerBar.setVisibility(View.GONE);
