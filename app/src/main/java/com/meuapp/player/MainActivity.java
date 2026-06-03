@@ -74,7 +74,11 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        player = new ExoPlayer.Builder(this).build();
+        // Player configurado para esperar pacientemente
+        player = new ExoPlayer.Builder(this)
+            .setSeekBackIncrementMs(10000)
+            .setSeekForwardIncrementMs(10000)
+            .build();
         playerView.setPlayer(player);
         playerView.setVisibility(View.GONE);
         
@@ -82,12 +86,15 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) {
+                    log("✅ READY | " + player.getDuration()/1000 + "s");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
                 } else if (state == Player.STATE_BUFFERING) {
+                    // Apenas mostra carregando, NÃO para o player
                     loadingOverlay.setVisibility(View.VISIBLE);
                     spinnerBar.setVisibility(View.VISIBLE);
                 }
+                // Não trata IDLE - deixa o player decidir
             }
         });
         
@@ -213,7 +220,6 @@ public class MainActivity extends AppCompatActivity {
                 session.swig().async_add_torrent(p);
                 Thread.sleep(3000);
                 
-                // Pega o torrent para priorização (apenas na thread de download)
                 torrent_handle_vector h = session.swig().get_torrents();
                 final torrent_handle th = (h.size() > 0) ? h.get(0) : null;
                 
@@ -226,7 +232,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 
-                // Priority updater (roda na thread principal via handler)
+                // Priority updater
                 handler.postDelayed(new Runnable() {
                     @Override public void run() {
                         if (downloading && th != null && th.is_valid() && numPieces > 0 && 
@@ -242,7 +248,7 @@ public class MainActivity extends AppCompatActivity {
                                 lastPiece = piece;
                                 int min = (int)(pos / 60000);
                                 int sec = (int)((pos % 60000) / 1000);
-                                log("🎯 " + min + ":" + String.format("%02d", sec) + " → peça " + piece);
+                                log("🎯 " + min + ":" + String.format("%02d", sec) + " → peça " + piece + "/" + numPieces);
                             }
                             
                             try {
@@ -301,13 +307,10 @@ public class MainActivity extends AppCompatActivity {
         if (player != null) { player.stop(); player.clearMediaItems(); }
         playerView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
-        // Remove todos os torrents
         if (session != null) {
             try {
                 torrent_handle_vector h = session.swig().get_torrents();
-                for (int i = 0; i < h.size(); i++) {
-                    session.swig().remove_torrent(h.get(i));
-                }
+                for (int i = 0; i < h.size(); i++) session.swig().remove_torrent(h.get(i));
             } catch (Exception e) {}
         }
         log("⏹️ Parado");
