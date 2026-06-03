@@ -94,10 +94,23 @@
                 android:layout_height="42dp"
                 android:layout_weight="1"
                 android:backgroundTint="#e74c3c"
-                android:text="▶️ STREAMING"
+                android:text="▶️ BAIXAR"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp" />
+            
+            <Button
+                android:id="@+id/btn_watch"
+                android:layout_width="0dp"
+                android:layout_height="42dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:backgroundTint="#4ecb71"
+                android:text="🎬 ASSISTIR"
+                android:textColor="#000"
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:visibility="gone" />
             
             <Button
                 android:id="@+id/btn_stop"
