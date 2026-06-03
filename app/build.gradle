@@ -24,13 +24,6 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
-    
-    packagingOptions {
-        exclude 'META-INF/INDEX.LIST'
-        exclude 'META-INF/*.SF'
-        exclude 'META-INF/*.DSA'
-        exclude 'META-INF/*.RSA'
-    }
 }
 
 dependencies {
@@ -38,8 +31,6 @@ dependencies {
     implementation 'org.libtorrent4j:libtorrent4j:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm:2.1.0-38'
-    
-    // ExoPlayer
     implementation 'androidx.media3:media3-exoplayer:1.4.1'
     implementation 'androidx.media3:media3-ui:1.4.1'
 }
