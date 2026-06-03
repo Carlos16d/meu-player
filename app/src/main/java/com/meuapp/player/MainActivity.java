@@ -41,10 +41,10 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private long fileLength;
     private int numPieces;
+    private long pieceLength = 262144;
     private int lastPiece = -1;
     private StringBuilder fullLog = new StringBuilder();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
-    private Runnable priorityRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -87,7 +87,6 @@ public class MainActivity extends AppCompatActivity {
                     log("✅ READY | " + player.getDuration()/1000 + "s");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
-                    startPriorityUpdater(); // INICIA aqui
                 } else if (state == Player.STATE_BUFFERING) {
                     loadingOverlay.setVisibility(View.VISIBLE);
                     spinnerBar.setVisibility(View.VISIBLE);
@@ -95,15 +94,15 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         
-        // Priority updater dedicado
-        priorityRunnable = new Runnable() {
+        // Priority updater a cada 1.5 segundos
+        handler.postDelayed(new Runnable() {
             @Override public void run() {
-                if (downloading && numPieces > 0) {
+                if (downloading && numPieces > 0 && player != null && player.getDuration() > 0) {
                     updatePriority();
-                    handler.postDelayed(this, 2000);
                 }
+                if (downloading) handler.postDelayed(this, 1500);
             }
-        };
+        }, 1500);
         
         new Thread(() -> {
             try { session = new SessionManager(); session.start(); log("✅ OK"); } 
@@ -119,11 +118,6 @@ public class MainActivity extends AppCompatActivity {
         log("📱 Pronto");
     }
     
-    private void startPriorityUpdater() {
-        handler.removeCallbacks(priorityRunnable);
-        handler.post(priorityRunnable);
-    }
-    
     private void log(String msg) {
         String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
         fullLog.append(line);
@@ -136,50 +130,63 @@ public class MainActivity extends AppCompatActivity {
     
     private void updatePriority() {
         torrent_handle th = torrentRef.get();
-        if (th == null || !th.is_valid()) {
-            log("⚠️ Prioridade: torrent inválido");
-            return;
-        }
-        if (player == null || player.getDuration() <= 0) {
-            log("⚠️ Prioridade: player não pronto");
-            return;
-        }
+        if (th == null || !th.is_valid()) return;
         
         long pos = player.getCurrentPosition();
         long dur = player.getDuration();
+        if (dur <= 0) return;
+        
         int piece = (int)(((double)pos / dur) * numPieces);
         if (piece >= numPieces) piece = numPieces - 1;
+        if (piece < 0) piece = 0;
         
-        int min = (int)(pos / 60000);
-        int sec = (int)((pos % 60000) / 1000);
-        
-        // SEMPRE loga
-        log("🎯 " + min + ":" + String.format("%02d", sec) + " → peça " + piece + "/" + numPieces);
+        if (piece != lastPiece) {
+            lastPiece = piece;
+            int min = (int)(pos / 60000);
+            int sec = (int)((pos % 60000) / 1000);
+            log("🎯 " + min + ":" + String.format("%02d", sec) + " → peça " + piece + "/" + numPieces);
+            
+            // Mostra se a peça atual já foi baixada
+            try {
+                boolean has = th.have_piece(piece);
+                log("   Peça " + piece + ": " + (has ? "✅ JÁ BAIXADA" : "⏳ BAIXANDO"));
+            } catch (Exception e) {}
+        }
         
         try {
-            // Verifica se a peça atual já foi baixada
-            boolean hasPiece = th.have_piece(piece);
-            log("   Peça " + piece + ": " + (hasPiece ? "✅ JÁ BAIXADA" : "⏳ BAIXANDO"));
-            
             byte_vector p = new byte_vector();
             for (int i = 0; i < numPieces; i++) {
-                if (i >= piece - 2 && i < piece + 20) p.add((byte)7);
-                else if (i >= piece - 5 && i < piece + 40) p.add((byte)5);
-                else if (i < 15) p.add((byte)4);
+                if (i >= piece - 5 && i <= piece + 30) p.add((byte)7);
+                else if (i >= piece - 15 && i <= piece + 80) p.add((byte)5);
+                else if (i < 50) p.add((byte)4);
                 else p.add((byte)1);
             }
             th.prioritize_pieces_ex(p);
-            lastPiece = piece;
-            
+        } catch (Exception e) {}
+    }
+    
+    // VERIFICA se os dados estão disponíveis
+    private boolean dadosDisponiveis(long start, long end) {
+        if (numPieces <= 0 || pieceLength <= 0) return false;
+        
+        int pieceStart = (int)(start / pieceLength);
+        int pieceEnd = (int)(end / pieceLength);
+        
+        torrent_handle th = torrentRef.get();
+        if (th == null || !th.is_valid()) return false;
+        
+        // Verifica se a primeira peça do range está disponível
+        try {
+            return th.have_piece(pieceStart);
         } catch (Exception e) {
-            log("❌ Prioridade: " + e.getMessage());
+            return false;
         }
     }
     
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
-                ServerSocket server = new ServerSocket(8080, 5);
+                ServerSocket server = new ServerSocket(8080, 10);
                 server.setReuseAddress(true);
                 while (!Thread.interrupted()) {
                     try { Socket client = server.accept(); handleClient(client); } catch (IOException e) {}
@@ -216,12 +223,20 @@ public class MainActivity extends AppCompatActivity {
                 out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); out.flush(); client.close(); return;
             }
             
-            long len = videoFile.length();
-            if (end == -1 || end >= len) end = len - 1;
+            long fileLen = videoFile.length();
+            if (end == -1 || end >= fileLen) end = fileLen - 1;
+            if (start >= fileLen) {
+                out.write("HTTP/1.1 416\r\n\r\n".getBytes()); out.flush(); client.close(); return;
+            }
+            
+            // VERIFICA SE DADOS ESTÃO DISPONÍVEIS
+            if (!dadosDisponiveis(start, end)) {
+                out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); out.flush(); client.close(); return;
+            }
             
             String mime = videoFile.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
             int size = (int)(end - start + 1);
-            if (size > 131072) size = 131072;
+            if (size > 262144) size = 262144;
             
             byte[] buf = new byte[size];
             RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
@@ -234,10 +249,11 @@ public class MainActivity extends AppCompatActivity {
             }
             
             String resp = "HTTP/1.1 206\r\nContent-Type: " + mime + "\r\n" +
-                "Content-Range: bytes " + start + "-" + (start+total-1) + "/" + len + "\r\n" +
+                "Content-Range: bytes " + start + "-" + (start+total-1) + "/" + fileLen + "\r\n" +
                 "Content-Length: " + total + "\r\nAccept-Ranges: bytes\r\n\r\n";
             
             out.write(resp.getBytes()); out.write(buf, 0, total); out.flush(); client.close();
+            
         } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
@@ -280,16 +296,14 @@ public class MainActivity extends AppCompatActivity {
                     fileLength = ts.getTotal_wanted();
                     
                     if (fileLength > 0) {
-                        numPieces = (int)(fileLength / 262144) + 1;
+                        numPieces = (int)(fileLength / pieceLength) + 1;
                         log("📊 " + (fileLength/1048576) + "MB | ~" + numPieces + " peças");
                         
-                        // Prioridade inicial: PRIMEIRAS peças
                         byte_vector priorities = new byte_vector();
                         for (int i = 0; i < numPieces; i++) {
                             priorities.add((byte)(i < 30 ? 7 : 1));
                         }
                         th.prioritize_pieces_ex(priorities);
-                        log("🎯 Prioridade inicial: primeiras 30 peças");
                     }
                 }
                 
