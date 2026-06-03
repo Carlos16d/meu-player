@@ -1,6 +1,5 @@
 package com.meuapp.player;
 
-import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -9,18 +8,26 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.ui.PlayerView;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.*;
+import java.net.*;
 
 public class MainActivity extends AppCompatActivity {
+    private PlayerView playerView;
+    private ExoPlayer player;
     private LinearLayout statsRow;
     private TextView logText, statProgress, statSpeed, statPeers;
     private ProgressBar bufferBar;
     private EditText magnetInput;
-    private Button btnPlay, btnStop, btnWatch;
+    private Button btnPlay, btnStop;
     private ScrollView logScroll;
     
     private String savePath;
@@ -28,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
     private torrent_handle torrent;
     private volatile boolean downloading = false;
     private volatile File videoFile = null;
+    private Thread serverThread;
     private Handler handler = new Handler(Looper.getMainLooper());
     private StringBuilder fullLog = new StringBuilder();
 
@@ -36,6 +44,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
+        playerView = findViewById(R.id.player_view);
         logScroll = findViewById(R.id.log_scroll);
         logText = findViewById(R.id.log_text);
         statsRow = findViewById(R.id.stats_row);
@@ -46,13 +55,34 @@ public class MainActivity extends AppCompatActivity {
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
-        btnWatch = findViewById(R.id.btn_watch);
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
+        // ExoPlayer
+        player = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(player);
+        
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) {
+                    log("✅ Player pronto!");
+                    playerView.setVisibility(View.VISIBLE);
+                    logScroll.setVisibility(View.GONE);
+                } else if (state == Player.STATE_BUFFERING) {
+                    log("⏳ Buffer...");
+                }
+            }
+            @Override
+            public void onPlayerError(PlaybackException error) {
+                log("❌ Player: " + error.getErrorCodeName());
+            }
+        });
+        
         log("APP INICIADO");
         
+        // Sessão torrent
         new Thread(() -> {
             try {
                 session = new SessionManager();
@@ -63,9 +93,11 @@ public class MainActivity extends AppCompatActivity {
             }
         }).start();
         
+        // Servidor HTTP
+        startServer();
+        
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
-        btnWatch.setOnClickListener(v -> watch());
     }
     
     private void log(String msg) {
@@ -76,6 +108,117 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
+    private void startServer() {
+        serverThread = new Thread(() -> {
+            try {
+                ServerSocket server = new ServerSocket(8080, 10);
+                server.setReuseAddress(true);
+                log("🌐 Servidor HTTP :8080");
+                
+                while (!Thread.interrupted()) {
+                    try {
+                        Socket client = server.accept();
+                        handleClient(client);
+                    } catch (IOException e) {}
+                }
+                server.close();
+            } catch (IOException e) {
+                log("❌ Servidor: " + e.getMessage());
+            }
+        });
+        serverThread.setDaemon(true);
+        serverThread.start();
+    }
+    
+    private void handleClient(Socket client) {
+        try {
+            client.setSoTimeout(10000);
+            OutputStream out = client.getOutputStream();
+            BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
+            
+            String request = in.readLine();
+            String range = null;
+            String line;
+            while ((line = in.readLine()) != null && !line.isEmpty()) {
+                if (line.toLowerCase().startsWith("range:")) {
+                    range = line.substring(6).trim();
+                }
+            }
+            
+            if (request == null || !request.contains("/video")) {
+                send(out, "HTTP/1.1 404\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            File vf = videoFile;
+            if (vf == null || !vf.exists() || vf.length() < 4096) {
+                send(out, "HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            long fileLen = vf.length();
+            long start = 0, end = fileLen - 1;
+            
+            if (range != null) {
+                String r = range.replace("bytes=", "");
+                String[] parts = r.split("-");
+                start = Long.parseLong(parts[0]);
+                end = (parts.length > 1 && !parts[1].isEmpty()) ? 
+                    Long.parseLong(parts[1]) : fileLen - 1;
+            }
+            
+            if (start >= fileLen) {
+                send(out, "HTTP/1.1 416\r\n\r\n");
+                client.close();
+                return;
+            }
+            if (end >= fileLen) end = fileLen - 1;
+            if (end - start > 131072) end = start + 131072;
+            
+            int len = (int)(end - start + 1);
+            byte[] buf = new byte[len];
+            int total = 0;
+            
+            try (RandomAccessFile raf = new RandomAccessFile(vf, "r")) {
+                raf.seek(start);
+                while (total < len) {
+                    int r = raf.read(buf, total, len - total);
+                    if (r == -1) break;
+                    total += r;
+                }
+            }
+            
+            if (total == 0) {
+                send(out, "HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n");
+                client.close();
+                return;
+            }
+            
+            String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            
+            out.write("HTTP/1.1 206\r\n".getBytes());
+            out.write(("Content-Type: " + mime + "\r\n").getBytes());
+            out.write(("Content-Range: bytes " + start + "-" + (start + total - 1) + "/" + fileLen + "\r\n").getBytes());
+            out.write(("Content-Length: " + total + "\r\n").getBytes());
+            out.write("Accept-Ranges: bytes\r\n".getBytes());
+            out.write("Connection: close\r\n".getBytes());
+            out.write("\r\n".getBytes());
+            out.write(buf, 0, total);
+            out.flush();
+            client.close();
+            
+        } catch (Exception e) {
+            try { client.close(); } catch (IOException ex) {}
+        }
+    }
+    
+    private void send(OutputStream out, String s) throws IOException {
+        out.write(s.getBytes());
+        out.flush();
+    }
+    
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
@@ -84,13 +227,21 @@ public class MainActivity extends AppCompatActivity {
         videoFile = null;
         
         handler.post(() -> {
+            playerView.setVisibility(View.GONE);
+            logScroll.setVisibility(View.VISIBLE);
             statsRow.setVisibility(View.VISIBLE);
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
-            btnWatch.setVisibility(View.GONE);
         });
         
-        log("INICIANDO...");
+        log("INICIANDO STREAMING...");
+        
+        // Conecta o ExoPlayer ao servidor HTTP
+        MediaItem item = MediaItem.fromUri("http://127.0.0.1:8080/video");
+        player.setMediaItem(item);
+        player.prepare();
+        player.play();
+        log("▶️ ExoPlayer conectado ao servidor");
         
         new Thread(() -> {
             try {
@@ -110,20 +261,14 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) torrent = h.get(0);
                 
-                while (downloading) {
+                while (downloading && videoFile == null) {
                     File f = find(new File(savePath));
-                    if (f != null && f.exists() && f.length() > 50000) {
+                    if (f != null && f.exists() && f.length() > 4096) {
                         videoFile = f;
-                        long mb = f.length() / 1048576;
-                        log("Arquivo: " + f.getName() + " (" + mb + "MB)");
-                        
-                        handler.post(() -> {
-                            btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
-                            btnWatch.setVisibility(View.VISIBLE);
-                        });
+                        log("📁 " + f.getName() + " (" + (f.length()/1048576) + "MB)");
                         break;
                     }
-                    Thread.sleep(2000);
+                    Thread.sleep(1000);
                 }
                 
             } catch (Exception e) {
@@ -148,34 +293,14 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    private void watch() {
-        if (videoFile == null || !videoFile.exists()) {
-            log("Arquivo nao encontrado");
-            return;
-        }
-        
-        log("Abrindo: " + videoFile.getName());
-        
-        try {
-            Intent intent = new Intent(Intent.ACTION_VIEW);
-            Uri uri = Uri.fromFile(videoFile);
-            intent.setDataAndType(uri, "video/*");
-            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            startActivity(Intent.createChooser(intent, "Abrir com"));
-            log("✅ Player externo aberto!");
-        } catch (Exception e) {
-            log("❌ ERRO: " + e.getMessage());
-            Toast.makeText(this, "Erro: " + e.getMessage(), Toast.LENGTH_LONG).show();
-        }
-    }
-    
     private void stop() {
         downloading = false;
+        player.stop();
         handler.removeCallbacksAndMessages(null);
+        playerView.setVisibility(View.GONE);
+        logScroll.setVisibility(View.VISIBLE);
         statsRow.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
-        btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
         log("Parado");
     }
@@ -200,6 +325,8 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         super.onDestroy();
         downloading = false;
+        if (serverThread != null) serverThread.interrupt();
+        if (player != null) player.release();
         if (session != null) session.stop();
     }
 }
