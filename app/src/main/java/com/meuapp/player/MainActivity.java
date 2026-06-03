@@ -163,17 +163,20 @@ public class MainActivity extends AppCompatActivity {
             long contentLength = rangeEnd - rangeStart + 1;
             
             // 🚀 PRIORIZAÇÃO DINÂMICA PARA SEEK
-            TorrentInfo info = torrentHandle.torrentFile();
-            pieceLength = info.pieceLength();
-            int startPiece = (int)(rangeStart / pieceLength);
-            int endPiece = Math.min(startPiece + 10, info.numPieces() - 1);
-            
-            log("⏩ Seek! Priorizando peças " + startPiece + "-" + endPiece + 
-                " (posição " + (rangeStart/1048576) + "MB)");
-            
-            for (int i = startPiece; i <= endPiece; i++) {
-                torrentHandle.piecePriority(i, Priority.SEVEN);
-                torrentHandle.setPieceDeadline(i, 1000);
+            if (torrentHandle.torrentFile() != null) {
+                TorrentInfo info = torrentHandle.torrentFile();
+                pieceLength = info.pieceLength();
+                int startPiece = (int)(rangeStart / pieceLength);
+                int endPiece = Math.min(startPiece + 10, info.numPieces() - 1);
+                
+                log("⏩ Priorizando peças " + startPiece + "-" + endPiece);
+                
+                for (int i = startPiece; i <= endPiece; i++) {
+                    try {
+                        torrentHandle.piecePriority(i, Priority.MAX);
+                        torrentHandle.setPieceDeadline(i, 1000);
+                    } catch (Exception e) {}
+                }
             }
             
             String mime = videoFile.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
@@ -194,9 +197,11 @@ public class MainActivity extends AppCompatActivity {
             while (bytesSent < contentLength && downloading) {
                 int currentPiece = (int)(raf.getFilePointer() / pieceLength);
                 
-                if (!torrentHandle.havePiece(currentPiece)) {
-                    torrentHandle.piecePriority(currentPiece, Priority.SEVEN);
-                    torrentHandle.setPieceDeadline(currentPiece, 500);
+                if (pieceLength > 0 && !torrentHandle.havePiece(currentPiece)) {
+                    try {
+                        torrentHandle.piecePriority(currentPiece, Priority.MAX);
+                        torrentHandle.setPieceDeadline(currentPiece, 500);
+                    } catch (Exception e) {}
                     Thread.sleep(300);
                     continue;
                 }
@@ -212,11 +217,10 @@ public class MainActivity extends AppCompatActivity {
             
             out.flush();
             client.close();
-            log("✅ Enviado " + (bytesSent/1024) + "KB da posição " + (rangeStart/1048576) + "MB");
+            log("✅ Enviado " + (bytesSent/1024) + "KB");
             
         } catch (Exception e) {
             try { client.close(); } catch (IOException ex) {}
-            log("⚠️ " + e.getMessage());
         }
     }
     
@@ -240,7 +244,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
-                p.setFlags(torrent_flags_t.from_int(8)); // Sequential
+                p.setFlags(torrent_flags_t.from_int(9)); // sequential + auto_managed
                 p.setDownload_limit(3 * 1024 * 1024);
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
@@ -252,7 +256,6 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) {
                     torrentHandle = new TorrentHandle(h.get(0));
-                    torrentHandle.setSequentialDownload(true);
                 }
                 
                 for (int i = 0; i < 120 && downloading; i++) {
