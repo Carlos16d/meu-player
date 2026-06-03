@@ -1,99 +1,146 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#0a0a0a"
-    android:gravity="center_horizontal"
-    android:padding="12dp">
-    
-    <androidx.media3.ui.PlayerView
-        android:id="@+id/player_view"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="0"
-        android:visibility="gone"
-        app:show_buffering="when_playing"
-        app:use_controller="true" />
+    android:background="#0a0a0a">
     
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="vertical"
-        android:layout_marginTop="12dp">
+        android:gravity="center_horizontal"
+        android:padding="12dp">
         
-        <EditText
-            android:id="@+id/magnet_input"
+        <!-- Player menor -->
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/player_view"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
-            android:background="#1a1a1a"
-            android:hint="Magnet link..."
-            android:textColorHint="#555"
-            android:inputType="textMultiLine"
-            android:padding="8dp"
-            android:textColor="#fff"
-            android:textSize="12sp" />
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            app:show_buffering="when_playing"
+            app:use_controller="true" />
         
+        <!-- Tela de carregamento -->
+        <FrameLayout
+            android:id="@+id/loading_overlay"
+            android:layout_width="match_parent"
+            android:layout_height="200dp"
+            android:visibility="gone"
+            android:background="#1a1a1a"
+            android:layout_marginTop="8dp">
+            
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center"
+                android:orientation="vertical"
+                android:gravity="center">
+                
+                <ProgressBar
+                    android:id="@+id/spinner_bar"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:indeterminateTint="#e74c3c"
+                    android:visibility="gone" />
+                
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="⏳ Carregando..."
+                    android:textColor="#e74c3c"
+                    android:textSize="14sp" />
+                
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="Baixando mais dados..."
+                    android:textColor="#888"
+                    android:textSize="11sp" />
+            </LinearLayout>
+        </FrameLayout>
+        
+        <!-- Painel de controle -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="6dp">
+            android:orientation="vertical"
+            android:layout_marginTop="8dp">
             
-            <Button
-                android:id="@+id/btn_play"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:backgroundTint="#e74c3c"
-                android:text="▶️ BAIXAR"
+            <EditText
+                android:id="@+id/magnet_input"
+                android:layout_width="match_parent"
+                android:layout_height="60dp"
+                android:background="#1a1a1a"
+                android:hint="Magnet link..."
+                android:textColorHint="#555"
+                android:inputType="textMultiLine"
+                android:padding="8dp"
                 android:textColor="#fff"
-                android:textStyle="bold" />
+                android:textSize="12sp" />
             
-            <Button
-                android:id="@+id/btn_watch"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:backgroundTint="#4ecb71"
-                android:text="🎬 ASSISTIR"
-                android:textColor="#000"
-                android:textStyle="bold"
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginTop="6dp">
+                
+                <Button
+                    android:id="@+id/btn_play"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:backgroundTint="#e74c3c"
+                    android:text="▶️ BAIXAR"
+                    android:textColor="#fff"
+                    android:textStyle="bold" />
+                
+                <Button
+                    android:id="@+id/btn_watch"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:backgroundTint="#4ecb71"
+                    android:text="🎬 ASSISTIR"
+                    android:textColor="#000"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+                
+                <Button
+                    android:id="@+id/btn_stop"
+                    android:layout_width="0dp"
+                    android:layout_height="48dp"
+                    android:layout_weight="1"
+                    android:layout_marginStart="4dp"
+                    android:backgroundTint="#555"
+                    android:text="⏹️ PARAR"
+                    android:textColor="#fff"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+            </LinearLayout>
+            
+            <ProgressBar
+                android:id="@+id/buffer_bar"
+                style="?android:attr/progressBarStyleHorizontal"
+                android:layout_width="match_parent"
+                android:layout_height="5dp"
+                android:layout_marginTop="6dp"
+                android:progressTint="#e74c3c"
                 android:visibility="gone" />
             
-            <Button
-                android:id="@+id/btn_stop"
-                android:layout_width="0dp"
-                android:layout_height="48dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:backgroundTint="#555"
-                android:text="⏹️ PARAR"
-                android:textColor="#fff"
-                android:textStyle="bold"
-                android:visibility="gone" />
+            <TextView
+                android:id="@+id/status_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Pronto"
+                android:textColor="#4ecb71"
+                android:textSize="11sp"
+                android:fontFamily="monospace" />
         </LinearLayout>
-        
-        <ProgressBar
-            android:id="@+id/buffer_bar"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="5dp"
-            android:layout_marginTop="6dp"
-            android:progressTint="#e74c3c"
-            android:visibility="gone" />
-        
-        <TextView
-            android:id="@+id/status_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:text="Pronto"
-            android:textColor="#4ecb71"
-            android:textSize="11sp"
-            android:fontFamily="monospace" />
     </LinearLayout>
     
-</LinearLayout>
+</FrameLayout>
