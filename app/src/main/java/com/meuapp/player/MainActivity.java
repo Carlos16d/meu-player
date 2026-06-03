@@ -20,6 +20,7 @@ import java.io.*;
 import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 public class MainActivity extends AppCompatActivity {
     private PlayerView playerView;
@@ -33,10 +34,14 @@ public class MainActivity extends AppCompatActivity {
     
     private String savePath;
     private SessionManager session;
+    private AtomicReference<torrent_handle> torrentRef = new AtomicReference<>();
     private volatile boolean downloading;
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
+    private long fileLength;
+    private int numPieces;
+    private int lastPrioritizedPiece = -1;
     private StringBuilder fullLog = new StringBuilder();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
 
@@ -78,7 +83,6 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) {
-                    log("✅ Reproduzindo");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
                 } else if (state == Player.STATE_BUFFERING) {
@@ -88,9 +92,19 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         
+        // Atualiza prioridade a cada 3 segundos
+        handler.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (downloading && player != null && player.isPlaying()) {
+                    prioritizePlayerPosition();
+                }
+                if (downloading) handler.postDelayed(this, 3000);
+            }
+        }, 3000);
+        
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); log("✅ OK"); } 
-            catch (Exception e) { log("❌ " + e.getMessage()); }
+            try { session = new SessionManager(); session.start(); log("✅ Sessão OK"); } 
+            catch (Exception e) { log("❌ Sessão: " + e.getMessage()); }
         }).start();
         
         startServer();
@@ -110,6 +124,72 @@ public class MainActivity extends AppCompatActivity {
             logText.setText(fullLog.toString());
             logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
         });
+    }
+    
+    private void prioritizePlayerPosition() {
+        torrent_handle th = torrentRef.get();
+        if (th == null || !th.is_valid() || numPieces <= 0) return;
+        
+        long pos = player.getCurrentPosition();
+        long duration = player.getDuration();
+        if (duration <= 0) return;
+        
+        int currentPiece = (int)(((double)pos / duration) * numPieces);
+        
+        // Só loga se mudou a posição
+        if (currentPiece != lastPrioritizedPiece) {
+            lastPrioritizedPiece = currentPiece;
+            
+            // Calcula qual parte do vídeo (em minutos)
+            int minutos = (int)(pos / 60000);
+            int segundos = (int)((pos % 60000) / 1000);
+            
+            log("🎯 Player em " + minutos + ":" + String.format("%02d", segundos) + 
+                " → Priorizando peça " + currentPiece + "/" + numPieces);
+            
+            // Mostra quais peças estão sendo baixadas
+            try {
+                torrent_status ts = th.status();
+                float progress = ts.getProgress() * 100;
+                int downloadRate = (int)(ts.getDownload_rate() / 1024);
+                log("   📥 " + String.format("%.1f", progress) + "% | " + downloadRate + " KB/s | " + 
+                    ts.getNum_peers() + " peers");
+                
+                // Verifica se a peça atual já foi baixada
+                boolean hasPiece = th.have_piece(currentPiece);
+                log("   🔍 Peça " + currentPiece + ": " + (hasPiece ? "✅ JÁ BAIXADA" : "⏳ BAIXANDO..."));
+                
+                // Verifica peças ao redor
+                int baixadas = 0;
+                int total = 0;
+                for (int i = Math.max(0, currentPiece - 10); i < Math.min(numPieces, currentPiece + 30); i++) {
+                    total++;
+                    if (th.have_piece(i)) baixadas++;
+                }
+                log("   📊 Peças " + Math.max(0, currentPiece - 10) + "-" + 
+                    Math.min(numPieces - 1, currentPiece + 29) + ": " + baixadas + "/" + total + " baixadas");
+                
+            } catch (Exception e) {
+                log("   ⚠️ Erro ao verificar status");
+            }
+        }
+        
+        // Prioriza peças
+        try {
+            byte_vector priorities = new byte_vector();
+            for (int i = 0; i < numPieces; i++) {
+                if (i >= currentPiece && i < currentPiece + 20) {
+                    priorities.add((byte)7); // Onde o player está
+                } else if (i >= currentPiece - 5 && i < currentPiece + 40) {
+                    priorities.add((byte)5); // Ao redor
+                } else if (i < 10) {
+                    priorities.add((byte)6); // Cabeçalho sempre importante
+                } else {
+                    priorities.add((byte)1); // Resto
+                }
+            }
+            th.prioritize_pieces_ex(priorities);
+        } catch (Exception e) {}
     }
     
     private void startServer() {
@@ -196,6 +276,9 @@ public class MainActivity extends AppCompatActivity {
         
         downloading = true;
         videoFile = null;
+        numPieces = 0;
+        lastPrioritizedPiece = -1;
+        torrentRef.set(null);
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
@@ -203,20 +286,44 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        log("⏳ Baixando...");
+        log("═══ INICIANDO ═══");
         
         new Thread(() -> {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
-                p.setFlags(torrent_flags_t.from_int(9));
+                p.setFlags(torrent_flags_t.from_int(1)); // auto_managed, NÃO sequential
                 p.setDownload_limit(3 * 1024 * 1024);
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
+                log("📤 Magnet enviado");
+                Thread.sleep(3000);
                 
+                torrent_handle_vector h = session.swig().get_torrents();
+                if (h.size() > 0) {
+                    torrentRef.set(h.get(0));
+                    torrent_handle th = torrentRef.get();
+                    torrent_status ts = th.status();
+                    fileLength = ts.getTotal_wanted();
+                    
+                    if (fileLength > 0) {
+                        numPieces = (int)(fileLength / 262144) + 1;
+                        log("📊 Arquivo: " + (fileLength/1048576) + "MB | ~" + numPieces + " peças");
+                        
+                        // Prioridade MÁXIMA para cabeçalho (primeiras 50 peças)
+                        byte_vector priorities = new byte_vector();
+                        for (int i = 0; i < numPieces; i++) {
+                            priorities.add((byte)(i < 50 ? 7 : 1));
+                        }
+                        th.prioritize_pieces_ex(priorities);
+                        log("🎯 Prioridade inicial: primeiras 50 peças (cabeçalho)");
+                    }
+                }
+                
+                log("🔍 Aguardando header válido...");
                 for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 65536) {
@@ -229,7 +336,7 @@ public class MainActivity extends AppCompatActivity {
                         if (valid) {
                             videoFile = f;
                             long mb = f.length() / 1048576;
-                            log("📁 " + f.getName() + " (" + mb + "MB)");
+                            log("✅ Header válido! " + f.getName() + " (" + mb + "MB)");
                             
                             handler.post(() -> {
                                 btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
@@ -251,6 +358,7 @@ public class MainActivity extends AppCompatActivity {
         }
         
         log("▶️ " + videoFile.getName());
+        lastPrioritizedPiece = -1; // Força log na primeira priorização
         
         handler.post(() -> {
             playerView.setVisibility(View.VISIBLE);
@@ -263,6 +371,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void stop() {
+        log("⏹️ Parando...");
         downloading = false;
         handler.removeCallbacksAndMessages(null);
         if (player != null) { player.stop(); player.clearMediaItems(); }
@@ -272,7 +381,11 @@ public class MainActivity extends AppCompatActivity {
         bufferBar.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
         spinnerBar.setVisibility(View.GONE);
-        log("⏹️ Parado");
+        
+        torrent_handle th = torrentRef.getAndSet(null);
+        if (th != null && th.is_valid() && session != null) {
+            try { session.swig().remove_torrent(th); } catch (Exception e) {}
+        }
     }
     
     private File find(File dir) {
