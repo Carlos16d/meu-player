@@ -9,6 +9,8 @@ import android.view.ViewGroup;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.PlaybackException;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
@@ -21,7 +23,8 @@ public class MainActivity extends AppCompatActivity {
     private PlayerView playerView;
     private ExoPlayer player;
     private TextView statusText;
-    private ProgressBar bufferBar;
+    private ProgressBar bufferBar, spinnerBar;
+    private LinearLayout loadingOverlay;
     private EditText magnetInput;
     private Button btnPlay, btnStop, btnWatch;
     
@@ -39,6 +42,8 @@ public class MainActivity extends AppCompatActivity {
         playerView = findViewById(R.id.player_view);
         statusText = findViewById(R.id.status_text);
         bufferBar = findViewById(R.id.buffer_bar);
+        spinnerBar = findViewById(R.id.spinner_bar);
+        loadingOverlay = findViewById(R.id.loading_overlay);
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
@@ -61,6 +66,41 @@ public class MainActivity extends AppCompatActivity {
         player = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(player);
         playerView.setVisibility(View.GONE);
+        
+        // Listener do player com tela de carregamento
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                if (state == Player.STATE_READY) {
+                    log("▶️ Reproduzindo");
+                    loadingOverlay.setVisibility(View.GONE);
+                    spinnerBar.setVisibility(View.GONE);
+                } else if (state == Player.STATE_BUFFERING) {
+                    log("⏳ Carregando...");
+                    loadingOverlay.setVisibility(View.VISIBLE);
+                    spinnerBar.setVisibility(View.VISIBLE);
+                } else if (state == Player.STATE_ENDED) {
+                    log("✅ Finalizado");
+                    loadingOverlay.setVisibility(View.GONE);
+                    spinnerBar.setVisibility(View.GONE);
+                }
+            }
+            
+            @Override
+            public void onPlayerError(PlaybackException error) {
+                log("⏳ Aguardando download...");
+                loadingOverlay.setVisibility(View.VISIBLE);
+                spinnerBar.setVisibility(View.VISIBLE);
+                // Tenta de novo após 2 segundos
+                handler.postDelayed(() -> {
+                    if (downloading && player != null && videoFile != null) {
+                        player.setMediaItem(MediaItem.fromUri("file://" + videoFile.getAbsolutePath()));
+                        player.prepare();
+                        player.play();
+                    }
+                }, 2000);
+            }
+        });
         
         new Thread(() -> {
             try {
@@ -96,21 +136,23 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        log("⏳ Baixando...");
+        log("⏳ Baixando (max 3 MB/s)...");
         
         new Thread(() -> {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(9));
-                p.setDownload_limit(0);
+                p.setDownload_limit(3 * 1024 * 1024); // 3 MB/s
+                p.setMax_connections(50);
+                p.setMax_uploads(5);
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
                 
-                // Aguarda header válido
+                // Aguarda header válido e inicia automaticamente
                 for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 65536) {
@@ -123,11 +165,15 @@ public class MainActivity extends AppCompatActivity {
                         if (valid) {
                             videoFile = f;
                             long mb = f.length() / 1048576;
-                            log("📁 " + f.getName() + " (" + mb + "MB)");
+                            log("▶️ Iniciando player... (" + mb + "MB)");
                             
+                            // Inicia o player automaticamente
                             handler.post(() -> {
-                                btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
-                                btnWatch.setVisibility(View.VISIBLE);
+                                playerView.setVisibility(View.VISIBLE);
+                                player.setMediaItem(MediaItem.fromUri("file://" + videoFile.getAbsolutePath()));
+                                player.prepare();
+                                player.play();
+                                btnWatch.setVisibility(View.GONE);
                             });
                             break;
                         }
@@ -152,9 +198,10 @@ public class MainActivity extends AppCompatActivity {
         handler.post(() -> {
             playerView.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
+            loadingOverlay.setVisibility(View.VISIBLE);
+            spinnerBar.setVisibility(View.VISIBLE);
         });
         
-        // Lê direto do arquivo
         player.setMediaItem(MediaItem.fromUri("file://" + videoFile.getAbsolutePath()));
         player.prepare();
         player.play();
@@ -168,6 +215,8 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
+        loadingOverlay.setVisibility(View.GONE);
+        spinnerBar.setVisibility(View.GONE);
         log("⏹️ Parado");
     }
     
