@@ -41,10 +41,10 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private long fileLength;
     private int numPieces;
-    private long pieceLength;
     private int lastPiece = -1;
     private StringBuilder fullLog = new StringBuilder();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
+    private Runnable priorityRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -84,8 +84,10 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int state) {
                 if (state == Player.STATE_READY) {
+                    log("✅ READY | " + player.getDuration()/1000 + "s");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
+                    startPriorityUpdater(); // INICIA aqui
                 } else if (state == Player.STATE_BUFFERING) {
                     loadingOverlay.setVisibility(View.VISIBLE);
                     spinnerBar.setVisibility(View.VISIBLE);
@@ -93,15 +95,15 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         
-        // Atualiza prioridade a cada 2 segundos
-        handler.postDelayed(new Runnable() {
+        // Priority updater dedicado
+        priorityRunnable = new Runnable() {
             @Override public void run() {
-                if (downloading && player != null && player.getDuration() > 0) {
+                if (downloading && numPieces > 0) {
                     updatePriority();
+                    handler.postDelayed(this, 2000);
                 }
-                if (downloading) handler.postDelayed(this, 2000);
             }
-        }, 2000);
+        };
         
         new Thread(() -> {
             try { session = new SessionManager(); session.start(); log("✅ OK"); } 
@@ -117,6 +119,11 @@ public class MainActivity extends AppCompatActivity {
         log("📱 Pronto");
     }
     
+    private void startPriorityUpdater() {
+        handler.removeCallbacks(priorityRunnable);
+        handler.post(priorityRunnable);
+    }
+    
     private void log(String msg) {
         String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
         fullLog.append(line);
@@ -129,32 +136,44 @@ public class MainActivity extends AppCompatActivity {
     
     private void updatePriority() {
         torrent_handle th = torrentRef.get();
-        if (th == null || !th.is_valid() || numPieces <= 0) return;
+        if (th == null || !th.is_valid()) {
+            log("⚠️ Prioridade: torrent inválido");
+            return;
+        }
+        if (player == null || player.getDuration() <= 0) {
+            log("⚠️ Prioridade: player não pronto");
+            return;
+        }
         
         long pos = player.getCurrentPosition();
         long dur = player.getDuration();
-        if (dur <= 0) return;
-        
         int piece = (int)(((double)pos / dur) * numPieces);
         if (piece >= numPieces) piece = numPieces - 1;
         
-        if (piece != lastPiece) {
-            lastPiece = piece;
-            int min = (int)(pos / 60000);
-            int sec = (int)((pos % 60000) / 1000);
-            log("🎯 " + min + ":" + String.format("%02d", sec) + " → peça " + piece + "/" + numPieces);
-        }
+        int min = (int)(pos / 60000);
+        int sec = (int)((pos % 60000) / 1000);
+        
+        // SEMPRE loga
+        log("🎯 " + min + ":" + String.format("%02d", sec) + " → peça " + piece + "/" + numPieces);
         
         try {
+            // Verifica se a peça atual já foi baixada
+            boolean hasPiece = th.have_piece(piece);
+            log("   Peça " + piece + ": " + (hasPiece ? "✅ JÁ BAIXADA" : "⏳ BAIXANDO"));
+            
             byte_vector p = new byte_vector();
             for (int i = 0; i < numPieces; i++) {
-                if (i >= piece - 2 && i < piece + 15) p.add((byte)7);
-                else if (i >= piece - 5 && i < piece + 30) p.add((byte)5);
-                else if (i < 20) p.add((byte)4);
+                if (i >= piece - 2 && i < piece + 20) p.add((byte)7);
+                else if (i >= piece - 5 && i < piece + 40) p.add((byte)5);
+                else if (i < 15) p.add((byte)4);
                 else p.add((byte)1);
             }
             th.prioritize_pieces_ex(p);
-        } catch (Exception e) {}
+            lastPiece = piece;
+            
+        } catch (Exception e) {
+            log("❌ Prioridade: " + e.getMessage());
+        }
     }
     
     private void startServer() {
@@ -244,7 +263,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
-                p.setFlags(torrent_flags_t.from_int(0)); // SEM flags = download livre
+                p.setFlags(torrent_flags_t.from_int(0));
                 p.setDownload_limit(3 * 1024 * 1024);
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
@@ -261,9 +280,16 @@ public class MainActivity extends AppCompatActivity {
                     fileLength = ts.getTotal_wanted();
                     
                     if (fileLength > 0) {
-                        pieceLength = 262144;
-                        numPieces = (int)(fileLength / pieceLength) + 1;
+                        numPieces = (int)(fileLength / 262144) + 1;
                         log("📊 " + (fileLength/1048576) + "MB | ~" + numPieces + " peças");
+                        
+                        // Prioridade inicial: PRIMEIRAS peças
+                        byte_vector priorities = new byte_vector();
+                        for (int i = 0; i < numPieces; i++) {
+                            priorities.add((byte)(i < 30 ? 7 : 1));
+                        }
+                        th.prioritize_pieces_ex(priorities);
+                        log("🎯 Prioridade inicial: primeiras 30 peças");
                     }
                 }
                 
