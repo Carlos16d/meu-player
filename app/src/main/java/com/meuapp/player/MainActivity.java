@@ -159,6 +159,7 @@ public class MainActivity extends AppCompatActivity {
             
             long totalLength = videoFile.length();
             if (rangeEnd == -1) rangeEnd = totalLength - 1;
+            long contentLength = rangeEnd - rangeStart + 1;
             
             // 🚀 PRIORIZAÇÃO DINÂMICA PARA SEEK
             if (torrentHandle.torrentFile() != null) {
@@ -171,14 +172,12 @@ public class MainActivity extends AppCompatActivity {
                 
                 for (int i = startPiece; i <= endPiece; i++) {
                     try {
-                        torrentHandle.piecePriority(i, 7);
                         torrentHandle.setPieceDeadline(i, 1000);
                     } catch (Exception e) {}
                 }
             }
             
             String mime = videoFile.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-            long contentLength = rangeEnd - rangeStart + 1;
             
             String headers = "HTTP/1.1 206 Partial Content\r\n" +
                 "Content-Type: " + mime + "\r\n" +
@@ -199,7 +198,6 @@ public class MainActivity extends AppCompatActivity {
                 
                 if (pieceLength > 0 && !torrentHandle.havePiece(currentPiece)) {
                     try {
-                        torrentHandle.piecePriority(currentPiece, 7);
                         torrentHandle.setPieceDeadline(currentPiece, 500);
                     } catch (Exception e) {}
                     Thread.sleep(200);
