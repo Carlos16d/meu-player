@@ -87,7 +87,6 @@ public class MainActivity extends AppCompatActivity {
                 
                 if (state == Player.STATE_READY) {
                     log("   Duração: " + player.getDuration() + "ms");
-                    log("   Posição: " + player.getCurrentPosition() + "ms");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
                 } else if (state == Player.STATE_BUFFERING) {
@@ -100,9 +99,8 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlayerError(PlaybackException error) {
                 log("❌ PLAYER ERROR: " + error.getErrorCodeName());
-                log("   Msg: " + error.getMessage());
                 if (error.getCause() != null) {
-                    log("   Causa: " + error.getCause().getClass().getSimpleName() + ": " + error.getCause().getMessage());
+                    log("   Causa: " + error.getCause().getClass().getSimpleName());
                 }
                 loadingOverlay.setVisibility(View.VISIBLE);
                 spinnerBar.setVisibility(View.VISIBLE);
@@ -125,7 +123,6 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setOnClickListener(v -> stop());
         
         log("📱 App iniciado");
-        log("📁 Pasta: " + savePath);
     }
     
     private void log(String msg) {
@@ -145,14 +142,12 @@ public class MainActivity extends AppCompatActivity {
             try {
                 serverSocket = new ServerSocket(8080, 5);
                 serverSocket.setReuseAddress(true);
-                log("🌐 Servidor HTTP iniciado na porta 8080");
-                log("   URL: http://127.0.0.1:8080/video");
+                log("🌐 Servidor HTTP :8080");
                 
                 while (!serverSocket.isClosed()) {
                     Socket client = serverSocket.accept();
                     httpRequests++;
                     int reqNum = httpRequests;
-                    log("📥 Requisição HTTP #" + reqNum + " de " + client.getInetAddress());
                     serverPool.execute(() -> handle(client, reqNum));
                 }
             } catch (IOException e) {
@@ -168,48 +163,31 @@ public class MainActivity extends AppCompatActivity {
             BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
             
             String req = in.readLine();
-            log("   #" + reqNum + " Request: " + (req != null ? req : "NULL"));
             
             if (req == null || !req.contains("/video")) {
                 out.write("HTTP/1.1 404\r\n\r\n".getBytes());
                 out.flush(); client.close();
-                log("   #" + reqNum + " → 404");
+                log("📥 #" + reqNum + " → 404");
                 return;
             }
             
             String rangeStr = null;
             String line;
             while ((line = in.readLine()) != null && !line.isEmpty()) {
-                if (line.startsWith("Range:")) {
-                    rangeStr = line.substring(6).trim();
-                    log("   #" + reqNum + " Range: " + rangeStr);
-                }
+                if (line.startsWith("Range:")) rangeStr = line.substring(6).trim();
             }
             
             File vf = videoFile;
-            if (vf == null) {
+            if (vf == null || !vf.exists() || vf.length() < 4096) {
                 out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes());
                 out.flush(); client.close();
-                log("   #" + reqNum + " → 503 (videoFile null)");
-                return;
-            }
-            
-            if (!vf.exists()) {
-                out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes());
-                out.flush(); client.close();
-                log("   #" + reqNum + " → 503 (!exists)");
+                log("📥 #" + reqNum + " → 503");
                 return;
             }
             
             long fileLen = vf.length();
-            if (fileLen < 4096) {
-                out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes());
-                out.flush(); client.close();
-                log("   #" + reqNum + " → 503 (tamanho=" + fileLen + ")");
-                return;
-            }
-            
-            long start = 0, end = Math.min(65535, fileLen - 1);
+            String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            long start = 0, end = fileLen - 1;
             
             if (rangeStr != null) {
                 String r = rangeStr.replace("bytes=", "");
@@ -218,11 +196,13 @@ public class MainActivity extends AppCompatActivity {
                 if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
                 if (start >= fileLen) {
                     out.write("HTTP/1.1 416\r\n\r\n".getBytes()); out.flush(); client.close();
-                    log("   #" + reqNum + " → 416 (start >= len)");
+                    log("📥 #" + reqNum + " → 416");
                     return;
                 }
                 if (end >= fileLen) end = fileLen - 1;
-                if (end - start > 65536) end = start + 65536;
+                if (end - start > 131072) end = start + 131072;
+            } else {
+                end = Math.min(131071, fileLen - 1);
             }
             
             int len = (int)(end - start + 1);
@@ -235,17 +215,22 @@ public class MainActivity extends AppCompatActivity {
             if (total <= 0) {
                 out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes());
                 out.flush(); client.close();
-                log("   #" + reqNum + " → 503 (read=0)");
+                log("📥 #" + reqNum + " → 503 (vazio)");
                 return;
             }
             
-            String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-            int code = (rangeStr != null) ? 206 : 200;
-            
-            String resp = "HTTP/1.1 " + code + " OK\r\n";
-            resp += "Content-Type: " + mime + "\r\n";
-            if (code == 206) resp += "Content-Range: bytes " + start + "-" + (start + total - 1) + "/" + fileLen + "\r\n";
-            resp += "Content-Length: " + total + "\r\n";
+            // Monta resposta
+            String resp;
+            if (rangeStr != null) {
+                resp = "HTTP/1.1 206 Partial Content\r\n";
+                resp += "Content-Type: " + mime + "\r\n";
+                resp += "Content-Range: bytes " + start + "-" + (start + total - 1) + "/" + fileLen + "\r\n";
+                resp += "Content-Length: " + total + "\r\n";
+            } else {
+                resp = "HTTP/1.1 200 OK\r\n";
+                resp += "Content-Type: " + mime + "\r\n";
+                resp += "Content-Length: " + fileLen + "\r\n"; // TAMANHO TOTAL
+            }
             resp += "Accept-Ranges: bytes\r\n";
             resp += "Connection: close\r\n\r\n";
             
@@ -254,11 +239,12 @@ public class MainActivity extends AppCompatActivity {
             out.flush();
             client.close();
             
-            log("   #" + reqNum + " → " + code + " (" + total + " bytes, " + start + "-" + (start+total-1) + ")");
+            log("📥 #" + reqNum + " → " + (rangeStr != null ? "206" : "200") + 
+                " | " + total + " bytes | " + start + "-" + (start+total-1));
             
         } catch (Exception e) {
             try { client.close(); } catch (IOException ex) {}
-            log("   #" + reqNum + " ❌ " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            log("📥 #" + reqNum + " ❌ " + e.getClass().getSimpleName());
         }
     }
     
@@ -275,8 +261,7 @@ public class MainActivity extends AppCompatActivity {
             bufferBar.setVisibility(View.VISIBLE);
         });
         
-        log("══════ INICIANDO ══════");
-        log("📡 Magnet: " + magnet.substring(0, Math.min(60, magnet.length())) + "...");
+        log("═══ INICIANDO ═══");
         
         new Thread(() -> {
             try {
@@ -291,69 +276,46 @@ public class MainActivity extends AppCompatActivity {
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
-                log("📤 Magnet enviado à sessão");
+                log("📤 Magnet enviado");
                 
                 Thread.sleep(2000);
-                log("🔍 Procurando arquivo...");
                 
                 for (int i = 0; i < 90 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null) {
-                        log("   Tentativa " + (i+1) + ": " + f.getName() + " (" + (f.length()/1024) + "KB)");
+                    if (f != null && f.length() > 32768) {
+                        byte[] hdr = new byte[8];
+                        try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e) { continue; }
                         
-                        if (f.length() > 32768) {
-                            byte[] hdr = new byte[8];
-                            try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e) { 
-                                log("   ❌ Erro ao ler header: " + e.getMessage());
-                                continue; 
-                            }
+                        boolean isMP4 = (hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p');
+                        boolean isMKV = ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3);
+                        
+                        if (isMP4 || isMKV) {
+                            videoFile = f;
+                            log("✅ Header válido! " + (f.length()/1024) + "KB");
                             
-                            boolean isMP4 = (hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p');
-                            boolean isMKV = ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3);
-                            
-                            String hex = "";
-                            for (byte b : hdr) hex += String.format("%02X ", b);
-                            log("   Header: " + hex + (isMP4 ? "[MP4]" : isMKV ? "[MKV]" : "[?]"));
-                            
-                            if (isMP4 || isMKV) {
-                                videoFile = f;
-                                log("✅ Header válido! Iniciando player...");
-                                log("   Arquivo: " + f.getAbsolutePath());
-                                log("   Tamanho: " + (f.length()/1024) + "KB");
-                                
-                                handler.post(() -> {
-                                    playerView.setVisibility(View.VISIBLE);
-                                    loadingOverlay.setVisibility(View.VISIBLE);
-                                    spinnerBar.setVisibility(View.VISIBLE);
-                                    
-                                    String url = "http://127.0.0.1:8080/video";
-                                    log("▶️ Conectando player a: " + url);
-                                    player.setMediaItem(MediaItem.fromUri(url));
-                                    player.prepare();
-                                    player.play();
-                                    log("▶️ Play chamado");
-                                });
-                                break;
-                            } else {
-                                log("   ⏳ Header inválido, aguardando...");
-                            }
+                            handler.post(() -> {
+                                playerView.setVisibility(View.VISIBLE);
+                                loadingOverlay.setVisibility(View.VISIBLE);
+                                spinnerBar.setVisibility(View.VISIBLE);
+                                player.setMediaItem(MediaItem.fromUri("http://127.0.0.1:8080/video"));
+                                player.prepare();
+                                player.play();
+                                log("▶️ Play chamado");
+                            });
+                            break;
                         }
                     }
                     Thread.sleep(1000);
                 }
                 
-                if (videoFile == null) {
-                    log("⚠️ Timeout: arquivo não encontrado após 90s");
-                }
-                
             } catch (Exception e) { 
-                log("❌ ERRO: " + e.getClass().getSimpleName() + ": " + e.getMessage());
+                log("❌ " + e.getMessage()); 
             }
         }).start();
     }
     
     private void stop() {
-        log("⏹️ Parando... Total requisições HTTP: " + httpRequests);
+        log("⏹️ Parando | Reqs HTTP: " + httpRequests);
         downloading = false;
         handler.removeCallbacksAndMessages(null);
         if (player != null) { player.stop(); player.clearMediaItems(); }
