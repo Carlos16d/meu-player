@@ -13,10 +13,9 @@ import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.ui.PlayerView;
 
-import org.libtorrent4j.Priority;
-import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.TorrentHandle;
 import org.libtorrent4j.TorrentInfo;
+import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.*;
@@ -160,7 +159,6 @@ public class MainActivity extends AppCompatActivity {
             
             long totalLength = videoFile.length();
             if (rangeEnd == -1) rangeEnd = totalLength - 1;
-            long contentLength = rangeEnd - rangeStart + 1;
             
             // 🚀 PRIORIZAÇÃO DINÂMICA PARA SEEK
             if (torrentHandle.torrentFile() != null) {
@@ -173,13 +171,15 @@ public class MainActivity extends AppCompatActivity {
                 
                 for (int i = startPiece; i <= endPiece; i++) {
                     try {
-                        torrentHandle.piecePriority(i, Priority.MAX);
+                        torrentHandle.piecePriority(i, 7);
                         torrentHandle.setPieceDeadline(i, 1000);
                     } catch (Exception e) {}
                 }
             }
             
             String mime = videoFile.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            long contentLength = rangeEnd - rangeStart + 1;
+            
             String headers = "HTTP/1.1 206 Partial Content\r\n" +
                 "Content-Type: " + mime + "\r\n" +
                 "Accept-Ranges: bytes\r\n" +
@@ -195,14 +195,14 @@ public class MainActivity extends AppCompatActivity {
             long bytesSent = 0;
             
             while (bytesSent < contentLength && downloading) {
-                int currentPiece = (int)(raf.getFilePointer() / pieceLength);
+                int currentPiece = (pieceLength > 0) ? (int)(raf.getFilePointer() / pieceLength) : 0;
                 
                 if (pieceLength > 0 && !torrentHandle.havePiece(currentPiece)) {
                     try {
-                        torrentHandle.piecePriority(currentPiece, Priority.MAX);
+                        torrentHandle.piecePriority(currentPiece, 7);
                         torrentHandle.setPieceDeadline(currentPiece, 500);
                     } catch (Exception e) {}
-                    Thread.sleep(300);
+                    Thread.sleep(200);
                     continue;
                 }
                 
@@ -244,7 +244,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
-                p.setFlags(torrent_flags_t.from_int(9)); // sequential + auto_managed
+                p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(3 * 1024 * 1024);
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
