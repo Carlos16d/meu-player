@@ -79,10 +79,10 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void startServer() {
-        serverPool = Executors.newFixedThreadPool(4);
+        serverPool = Executors.newFixedThreadPool(2);
         new Thread(() -> {
             try {
-                serverSocket = new ServerSocket(8080, 10);
+                serverSocket = new ServerSocket(8080, 5);
                 serverSocket.setReuseAddress(true);
                 while (!serverSocket.isClosed()) {
                     Socket client = serverSocket.accept();
@@ -94,7 +94,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void handleClient(Socket client) {
         try {
-            client.setSoTimeout(10000);
+            client.setSoTimeout(5000);
             OutputStream out = new BufferedOutputStream(client.getOutputStream());
             BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
             
@@ -111,14 +111,14 @@ public class MainActivity extends AppCompatActivity {
             }
             
             File vf = videoFile;
-            if (vf == null || !vf.exists() || vf.length() < 8192) {
-                out.write("HTTP/1.1 503\r\nRetry-After: 2\r\nConnection: close\r\n\r\n".getBytes());
+            if (vf == null || !vf.exists() || vf.length() < 65536) { // Pelo menos 64KB
+                out.write("HTTP/1.1 503\r\nRetry-After: 1\r\nConnection: close\r\n\r\n".getBytes());
                 out.flush(); client.close(); return;
             }
             
             long fileLen = vf.length();
             String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-            long start = 0, end = Math.min(262143, fileLen - 1);
+            long start = 0, end = Math.min(131071, fileLen - 1); // 128KB
             
             if (rangeStr != null) {
                 String r = rangeStr.replace("bytes=", "");
@@ -141,7 +141,7 @@ public class MainActivity extends AppCompatActivity {
             raf.close();
             
             if (total == 0) {
-                out.write("HTTP/1.1 503\r\nRetry-After: 2\r\n\r\n".getBytes()); out.flush(); client.close(); return;
+                out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); out.flush(); client.close(); return;
             }
             
             int code = (rangeStr != null) ? 206 : 200;
@@ -170,12 +170,9 @@ public class MainActivity extends AppCompatActivity {
             bufferBar.setVisibility(View.VISIBLE);
         });
         
-        log("⏳ Iniciando...");
+        log("⏳ Aguardando dados...");
         
-        player.setMediaItem(MediaItem.fromUri("http://127.0.0.1:8080/video"));
-        player.prepare();
-        player.play();
-        
+        // Inicia o download primeiro, SÓ conecta o player depois
         new Thread(() -> {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
@@ -187,17 +184,43 @@ public class MainActivity extends AppCompatActivity {
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
+                log("📤 Magnet enviado");
                 
-                // Procura arquivo
-                for (int i = 0; i < 60 && downloading; i++) {
+                // Aguarda o arquivo ter dados suficientes (64KB + header válido)
+                for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && f.length() > 8192 && !isAllZeros(f)) {
+                    if (f != null && f.length() > 65536 && !isAllZeros(f)) {
                         videoFile = f;
-                        log("📁 " + f.getName() + " (" + (f.length()/1048576) + "MB)");
-                        break;
+                        log("📁 " + f.getName() + " (" + (f.length()/1024) + "KB)");
+                        
+                        // Verifica se o header é válido
+                        byte[] hdr = new byte[8];
+                        new RandomAccessFile(f, "r").read(hdr);
+                        boolean valid = (hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
+                                       ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3);
+                        
+                        if (valid) {
+                            log("✅ Header válido! Iniciando player...");
+                            
+                            // AGORA SIM conecta o player
+                            handler.post(() -> {
+                                player.setMediaItem(MediaItem.fromUri("http://127.0.0.1:8080/video"));
+                                player.prepare();
+                                player.play();
+                                log("▶️ Reproduzindo!");
+                            });
+                            break;
+                        } else {
+                            log("⏳ Aguardando header válido... (" + (f.length()/1024) + "KB)");
+                        }
                     }
                     Thread.sleep(1000);
                 }
+                
+                if (videoFile == null) {
+                    log("⚠️ Timeout: arquivo não encontrado");
+                }
+                
             } catch (Exception e) {
                 log("❌ " + e.getMessage());
             }
@@ -217,14 +240,6 @@ public class MainActivity extends AppCompatActivity {
         downloading = false;
         handler.removeCallbacksAndMessages(null);
         if (player != null) { player.stop(); player.clearMediaItems(); }
-        if (session != null) {
-            try {
-                torrent_handle_vector h = session.swig().get_torrents();
-                for (int i = 0; i < h.size(); i++) {
-                    session.swig().remove_torrent(h.get(i));
-                }
-            } catch (Exception e) {}
-        }
         playerView.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
