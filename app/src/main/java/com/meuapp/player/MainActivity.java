@@ -24,7 +24,7 @@ public class MainActivity extends AppCompatActivity {
     private ExoPlayer player;
     private TextView statusText;
     private ProgressBar bufferBar, spinnerBar;
-    private LinearLayout loadingOverlay;
+    private FrameLayout loadingOverlay;
     private EditText magnetInput;
     private Button btnPlay, btnStop, btnWatch;
     
