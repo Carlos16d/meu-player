@@ -11,7 +11,7 @@
         android:allowBackup="true"
         android:usesCleartextTraffic="true"
         android:hardwareAccelerated="true"
-        android:label="UDP Torrent Player"
+        android:label="UDP Player"
         android:requestLegacyExternalStorage="true"
         android:theme="@style/Theme.AppCompat.NoActionBar">
         
