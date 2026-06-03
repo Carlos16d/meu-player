@@ -33,6 +33,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile boolean downloading;
     private volatile File videoFile;
     private Handler handler;
+    private long lastPosition = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -67,7 +68,7 @@ public class MainActivity extends AppCompatActivity {
         playerView.setPlayer(player);
         playerView.setVisibility(View.GONE);
         
-        // Listener do player com tela de carregamento
+        // Listener do player com tela de carregamento + manter posição
         player.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
@@ -75,6 +76,11 @@ public class MainActivity extends AppCompatActivity {
                     log("▶️ Reproduzindo");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
+                    // Restaura posição se necessário
+                    if (lastPosition > 0 && player.getCurrentPosition() == 0) {
+                        player.seekTo(lastPosition);
+                        lastPosition = 0;
+                    }
                 } else if (state == Player.STATE_BUFFERING) {
                     log("⏳ Carregando...");
                     loadingOverlay.setVisibility(View.VISIBLE);
@@ -83,22 +89,28 @@ public class MainActivity extends AppCompatActivity {
                     log("✅ Finalizado");
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
+                    lastPosition = 0;
                 }
             }
             
             @Override
             public void onPlayerError(PlaybackException error) {
-                log("⏳ Aguardando download...");
+                log("⏳ Aguardando mais dados...");
                 loadingOverlay.setVisibility(View.VISIBLE);
                 spinnerBar.setVisibility(View.VISIBLE);
-                // Tenta de novo após 2 segundos
+                
+                // Salva posição atual
+                lastPosition = player.getCurrentPosition();
+                if (lastPosition < 0) lastPosition = 0;
+                
+                // Tenta de novo mantendo a posição
                 handler.postDelayed(() -> {
                     if (downloading && player != null && videoFile != null) {
                         player.setMediaItem(MediaItem.fromUri("file://" + videoFile.getAbsolutePath()));
                         player.prepare();
                         player.play();
                     }
-                }, 2000);
+                }, 3000);
             }
         });
         
@@ -129,6 +141,7 @@ public class MainActivity extends AppCompatActivity {
         
         downloading = true;
         videoFile = null;
+        lastPosition = 0;
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
@@ -143,7 +156,7 @@ public class MainActivity extends AppCompatActivity {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(9));
-                p.setDownload_limit(3 * 1024 * 1024); // 3 MB/s
+                p.setDownload_limit(3 * 1024 * 1024);
                 p.setMax_connections(50);
                 p.setMax_uploads(5);
                 
@@ -170,6 +183,8 @@ public class MainActivity extends AppCompatActivity {
                             // Inicia o player automaticamente
                             handler.post(() -> {
                                 playerView.setVisibility(View.VISIBLE);
+                                loadingOverlay.setVisibility(View.VISIBLE);
+                                spinnerBar.setVisibility(View.VISIBLE);
                                 player.setMediaItem(MediaItem.fromUri("file://" + videoFile.getAbsolutePath()));
                                 player.prepare();
                                 player.play();
@@ -194,6 +209,7 @@ public class MainActivity extends AppCompatActivity {
         }
         
         log("▶️ " + videoFile.getName());
+        lastPosition = 0;
         
         handler.post(() -> {
             playerView.setVisibility(View.VISIBLE);
@@ -209,6 +225,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void stop() {
         downloading = false;
+        lastPosition = 0;
         handler.removeCallbacksAndMessages(null);
         if (player != null) { player.stop(); player.clearMediaItems(); }
         playerView.setVisibility(View.GONE);
