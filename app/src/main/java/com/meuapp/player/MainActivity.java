@@ -83,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
                 if (state == Player.STATE_READY) {
                     loadingOverlay.setVisibility(View.GONE);
                     spinnerBar.setVisibility(View.GONE);
-                    updatePriority(); // Prioriza peças da posição atual
+                    updatePriority();
                 } else if (state == Player.STATE_BUFFERING) {
                     loadingOverlay.setVisibility(View.VISIBLE);
                     spinnerBar.setVisibility(View.VISIBLE);
@@ -115,30 +115,25 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void updatePriority() {
-        if (torrent == null || !torrent.is_valid() || player == null) return;
+        if (torrent == null || !torrent.is_valid() || player == null || numPieces <= 0) return;
         
-        long pos = player.getCurrentPosition(); // milissegundos
+        long pos = player.getCurrentPosition();
         long duration = player.getDuration();
         if (duration <= 0) return;
         
-        // Calcula qual peça corresponde à posição atual
-        double ratio = (double)pos / duration;
-        int currentPiece = (int)(ratio * numPieces);
+        int currentPiece = (int)(((double)pos / duration) * numPieces);
         
-        // Prioriza as próximas 20 peças (máximo), resto normal
-        int[] priorities = new int[numPieces];
+        byte_vector priorities = new byte_vector();
         for (int i = 0; i < numPieces; i++) {
-            if (i >= currentPiece && i < currentPiece + 20) {
-                priorities[i] = 7; // Máxima prioridade
-            } else if (i < currentPiece + 50) {
-                priorities[i] = 5; // Média
-            } else {
-                priorities[i] = 1; // Baixa
-            }
+            byte priority;
+            if (i >= currentPiece && i < currentPiece + 20) priority = 7;
+            else if (i >= currentPiece - 5 && i < currentPiece + 50) priority = 5;
+            else priority = 1;
+            priorities.add(priority);
         }
         
         try {
-            torrent.prioritize_pieces(priorities);
+            torrent.prioritize_pieces_ex(priorities);
         } catch (Exception e) {}
     }
     
@@ -232,19 +227,20 @@ public class MainActivity extends AppCompatActivity {
         downloading = true;
         videoFile = null;
         torrent = null;
+        numPieces = 0;
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
         });
         
-        log("⏳ Baixando (3 MB/s)...");
+        log("⏳ Baixando...");
         
         new Thread(() -> {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
-                p.setFlags(torrent_flags_t.from_int(9)); // sequential + auto_managed
+                p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(3 * 1024 * 1024);
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
@@ -256,16 +252,16 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) {
                     torrent = h.get(0);
-                    torrent_info info = torrent.torrent_file();
-                    if (info != null) {
-                        fileLength = info.total_size();
-                        pieceLength = info.piece_length();
-                        numPieces = info.num_pieces();
-                        log("📊 " + numPieces + " peças | " + (fileLength/1048576) + "MB");
+                    torrent_status ts = torrent.status();
+                    fileLength = ts.getTotal_wanted();
+                    if (fileLength > 0) {
+                        // Estima piece length e número de peças
+                        pieceLength = 262144; // 256KB típico
+                        numPieces = (int)(fileLength / pieceLength) + 1;
+                        log("📊 ~" + numPieces + " peças | " + (fileLength/1048576) + "MB");
                     }
                 }
                 
-                // Aguarda header válido
                 for (int i = 0; i < 90 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 65536) {
@@ -280,12 +276,12 @@ public class MainActivity extends AppCompatActivity {
                             log("▶️ " + f.getName());
                             
                             // Prioriza primeiras peças
-                            if (torrent != null && torrent.is_valid()) {
-                                int[] priorities = new int[numPieces];
+                            if (torrent != null && torrent.is_valid() && numPieces > 0) {
+                                byte_vector priorities = new byte_vector();
                                 for (int j = 0; j < numPieces; j++) {
-                                    priorities[j] = (j < 30) ? 7 : (j < 60) ? 5 : 1;
+                                    priorities.add((byte)(j < 30 ? 7 : j < 60 ? 5 : 1));
                                 }
-                                torrent.prioritize_pieces(priorities);
+                                torrent.prioritize_pieces_ex(priorities);
                             }
                             
                             handler.post(() -> {
@@ -302,12 +298,11 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) { log("❌ " + e.getMessage()); }
         }).start();
         
-        // Atualiza prioridade periodicamente baseado na posição do player
         handler.postDelayed(new Runnable() {
             @Override public void run() {
                 if (downloading) {
                     updatePriority();
-                    handler.postDelayed(this, 2000); // A cada 2 segundos
+                    handler.postDelayed(this, 2000);
                 }
             }
         }, 2000);
