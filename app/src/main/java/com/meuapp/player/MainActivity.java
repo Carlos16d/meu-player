@@ -43,7 +43,7 @@ public class MainActivity extends AppCompatActivity {
     private int lastPiece = -1;
     private StringBuilder fullLog = new StringBuilder();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
-    private torrent_handle torrentHandle; // Só usado na thread de download
+    private torrent_handle torrentHandle;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -202,10 +202,9 @@ public class MainActivity extends AppCompatActivity {
         
         new Thread(() -> {
             try {
-                // Configura download NÃO sequencial (flag 0)
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
-                p.setFlags(torrent_flags_t.from_int(0)); // ← ISSO É CRUCIAL! Permite baixar qualquer peça
+                p.setFlags(torrent_flags_t.from_int(0)); // NÃO sequencial
                 p.setDownload_limit(3 * 1024 * 1024);
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
@@ -221,13 +220,12 @@ public class MainActivity extends AppCompatActivity {
                     fileLength = ts.getTotal_wanted();
                     
                     if (fileLength > 0) {
-                        pieceLength = ts.get_piece_length();
-                        numPieces = ts.get_num_pieces();
-                        log("📊 " + (fileLength/1048576) + "MB | " + numPieces + " peças | pieceLen=" + pieceLength);
+                        numPieces = (int)(fileLength / pieceLength) + 1;
+                        log("📊 " + (fileLength/1048576) + "MB | ~" + numPieces + " peças");
                     }
                 }
                 
-                // Priority updater - roda na thread principal
+                // Priority updater
                 handler.postDelayed(new Runnable() {
                     @Override public void run() {
                         if (downloading && torrentHandle != null && torrentHandle.is_valid() && 
@@ -261,7 +259,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }, 1500);
                 
-                // Aguarda header válido
+                // Aguarda header
                 for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 65536) {
