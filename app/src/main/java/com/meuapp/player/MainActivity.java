@@ -138,8 +138,8 @@ public class MainActivity extends AppCompatActivity {
                 int pieceLength = 262144;
                 int startPiece = (int)(s / pieceLength);
                 int endPiece = Math.min(startPiece + 15, 9999);
-                for (int i = startPiece; i <= endPiece; i++) {
-                    try { torrentHandle.set_piece_deadline(i, 200); } catch (Exception ex) {}
+                for (int j = startPiece; j <= endPiece; j++) {
+                    try { torrentHandle.set_piece_deadline(j, 200); } catch (Exception ex) {}
                 }
             }
             
