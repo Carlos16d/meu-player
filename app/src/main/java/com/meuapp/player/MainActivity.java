@@ -188,7 +188,7 @@ public class MainActivity extends AppCompatActivity {
                 
                 for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && f.length() > 65536) {
+                    if (f != null && f.length() > 10485760) {
                         byte[] hdr = new byte[8];
                         try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; }
                         if ((hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
