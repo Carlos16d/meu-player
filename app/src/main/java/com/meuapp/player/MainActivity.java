@@ -29,6 +29,7 @@ public class MainActivity extends AppCompatActivity {
     private SessionManager session;
     private torrent_handle torrentHandle;
     private volatile boolean downloading;
+    private volatile boolean isPlaying = false;
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
@@ -68,6 +69,8 @@ public class MainActivity extends AppCompatActivity {
         videoView.setOnPreparedListener(mp -> {
             loadingOverlay.setVisibility(View.GONE);
             spinnerBar.setVisibility(View.GONE);
+            isPlaying = true;
+            setSpeedLimit(4 * 1024 * 1024); // 4 MB/s ao reproduzir
         });
         
         videoView.setOnErrorListener((mp, what, extra) -> {
@@ -82,6 +85,11 @@ public class MainActivity extends AppCompatActivity {
             return true;
         });
         
+        videoView.setOnCompletionListener(mp -> {
+            isPlaying = false;
+            setSpeedLimit(2 * 1024 * 1024); // Volta para 2 MB/s
+        });
+        
         new Thread(() -> {
             try { session = new SessionManager(); session.start(); log("✅ OK"); } 
             catch (Exception e) { log("❌ " + e.getMessage()); }
@@ -94,6 +102,14 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
         
         log("📱 Pronto");
+    }
+    
+    private void setSpeedLimit(int bytesPerSec) {
+        if (torrentHandle != null && torrentHandle.is_valid()) {
+            try {
+                torrentHandle.set_download_limit(bytesPerSec);
+            } catch (Exception e) {}
+        }
     }
     
     private void log(String msg) {
@@ -133,13 +149,13 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            // 🎯 PRIORIZA AS PEÇAS QUE O PLAYER ESTÁ PEDINDO
+            // 🎯 PRIORIZA AS PEÇAS COM URGÊNCIA MÁXIMA
             if (torrentHandle != null && torrentHandle.is_valid()) {
                 int pieceLength = 262144;
                 int startPiece = (int)(s / pieceLength);
-                int endPiece = Math.min(startPiece + 15, 9999);
+                int endPiece = Math.min(startPiece + 30, 9999);
                 for (int j = startPiece; j <= endPiece; j++) {
-                    try { torrentHandle.set_piece_deadline(j, 200); } catch (Exception ex) {}
+                    try { torrentHandle.set_piece_deadline(j, 50); } catch (Exception ex) {}
                 }
             }
             
@@ -176,6 +192,7 @@ public class MainActivity extends AppCompatActivity {
         downloading = true;
         videoFile = null;
         torrentHandle = null;
+        isPlaying = false;
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
@@ -183,14 +200,14 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        log("⏳ Baixando...");
+        log("⏳ Baixando (2 MB/s)...");
         
         new Thread(() -> {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(0));
-                p.setDownload_limit(2 * 1024 * 1024);
+                p.setDownload_limit(2 * 1024 * 1024); // 2 MB/s inicial
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
                 p.set_file_priorities(pr);
@@ -242,6 +259,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void stop() {
         downloading = false;
+        isPlaying = false;
         handler.removeCallbacksAndMessages(null);
         if (torrentHandle != null && session != null) {
             try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
