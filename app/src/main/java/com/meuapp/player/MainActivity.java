@@ -70,14 +70,12 @@ public class MainActivity extends AppCompatActivity {
         mediaController.setAnchorView(videoView);
         videoView.setMediaController(mediaController);
         
-        // Listener DETALHADO do VideoView
         videoView.setOnPreparedListener(mp -> {
             debug("✅ onPrepared");
             debug("   Duração: " + videoView.getDuration() + "ms");
             debug("   Largura: " + mp.getVideoWidth());
             debug("   Altura: " + mp.getVideoHeight());
             debug("   Codec: " + (mp.getVideoWidth() > 0 ? "VÍDEO OK" : "SEM VÍDEO"));
-            debug("   Áudio: " + (mp.getAudioTrack() != null ? "SIM" : "NÃO"));
             loadingOverlay.setVisibility(View.GONE);
             spinnerBar.setVisibility(View.GONE);
         });
@@ -92,12 +90,10 @@ public class MainActivity extends AppCompatActivity {
                 case -2147483648: tipo = "MEDIA_ERROR_IO / DATA"; break;
                 default: tipo = "CÓDIGO " + what;
             }
-            debug("❌ onError: " + tipo);
-            debug("   extra: " + extra);
+            debug("❌ onError: " + tipo + " | extra=" + extra);
             debug("   Arquivo existe: " + (videoFile != null && videoFile.exists()));
             debug("   Tamanho: " + (videoFile != null ? videoFile.length() : 0) + " bytes");
             
-            // Lê os primeiros bytes do arquivo para debug
             if (videoFile != null && videoFile.exists()) {
                 try {
                     byte[] hdr = new byte[16];
@@ -110,7 +106,6 @@ public class MainActivity extends AppCompatActivity {
                 } catch (Exception ex) {}
             }
             
-            // Retry
             handler.postDelayed(() -> {
                 if (downloading && videoFile != null && videoFile.exists()) {
                     debug("🔄 Retry...");
@@ -147,7 +142,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    // Servidor HTTP com logs detalhados
     private void startServer() {
         new Thread(() -> {
             try {
@@ -197,7 +191,6 @@ public class MainActivity extends AppCompatActivity {
                 if (p.length > 1 && !p[1].isEmpty()) endByte = Long.parseLong(p[1]);
             }
             
-            // Prioriza a região
             if (torrentHandle != null && torrentHandle.is_valid()) {
                 int sp = (int)(startByte / 262144);
                 int ep = Math.min(sp + 50, 9999);
