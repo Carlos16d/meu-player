@@ -13,6 +13,7 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.*;
+import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
@@ -26,9 +27,11 @@ public class MainActivity extends AppCompatActivity {
     
     private String savePath;
     private SessionManager session;
+    private torrent_handle torrentHandle;
     private volatile boolean downloading;
     private volatile File videoFile;
     private Handler handler;
+    private Thread serverThread;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
 
     @Override
@@ -84,6 +87,8 @@ public class MainActivity extends AppCompatActivity {
             catch (Exception e) { log("❌ " + e.getMessage()); }
         }).start();
         
+        startServer();
+        
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
@@ -95,12 +100,82 @@ public class MainActivity extends AppCompatActivity {
         handler.post(() -> statusText.setText("[" + sdf.format(new Date()) + "] " + msg));
     }
     
+    private void startServer() {
+        serverThread = new Thread(() -> {
+            try {
+                ServerSocket server = new ServerSocket(8080, 5);
+                server.setReuseAddress(true);
+                while (!Thread.interrupted()) {
+                    try { Socket c = server.accept(); handleHttp(c); } catch (IOException e) {}
+                }
+                server.close();
+            } catch (IOException e) {}
+        });
+        serverThread.setDaemon(true);
+        serverThread.start();
+    }
+    
+    private void handleHttp(Socket c) {
+        try {
+            OutputStream o = c.getOutputStream();
+            BufferedReader i = new BufferedReader(new InputStreamReader(c.getInputStream()));
+            String r = i.readLine();
+            if (r == null || !r.contains("/video")) { o.write("HTTP/1.1 404\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
+            
+            long s = 0, e = -1;
+            String l;
+            while ((l = i.readLine()) != null && !l.isEmpty()) {
+                if (l.toLowerCase().startsWith("range:")) {
+                    String x = l.substring(6).trim().replace("bytes=", "");
+                    String[] p = x.split("-");
+                    s = Long.parseLong(p[0]);
+                    if (p.length > 1 && !p[1].isEmpty()) e = Long.parseLong(p[1]);
+                }
+            }
+            
+            // 🎯 PRIORIZA AS PEÇAS QUE O PLAYER ESTÁ PEDINDO
+            if (torrentHandle != null && torrentHandle.is_valid()) {
+                int pieceLength = 262144;
+                int startPiece = (int)(s / pieceLength);
+                int endPiece = Math.min(startPiece + 15, 9999);
+                for (int i = startPiece; i <= endPiece; i++) {
+                    try { torrentHandle.set_piece_deadline(i, 200); } catch (Exception ex) {}
+                }
+            }
+            
+            File vf = videoFile;
+            if (vf == null || !vf.exists() || vf.length() < 4096) {
+                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return;
+            }
+            
+            long len = vf.length();
+            if (e == -1 || e >= len) e = len - 1;
+            if (s >= len) { o.write("HTTP/1.1 416\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
+            
+            String m = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            int sz = (int)(e - s + 1);
+            if (sz > 131072) sz = 131072;
+            
+            byte[] b = new byte[sz];
+            RandomAccessFile raf = new RandomAccessFile(vf, "r");
+            raf.seek(s);
+            int t = raf.read(b);
+            raf.close();
+            
+            if (t <= 0) { o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
+            
+            String resp = "HTTP/1.1 206\r\nContent-Type: " + m + "\r\nContent-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\nContent-Length: " + t + "\r\nAccept-Ranges: bytes\r\n\r\n";
+            o.write(resp.getBytes()); o.write(b, 0, t); o.flush(); c.close();
+        } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
+    }
+    
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
         
         downloading = true;
         videoFile = null;
+        torrentHandle = null;
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
@@ -108,7 +183,7 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        log("⏳ Baixando (2 MB/s)...");
+        log("⏳ Baixando...");
         
         new Thread(() -> {
             try {
@@ -122,6 +197,11 @@ public class MainActivity extends AppCompatActivity {
                 
                 session.swig().async_add_torrent(p);
                 Thread.sleep(3000);
+                
+                torrent_handle_vector h = session.swig().get_torrents();
+                if (h.size() > 0) {
+                    torrentHandle = h.get(0);
+                }
                 
                 for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
@@ -163,6 +243,10 @@ public class MainActivity extends AppCompatActivity {
     private void stop() {
         downloading = false;
         handler.removeCallbacksAndMessages(null);
+        if (torrentHandle != null && session != null) {
+            try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
+            torrentHandle = null;
+        }
         videoView.stopPlayback();
         videoView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
@@ -180,6 +264,7 @@ public class MainActivity extends AppCompatActivity {
     
     @Override protected void onDestroy() {
         stop();
+        if (serverThread != null) serverThread.interrupt();
         if (session != null) session.stop();
         super.onDestroy();
     }
