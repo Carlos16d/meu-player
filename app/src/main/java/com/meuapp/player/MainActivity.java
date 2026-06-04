@@ -1,5 +1,6 @@
 package com.meuapp.player;
 
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -137,7 +138,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            // 🎯 FORÇA download da região que o player pediu (janela de 50 peças)
             if (torrentHandle != null && torrentHandle.is_valid()) {
                 int pieceLen = 262144;
                 int startP = (int)(startByte / pieceLen);
@@ -217,7 +217,7 @@ public class MainActivity extends AppCompatActivity {
                 
                 for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && f.length() > 1048576) { // 1MB já libera
+                    if (f != null && f.length() > 1048576) {
                         byte[] hdr = new byte[8];
                         try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; }
                         if ((hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
@@ -240,7 +240,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ Streaming via HTTP...");
+        debug("▶️ Streaming HTTP...");
         handler.post(() -> { 
             videoView.setVisibility(View.VISIBLE); 
             btnWatch.setVisibility(View.GONE);
