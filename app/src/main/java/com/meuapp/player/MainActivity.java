@@ -1,5 +1,7 @@
 package com.meuapp.player;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -11,6 +13,7 @@ import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.content.FileProvider;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
@@ -26,7 +29,7 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar bufferBar, spinnerBar;
     private FrameLayout loadingOverlay;
     private EditText magnetInput;
-    private Button btnPlay, btnStop, btnWatch;
+    private Button btnPlay, btnStop, btnWatch, btnMiBrowser;
     private ScrollView debugScroll;
     
     private String savePath;
@@ -55,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
+        btnMiBrowser = findViewById(R.id.btn_mi_browser);
         
         webView.post(() -> {
             int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.92);
@@ -85,6 +89,7 @@ public class MainActivity extends AppCompatActivity {
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
+        btnMiBrowser.setOnClickListener(v -> openInMiBrowser());
         
         debug("📱 App iniciado");
     }
@@ -102,17 +107,9 @@ public class MainActivity extends AppCompatActivity {
     private boolean deleteRecursive(File f) {
         if (f.isDirectory()) {
             File[] children = f.listFiles();
-            if (children != null) {
-                for (File child : children) {
-                    deleteRecursive(child);
-                }
-            }
+            if (children != null) for (File child : children) deleteRecursive(child);
         }
-        boolean result = f.delete();
-        if (!result) {
-            debug("   ⚠️ Falha ao deletar: " + f.getName() + " (" + f.length() + " bytes)");
-        }
-        return result;
+        return f.delete();
     }
     
     private void startServer() {
@@ -150,8 +147,7 @@ public class MainActivity extends AppCompatActivity {
             
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
-                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close();
-                return;
+                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return;
             }
             
             long len = vf.length();
@@ -181,21 +177,18 @@ public class MainActivity extends AppCompatActivity {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
         
-        // 🗑️ FORÇA deleção de tudo
+        // 🗑️ FORÇA deleção
         debug("🗑️ Deletando arquivos antigos...");
         File torrentDir = new File(savePath);
         if (torrentDir.exists()) {
             File[] files = torrentDir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    boolean ok = deleteRecursive(f);
-                    debug("   " + f.getName() + " → " + (ok ? "✅" : "❌ FALHA"));
-                }
+            if (files != null) for (File f : files) {
+                deleteRecursive(f);
+                debug("   🗑️ " + f.getName());
             }
         }
-        // Recria pasta limpa
         torrentDir.mkdirs();
-        debug("✅ Pasta limpa. Novo download iniciado.");
+        debug("✅ Pasta limpa");
         
         downloading = true;
         videoFile = null;
@@ -206,13 +199,12 @@ public class MainActivity extends AppCompatActivity {
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
+            btnMiBrowser.setVisibility(View.GONE);
         });
         
         debug("╔══════════════════════════╗");
-        debug("║   TESTE: Minuto 8 (50MB) ║");
+        debug("║   TESTE: Minuto 8        ║");
         debug("╚══════════════════════════╝");
-        debug("⏳ Baixando APENAS 50MB a partir do minuto 8...");
-        debug("⚠️ Velocidade: 2 MB/s");
         
         new Thread(() -> {
             try {
@@ -230,63 +222,66 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
-                    int peers = torrentHandle.status().getNum_peers();
-                    debug("📊 " + peers + " peers conectados");
+                    debug("📊 " + torrentHandle.status().getNum_peers() + " peers");
                     
-                    // Minuto 8 = ~210MB (80% de 263MB)
+                    // Prioriza APENAS a região 210MB-260MB
                     long startByte = 210L * 1048576;
-                    long endByte = startByte + 52428800L; // +50MB
-                    
+                    long endByte = startByte + 52428800L;
                     int pieceLen = 262144;
                     int startP = (int)(startByte / pieceLen);
-                    int endP = (int)(endByte / pieceLen) + 20;
+                    int endP = (int)(endByte / pieceLen) + 30;
                     
                     debug("🎯 Priorizando peças " + startP + "-" + endP);
-                    debug("   Região: " + (startByte/1048576) + "MB - " + (endByte/1048576) + "MB");
                     
-                    for (int j = startP; j <= Math.min(endP, 9999); j++) {
-                        try { torrentHandle.set_piece_deadline(j, 20); } catch (Exception ex) {}
+                    // Força prioridade ZERO para o início (para NÃO baixar)
+                    for (int j = 0; j < startP; j++) {
+                        try { torrentHandle.set_piece_deadline(j, Integer.MAX_VALUE); } catch (Exception ex) {}
                     }
+                    // Prioridade MÁXIMA para a região alvo
+                    for (int j = startP; j <= Math.min(endP, 9999); j++) {
+                        try { torrentHandle.set_piece_deadline(j, 10); } catch (Exception ex) {}
+                    }
+                    debug("🔒 Início BLOQUEADO, região 210-260MB PRIORIZADA");
                 }
                 
-                // Aguarda arquivo NOVO com dados na região 210MB
-                debug("🔍 Aguardando arquivo NOVO com dados em 210MB...");
+                // Monitora dados reais
+                debug("🔍 Monitorando dados...");
                 for (int i = 0; i < 300 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null) {
-                        long fileLen = f.length();
-                        
-                        // Verifica se o arquivo é NOVO (menos de 260MB) e já tem dados na região 210MB
-                        if (fileLen > 220000000L && fileLen < 270000000L) {
-                            byte[] check = new byte[4096];
-                            try {
-                                RandomAccessFile raf = new RandomAccessFile(f, "r");
-                                raf.seek(215000000L); // ~215MB
-                                raf.read(check);
-                                raf.close();
+                    if (f != null && f.length() > 215000000L) {
+                        byte[] checkStart = new byte[4096];
+                        byte[] checkTarget = new byte[4096];
+                        try {
+                            RandomAccessFile raf = new RandomAccessFile(f, "r");
+                            raf.seek(0);
+                            raf.read(checkStart);
+                            raf.seek(215000000L);
+                            raf.read(checkTarget);
+                            raf.close();
+                            
+                            int nzStart = 0, nzTarget = 0;
+                            for (byte b : checkStart) if (b != 0) nzStart++;
+                            for (byte b : checkTarget) if (b != 0) nzTarget++;
+                            
+                            debug("   [" + (i+1) + "s] " + (f.length()/1048576) + "MB | " +
+                                  "Início: " + (nzStart*100/checkStart.length) + "% | " +
+                                  "Alvo: " + (nzTarget*100/checkTarget.length) + "%");
+                            
+                            if (nzTarget > checkTarget.length * 0.5) {
+                                videoFile = f;
+                                debug("✅ Região alvo pronta!");
+                                debug("   Início: " + (nzStart*100/checkStart.length) + "% reais");
+                                debug("   Alvo: " + (nzTarget*100/checkTarget.length) + "% reais");
                                 
-                                int nonZero = 0;
-                                for (byte b : check) if (b != 0) nonZero++;
-                                float percent = nonZero * 100f / check.length;
-                                
-                                debug("   [" + (i+1) + "s] Arquivo: " + (fileLen/1048576) + "MB | " +
-                                      "Dados em 215MB: " + String.format("%.0f", percent) + "% reais");
-                                
-                                if (percent > 50) {
-                                    videoFile = f;
-                                    debug("✅ DADOS REAIS ENCONTRADOS!");
-                                    debug("   Arquivo: " + f.getName());
-                                    debug("   Tamanho: " + (fileLen/1048576) + "MB");
-                                    handler.post(() -> {
-                                        btnWatch.setText("🎬 ASSISTIR (min 8)");
-                                        btnWatch.setVisibility(View.VISIBLE);
-                                    });
-                                    break;
-                                }
-                            } catch (Exception e2) {
-                                debug("   ⚠️ Erro ao verificar: " + e2.getMessage());
+                                handler.post(() -> {
+                                    btnWatch.setText("🎬 WebView");
+                                    btnWatch.setVisibility(View.VISIBLE);
+                                    btnMiBrowser.setText("🌐 Mi Browser");
+                                    btnMiBrowser.setVisibility(View.VISIBLE);
+                                });
+                                break;
                             }
-                        }
+                        } catch (Exception e2) {}
                     }
                     Thread.sleep(1000);
                 }
@@ -296,13 +291,12 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ Reproduzindo minuto 8...");
-        debug("   Arquivo: " + videoFile.getAbsolutePath());
-        debug("   Tamanho: " + (videoFile.length()/1048576) + "MB");
+        debug("▶️ WebView Player");
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
             btnWatch.setVisibility(View.GONE);
+            btnMiBrowser.setVisibility(View.GONE);
         });
         
         String html = "<!DOCTYPE html><html><head><style>" +
@@ -310,7 +304,7 @@ public class MainActivity extends AppCompatActivity {
             "video{width:100%;max-height:100vh;}" +
             "</style></head><body>" +
             "<video id='v' controls autoplay playsinline>" +
-            "<source src='http://127.0.0.1:8080/video#t=480' type='video/mp4'>" +
+            "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
             "</video>" +
             "<script>" +
             "var v=document.getElementById('v');" +
@@ -320,10 +314,34 @@ public class MainActivity extends AppCompatActivity {
             "});" +
             "v.addEventListener('error',function(){document.title='❌ '+v.error.code});" +
             "v.addEventListener('waiting',function(){document.title='⏳'});" +
-            "v.addEventListener('playing',function(){document.title='▶️'});" +
             "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+    }
+    
+    private void openInMiBrowser() {
+        if (videoFile == null || !videoFile.exists()) return;
+        
+        debug("🌐 Abrindo no Mi Browser...");
+        
+        try {
+            // Tenta abrir o servidor HTTP no navegador
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            intent.setData(Uri.parse("http://127.0.0.1:8080/video"));
+            intent.setPackage("com.mi.globalbrowser");
+            startActivity(intent);
+            debug("✅ Mi Browser aberto!");
+        } catch (Exception e) {
+            // Fallback: abre com qualquer navegador
+            try {
+                Intent intent = new Intent(Intent.ACTION_VIEW);
+                intent.setData(Uri.parse("http://127.0.0.1:8080/video"));
+                startActivity(intent);
+                debug("✅ Navegador aberto (fallback)");
+            } catch (Exception e2) {
+                debug("❌ Nenhum navegador encontrado");
+            }
+        }
     }
     
     private void stop() {
@@ -331,7 +349,8 @@ public class MainActivity extends AppCompatActivity {
         downloading = false;
         handler.removeCallbacksAndMessages(null);
         webView.loadUrl("about:blank");
-        webView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
+        webView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); 
+        btnWatch.setVisibility(View.GONE); btnMiBrowser.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
         if (torrentHandle != null && session != null) {
             try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
