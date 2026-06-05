@@ -19,14 +19,12 @@
         android:layout_height="150dp"
         android:visibility="gone"
         android:background="#1a1a1a">
-        
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center"
             android:orientation="vertical"
             android:gravity="center">
-            
             <ProgressBar
                 android:id="@+id/spinner_bar"
                 android:layout_width="40dp"
@@ -42,7 +40,6 @@
         android:layout_weight="1"
         android:background="#0d0d0d"
         android:padding="4dp">
-        
         <TextView
             android:id="@+id/debug_text"
             android:layout_width="match_parent"
@@ -85,7 +82,7 @@
                 android:text="▶️ BAIXAR"
                 android:textColor="#fff"
                 android:textStyle="bold"
-                android:textSize="12sp" />
+                android:textSize="11sp" />
             
             <Button
                 android:id="@+id/btn_watch"
@@ -94,10 +91,23 @@
                 android:layout_weight="1"
                 android:layout_marginStart="4dp"
                 android:backgroundTint="#4ecb71"
-                android:text="🎬 ASSISTIR"
+                android:text="🎬 WebView"
                 android:textColor="#000"
                 android:textStyle="bold"
-                android:textSize="12sp"
+                android:textSize="11sp"
+                android:visibility="gone" />
+            
+            <Button
+                android:id="@+id/btn_mi_browser"
+                android:layout_width="0dp"
+                android:layout_height="42dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:backgroundTint="#ff9800"
+                android:text="🌐 Mi Browser"
+                android:textColor="#fff"
+                android:textStyle="bold"
+                android:textSize="11sp"
                 android:visibility="gone" />
             
             <Button
@@ -110,7 +120,7 @@
                 android:text="⏹️ PARAR"
                 android:textColor="#fff"
                 android:textStyle="bold"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:visibility="gone" />
         </LinearLayout>
         
