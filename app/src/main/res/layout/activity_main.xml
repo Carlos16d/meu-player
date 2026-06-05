@@ -7,18 +7,11 @@
     android:gravity="center_horizontal"
     android:padding="8dp">
     
-    <!-- Player com controles -->
-    <RelativeLayout
+    <SurfaceView
+        android:id="@+id/surface_view"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content">
-        
-        <VideoView
-            android:id="@+id/video_view"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_centerInParent="true"
-            android:visibility="gone" />
-    </RelativeLayout>
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
     
     <FrameLayout
         android:id="@+id/loading_overlay"
@@ -50,7 +43,6 @@
         </LinearLayout>
     </FrameLayout>
     
-    <!-- Debug log -->
     <ScrollView
         android:id="@+id/debug_scroll"
         android:layout_width="match_parent"
