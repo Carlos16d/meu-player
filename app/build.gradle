@@ -1,9 +1,35 @@
+plugins {
+    id 'com.android.application'
+}
+
+android {
+    namespace 'com.meuapp.player'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.meuapp.player'
+        minSdk 24
+        targetSdk 34
+        versionCode 1
+        versionName '1.0'
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+        }
+    }
+    
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+}
+
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'org.libtorrent4j:libtorrent4j:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm:2.1.0-38'
-    
-    // VLC Player
     implementation 'org.videolan.android:libvlc-all:3.5.1'
 }
