@@ -41,6 +41,7 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
     private StringBuilder debugLog = new StringBuilder();
+    private int httpReqCount = 0;
     
     private LibVLC libVLC;
     private MediaPlayer vlcPlayer;
@@ -80,8 +81,9 @@ public class MainActivity extends AppCompatActivity {
         handler = new Handler(Looper.getMainLooper());
         
         ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=3000");
-        options.add("--file-caching=3000");
+        options.add("--network-caching=5000");
+        options.add("--file-caching=5000");
+        options.add("--clock-synchro=0");
         
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
@@ -91,10 +93,10 @@ public class MainActivity extends AppCompatActivity {
         vlcPlayer.setEventListener(event -> {
             switch (event.type) {
                 case MediaPlayer.Event.Opening:
-                    debug("🎬 Abrindo...");
+                    debug("🎬 VLC: Opening");
                     break;
                 case MediaPlayer.Event.Playing:
-                    debug("▶️ Tocando");
+                    debug("▶️ VLC: PLAYING");
                     isPlaying = true;
                     handler.post(() -> {
                         loadingOverlay.setVisibility(View.GONE);
@@ -104,49 +106,46 @@ public class MainActivity extends AppCompatActivity {
                     });
                     break;
                 case MediaPlayer.Event.Paused:
-                    debug("⏸️ Pausado");
+                    debug("⏸️ VLC: Paused");
                     isPlaying = false;
                     handler.post(() -> btnPause.setText("▶️"));
                     break;
                 case MediaPlayer.Event.Buffering:
+                    debug("⏳ VLC: Buffering " + event.getBuffering() + "%");
                     handler.post(() -> {
                         loadingOverlay.setVisibility(View.VISIBLE);
                         spinnerBar.setVisibility(View.VISIBLE);
                     });
                     break;
                 case MediaPlayer.Event.Stopped:
-                    debug("⏹️ Parado");
+                    debug("⏹️ VLC: Stopped");
                     isPlaying = false;
                     break;
-                case MediaPlayer.Event.TimeChanged:
+                case MediaPlayer.Event.EncounteredError:
+                    debug("❌ VLC: Error");
                     break;
             }
         });
         
-        // Botões personalizados
         btnPause.setOnClickListener(v -> {
-            if (isPlaying) {
-                vlcPlayer.pause();
-            } else {
-                vlcPlayer.play();
-            }
+            if (isPlaying) vlcPlayer.pause(); else vlcPlayer.play();
         });
         
         btnSeekBack.setOnClickListener(v -> {
             long pos = vlcPlayer.getTime();
             vlcPlayer.setTime(Math.max(0, pos - 10000));
-            debug("⏪ -10s");
+            debug("⏪ -10s → " + (vlcPlayer.getTime()/1000) + "s");
         });
         
         btnSeekFwd.setOnClickListener(v -> {
             long pos = vlcPlayer.getTime();
             long len = vlcPlayer.getLength();
             vlcPlayer.setTime(Math.min(len, pos + 10000));
-            debug("⏩ +10s");
+            debug("⏩ +10s → " + (vlcPlayer.getTime()/1000) + "s");
         });
         
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); debug("✅ OK"); } 
+            try { session = new SessionManager(); session.start(); debug("✅ Sessão OK"); } 
             catch (Exception e) { debug("❌ " + e.getMessage()); }
         }).start();
         
@@ -157,10 +156,17 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
         
         debug("══════ APP INICIADO ══════");
+        debug("📱 VLC Streaming Player");
     }
     
     private void debug(String msg) {
-        handler.post(() -> statusText.setText("[" + sdf.format(new Date()) + "] " + msg));
+        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
+        debugLog.append(line);
+        handler.post(() -> {
+            statusText.setText(msg);
+            debugText.setText(debugLog.toString());
+            debugScroll.post(() -> debugScroll.fullScroll(View.FOCUS_DOWN));
+        });
     }
     
     private void startServer() {
@@ -168,6 +174,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 ServerSocket server = new ServerSocket(8080, 5);
                 server.setReuseAddress(true);
+                debug("🌐 Servidor HTTP :8080 iniciado");
                 while (!Thread.interrupted()) {
                     try { Socket c = server.accept(); handleHttp(c); } catch (IOException e) {}
                 }
@@ -179,11 +186,18 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void handleHttp(Socket c) {
+        int reqNum = ++httpReqCount;
+        long startTime = System.currentTimeMillis();
+        
         try {
             OutputStream o = c.getOutputStream();
             BufferedReader i = new BufferedReader(new InputStreamReader(c.getInputStream()));
             String r = i.readLine();
-            if (r == null || !r.contains("/video")) { o.write("HTTP/1.1 404\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
+            if (r == null || !r.contains("/video")) { 
+                o.write("HTTP/1.1 404\r\n\r\n".getBytes()); o.flush(); c.close(); 
+                debug("📥 #" + reqNum + " → 404");
+                return; 
+            }
             
             long s = 0, e = -1;
             String l;
@@ -196,40 +210,91 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            if (torrentHandle != null && torrentHandle.is_valid()) {
-                int pieceLen = 262144;
-                int startP = (int)(s / pieceLen);
-                int endP = Math.min(startP + 30, 9999);
-                for (int j = startP; j <= endP; j++) {
-                    try { torrentHandle.set_piece_deadline(j, 30); } catch (Exception ex) {}
-                }
-            }
+            debug("📥 #" + reqNum + " | Conexão | Range: " + s + "-" + (e == -1 ? "?" : e));
             
             File vf = videoFile;
-            if (vf == null || !vf.exists() || vf.length() < 4096) {
-                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close();
+            if (vf == null || !vf.exists() || vf.length() < 50971520) {
+                o.write("HTTP/1.1 503\r\nRetry-After: 2\r\n\r\n".getBytes()); o.flush(); c.close();
+                debug("   #" + reqNum + " ↪ 503 | Aguardando 50MB | Tem: " + 
+                      (vf != null ? (vf.length()/1048576) + "MB" : "0MB"));
                 return;
             }
             
             long len = vf.length();
             if (e == -1 || e >= len) e = len - 1;
+            if (s >= len) { o.write("HTTP/1.1 416\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
             
             String m = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-            int sz = (int)(e - s + 1);
-            if (sz > 131072) sz = 131072;
+            long totalSent = 0;
+            int chunkCount = 0;
+            long currentPos = s;
             
-            byte[] b = new byte[sz];
-            RandomAccessFile raf = new RandomAccessFile(vf, "r");
-            raf.seek(s);
-            int t = raf.read(b);
-            raf.close();
+            if (torrentHandle != null && torrentHandle.is_valid()) {
+                int pieceLen = 262144;
+                int startP = (int)(s / pieceLen);
+                int endP = Math.min(startP + 50, 9999);
+                for (int j = startP; j <= endP; j++) {
+                    try { torrentHandle.set_piece_deadline(j, 50); } catch (Exception ex) {}
+                }
+                debug("   🎯 Peças " + startP + "-" + endP);
+            }
             
-            if (t <= 0) { o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
+            debug("   🚀 Iniciando streaming...");
             
-            String resp = "HTTP/1.1 206\r\nContent-Type: " + m + "\r\nContent-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\nContent-Length: " + t + "\r\nAccept-Ranges: bytes\r\n\r\n";
-            o.write(resp.getBytes()); o.write(b, 0, t); o.flush(); c.close();
+            while (currentPos < len && downloading) {
+                long chunkSize = Math.min(262144, len - currentPos);
+                byte[] buf = new byte[(int)chunkSize];
+                
+                RandomAccessFile raf = new RandomAccessFile(vf, "r");
+                raf.seek(currentPos);
+                int total = 0;
+                while (total < chunkSize) {
+                    int read = raf.read(buf, total, (int)(chunkSize - total));
+                    if (read == -1) break;
+                    if (read == 0) { Thread.sleep(50); continue; }
+                    total += read;
+                }
+                raf.close();
+                
+                if (total <= 0) { Thread.sleep(200); continue; }
+                
+                String resp = "HTTP/1.1 206\r\nContent-Type: " + m + "\r\n" +
+                    "Content-Range: bytes " + currentPos + "-" + (currentPos+total-1) + "/" + len + "\r\n" +
+                    "Content-Length: " + total + "\r\n\r\n";
+                o.write(resp.getBytes());
+                o.write(buf, 0, total);
+                o.flush();
+                
+                chunkCount++;
+                totalSent += total;
+                currentPos += total;
+                
+                if (totalSent % 1048576 < 262144 || chunkCount <= 5) {
+                    int progress = (int)((currentPos * 100) / len);
+                    debug("   📤 Chunk #" + chunkCount + " | " + (total/1024) + "KB | " +
+                          "Total: " + (totalSent/1048576) + "MB/" + (len/1048576) + "MB | " +
+                          progress + "% | " + (System.currentTimeMillis() - startTime) + "ms");
+                }
+                
+                if (torrentHandle != null && torrentHandle.is_valid() && chunkCount % 5 == 0) {
+                    int nextP = (int)(currentPos / 262144);
+                    for (int j = nextP; j < nextP + 20; j++) {
+                        try { torrentHandle.set_piece_deadline(j, 100); } catch (Exception ex) {}
+                    }
+                }
+            }
             
-        } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
+            long elapsed = System.currentTimeMillis() - startTime;
+            c.close();
+            
+            debug("   ✅ #" + reqNum + " FINALIZADO | " + chunkCount + " chunks | " +
+                  (totalSent/1048576) + "MB em " + elapsed + "ms | " +
+                  (totalSent > 0 ? (totalSent*1000/elapsed/1048576) + "MB/s" : "N/A"));
+            
+        } catch (Exception ex) { 
+            try { c.close(); } catch (IOException ex2) {}
+            debug("   ❌ #" + reqNum + " | " + ex.getClass().getSimpleName() + ": " + ex.getMessage());
+        }
     }
     
     private void start() {
@@ -239,6 +304,8 @@ public class MainActivity extends AppCompatActivity {
         downloading = true;
         videoFile = null;
         torrentHandle = null;
+        httpReqCount = 0;
+        debugLog.setLength(0);
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
@@ -247,6 +314,7 @@ public class MainActivity extends AppCompatActivity {
             mediaControls.setVisibility(View.GONE);
         });
         
+        debug("══════ INICIANDO ══════");
         debug("⏳ Baixando (2 MB/s)...");
         
         new Thread(() -> {
@@ -263,9 +331,14 @@ public class MainActivity extends AppCompatActivity {
                 Thread.sleep(3000);
                 
                 torrent_handle_vector h = session.swig().get_torrents();
-                if (h.size() > 0) torrentHandle = h.get(0);
+                if (h.size() > 0) {
+                    torrentHandle = h.get(0);
+                    torrent_status ts = torrentHandle.status();
+                    debug("📊 " + ts.getNum_peers() + " peers | " + 
+                          (ts.getTotal_wanted()/1048576) + "MB");
+                }
                 
-                for (int i = 0; i < 120 && downloading; i++) {
+                for (int i = 0; i < 180 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 5242880) {
                         byte[] hdr = new byte[8];
@@ -290,7 +363,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ VLC Player");
+        debug("▶️ VLC Player iniciando...");
         
         handler.post(() -> { 
             videoSurface.setVisibility(View.VISIBLE); 
@@ -307,6 +380,8 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void stop() {
+        debug("══════ PARANDO ══════");
+        debug("📊 Total reqs HTTP: " + httpReqCount);
         downloading = false;
         handler.removeCallbacksAndMessages(null);
         vlcPlayer.stop();
@@ -317,7 +392,6 @@ public class MainActivity extends AppCompatActivity {
         videoSurface.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
         mediaControls.setVisibility(View.GONE);
-        debug("⏹️ Parado");
     }
     
     private File find(File dir) {
