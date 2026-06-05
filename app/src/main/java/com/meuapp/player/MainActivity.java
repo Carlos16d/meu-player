@@ -28,7 +28,9 @@ public class MainActivity extends AppCompatActivity {
     private FrameLayout loadingOverlay;
     private EditText magnetInput;
     private Button btnPlay, btnStop, btnWatch;
+    private Button btnPause, btnSeekBack, btnSeekFwd;
     private ScrollView debugScroll;
+    private LinearLayout mediaControls;
     
     private String savePath;
     private SessionManager session;
@@ -40,9 +42,9 @@ public class MainActivity extends AppCompatActivity {
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
     private StringBuilder debugLog = new StringBuilder();
     
-    // VLC
     private LibVLC libVLC;
     private MediaPlayer vlcPlayer;
+    private boolean isPlaying = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,6 +62,10 @@ public class MainActivity extends AppCompatActivity {
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
+        btnPause = findViewById(R.id.btn_pause);
+        btnSeekBack = findViewById(R.id.btn_seek_back);
+        btnSeekFwd = findViewById(R.id.btn_seek_fwd);
+        mediaControls = findViewById(R.id.media_controls);
         
         videoSurface.post(() -> {
             int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.92);
@@ -73,46 +79,70 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // Configura VLC
         ArrayList<String> options = new ArrayList<>();
         options.add("--network-caching=3000");
         options.add("--file-caching=3000");
-        options.add("-vvv");
         
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
         vlcPlayer.getVLCVout().setVideoView(videoSurface);
         vlcPlayer.getVLCVout().attachViews();
         
-        vlcPlayer.setEventListener(new MediaPlayer.EventListener() {
-            @Override
-            public void onEvent(MediaPlayer.Event event) {
-                switch (event.type) {
-                    case MediaPlayer.Event.Opening:
-                        debug("🎬 VLC: Opening...");
-                        break;
-                    case MediaPlayer.Event.Playing:
-                        debug("▶️ VLC: Playing");
-                        handler.post(() -> {
-                            loadingOverlay.setVisibility(View.GONE);
-                            spinnerBar.setVisibility(View.GONE);
-                        });
-                        break;
-                    case MediaPlayer.Event.Buffering:
-                        debug("⏳ VLC: Buffering " + event.getBuffering() + "%");
-                        handler.post(() -> {
-                            loadingOverlay.setVisibility(View.VISIBLE);
-                            spinnerBar.setVisibility(View.VISIBLE);
-                        });
-                        break;
-                    case MediaPlayer.Event.Stopped:
-                        debug("⏹️ VLC: Stopped");
-                        break;
-                    case MediaPlayer.Event.EncounteredError:
-                        debug("❌ VLC: Error");
-                        break;
-                }
+        vlcPlayer.setEventListener(event -> {
+            switch (event.type) {
+                case MediaPlayer.Event.Opening:
+                    debug("🎬 Abrindo...");
+                    break;
+                case MediaPlayer.Event.Playing:
+                    debug("▶️ Tocando");
+                    isPlaying = true;
+                    handler.post(() -> {
+                        loadingOverlay.setVisibility(View.GONE);
+                        spinnerBar.setVisibility(View.GONE);
+                        mediaControls.setVisibility(View.VISIBLE);
+                        btnPause.setText("⏸️");
+                    });
+                    break;
+                case MediaPlayer.Event.Paused:
+                    debug("⏸️ Pausado");
+                    isPlaying = false;
+                    handler.post(() -> btnPause.setText("▶️"));
+                    break;
+                case MediaPlayer.Event.Buffering:
+                    handler.post(() -> {
+                        loadingOverlay.setVisibility(View.VISIBLE);
+                        spinnerBar.setVisibility(View.VISIBLE);
+                    });
+                    break;
+                case MediaPlayer.Event.Stopped:
+                    debug("⏹️ Parado");
+                    isPlaying = false;
+                    break;
+                case MediaPlayer.Event.TimeChanged:
+                    break;
             }
+        });
+        
+        // Botões personalizados
+        btnPause.setOnClickListener(v -> {
+            if (isPlaying) {
+                vlcPlayer.pause();
+            } else {
+                vlcPlayer.play();
+            }
+        });
+        
+        btnSeekBack.setOnClickListener(v -> {
+            long pos = vlcPlayer.getTime();
+            vlcPlayer.setTime(Math.max(0, pos - 10000));
+            debug("⏪ -10s");
+        });
+        
+        btnSeekFwd.setOnClickListener(v -> {
+            long pos = vlcPlayer.getTime();
+            long len = vlcPlayer.getLength();
+            vlcPlayer.setTime(Math.min(len, pos + 10000));
+            debug("⏩ +10s");
         });
         
         new Thread(() -> {
@@ -130,13 +160,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void debug(String msg) {
-        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
-        debugLog.append(line);
-        handler.post(() -> {
-            statusText.setText(msg);
-            debugText.setText(debugLog.toString());
-            debugScroll.post(() -> debugScroll.fullScroll(View.FOCUS_DOWN));
-        });
+        handler.post(() -> statusText.setText("[" + sdf.format(new Date()) + "] " + msg));
     }
     
     private void startServer() {
@@ -215,12 +239,12 @@ public class MainActivity extends AppCompatActivity {
         downloading = true;
         videoFile = null;
         torrentHandle = null;
-        debugLog.setLength(0);
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
+            mediaControls.setVisibility(View.GONE);
         });
         
         debug("⏳ Baixando (2 MB/s)...");
@@ -266,7 +290,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ VLC Player via HTTP");
+        debug("▶️ VLC Player");
         
         handler.post(() -> { 
             videoSurface.setVisibility(View.VISIBLE); 
@@ -292,6 +316,7 @@ public class MainActivity extends AppCompatActivity {
         }
         videoSurface.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
+        mediaControls.setVisibility(View.GONE);
         debug("⏹️ Parado");
     }
     
