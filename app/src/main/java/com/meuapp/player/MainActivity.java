@@ -1,6 +1,5 @@
 package com.meuapp.player;
 
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -20,12 +19,11 @@ import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
     private VideoView videoView;
-    private TextView statusText, debugText;
+    private TextView statusText;
     private ProgressBar bufferBar, spinnerBar;
     private FrameLayout loadingOverlay;
     private EditText magnetInput;
     private Button btnPlay, btnStop, btnWatch;
-    private ScrollView debugScroll;
     
     private String savePath;
     private SessionManager session;
@@ -34,8 +32,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
-    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
-    private StringBuilder debugLog = new StringBuilder();
+    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -44,8 +41,6 @@ public class MainActivity extends AppCompatActivity {
         
         videoView = findViewById(R.id.video_view);
         statusText = findViewById(R.id.status_text);
-        debugText = findViewById(R.id.debug_text);
-        debugScroll = findViewById(R.id.debug_scroll);
         bufferBar = findViewById(R.id.buffer_bar);
         spinnerBar = findViewById(R.id.spinner_bar);
         loadingOverlay = findViewById(R.id.loading_overlay);
@@ -66,14 +61,13 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        MediaController mediaController = new MediaController(this, false);
+        MediaController mediaController = new MediaController(this);
         mediaController.setAnchorView(videoView);
         videoView.setMediaController(mediaController);
         
         videoView.setOnPreparedListener(mp -> {
             loadingOverlay.setVisibility(View.GONE);
             spinnerBar.setVisibility(View.GONE);
-            debug("✅ Reproduzindo | " + videoView.getDuration()/1000 + "s");
         });
         
         videoView.setOnErrorListener((mp, what, extra) -> {
@@ -81,7 +75,7 @@ public class MainActivity extends AppCompatActivity {
             spinnerBar.setVisibility(View.VISIBLE);
             handler.postDelayed(() -> {
                 if (downloading && videoFile != null) {
-                    videoView.setVideoURI(Uri.parse("http://127.0.0.1:8080/video"));
+                    videoView.setVideoPath(videoFile.getAbsolutePath());
                     videoView.start();
                 }
             }, 2000);
@@ -89,8 +83,8 @@ public class MainActivity extends AppCompatActivity {
         });
         
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); debug("✅ OK"); } 
-            catch (Exception e) { debug("❌ " + e.getMessage()); }
+            try { session = new SessionManager(); session.start(); log("✅ OK"); } 
+            catch (Exception e) { log("❌ " + e.getMessage()); }
         }).start();
         
         startServer();
@@ -99,17 +93,11 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         
-        debug("📱 Pronto");
+        log("📱 Pronto");
     }
     
-    private void debug(String msg) {
-        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
-        debugLog.append(line);
-        handler.post(() -> {
-            statusText.setText(msg);
-            debugText.setText(debugLog.toString());
-            debugScroll.post(() -> debugScroll.fullScroll(View.FOCUS_DOWN));
-        });
+    private void log(String msg) {
+        handler.post(() -> statusText.setText("[" + sdf.format(new Date()) + "] " + msg));
     }
     
     private void startServer() {
@@ -145,13 +133,13 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            // 🎯 Prioriza a região
+            // 🎯 PRIORIZA AS PEÇAS QUE O PLAYER ESTÁ PEDINDO
             if (torrentHandle != null && torrentHandle.is_valid()) {
-                int pieceLen = 262144;
-                int startP = (int)(s / pieceLen);
-                int endP = Math.min(startP + 30, 9999);
-                for (int j = startP; j <= endP; j++) {
-                    try { torrentHandle.set_piece_deadline(j, 50); } catch (Exception ex) {}
+                int pieceLength = 262144;
+                int startPiece = (int)(s / pieceLength);
+                int endPiece = Math.min(startPiece + 15, 9999);
+                for (int j = startPiece; j <= endPiece; j++) {
+                    try { torrentHandle.set_piece_deadline(j, 200); } catch (Exception ex) {}
                 }
             }
             
@@ -178,7 +166,6 @@ public class MainActivity extends AppCompatActivity {
             
             String resp = "HTTP/1.1 206\r\nContent-Type: " + m + "\r\nContent-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\nContent-Length: " + t + "\r\nAccept-Ranges: bytes\r\n\r\n";
             o.write(resp.getBytes()); o.write(b, 0, t); o.flush(); c.close();
-            
         } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
     }
     
@@ -196,7 +183,7 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        debug("⏳ Baixando (2 MB/s)...");
+        log("⏳ Baixando...");
         
         new Thread(() -> {
             try {
@@ -225,7 +212,7 @@ public class MainActivity extends AppCompatActivity {
                             ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3)) {
                             videoFile = f;
                             long mb = f.length()/1048576;
-                            debug("📁 " + f.getName() + " (" + mb + "MB)");
+                            log("📁 " + f.getName() + " (" + mb + "MB)");
                             handler.post(() -> {
                                 btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
                                 btnWatch.setVisibility(View.VISIBLE);
@@ -235,19 +222,22 @@ public class MainActivity extends AppCompatActivity {
                     }
                     Thread.sleep(1000);
                 }
-            } catch (Exception e2) { debug("❌ " + e2.getMessage()); }
+            } catch (Exception e2) { log("❌ " + e2.getMessage()); }
         }).start();
     }
     
     private void watch() {
-        if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ Streaming via HTTP...");
+        if (videoFile == null || !videoFile.exists()) { log("❌ Arquivo não encontrado"); return; }
+        log("▶️ " + videoFile.getName());
         handler.post(() -> { 
             videoView.setVisibility(View.VISIBLE); 
             btnWatch.setVisibility(View.GONE);
+            loadingOverlay.setVisibility(View.VISIBLE);
+            spinnerBar.setVisibility(View.VISIBLE);
         });
-        videoView.setVideoURI(Uri.parse("http://127.0.0.1:8080/video"));
+        videoView.setVideoPath(videoFile.getAbsolutePath());
         videoView.start();
+        videoView.requestFocus();
     }
     
     private void stop() {
@@ -260,7 +250,7 @@ public class MainActivity extends AppCompatActivity {
         videoView.stopPlayback();
         videoView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
-        debug("⏹️ Parado");
+        log("⏹️ Parado");
     }
     
     private File find(File dir) {
