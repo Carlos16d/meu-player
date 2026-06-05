@@ -1,6 +1,5 @@
 package com.meuapp.player;
 
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -40,6 +39,7 @@ public class MainActivity extends AppCompatActivity {
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
     private StringBuilder debugLog = new StringBuilder();
     private int httpReqCount = 0;
+    private Runnable reloadRunnable;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,7 +70,6 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // Configura WebView para reprodução
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
         webView.getSettings().setAllowFileAccess(true);
@@ -171,6 +170,38 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
     }
     
+    private boolean isFileReady(File f) {
+        // Verifica 3 posições do arquivo (0%, 25%, 50%)
+        try {
+            RandomAccessFile raf = new RandomAccessFile(f, "r");
+            long len = f.length();
+            if (len < 10485760) { raf.close(); return false; } // mínimo 10MB
+            
+            for (int pos = 0; pos < 3; pos++) {
+                byte[] check = new byte[10240]; // 10KB
+                long seekPos = pos * (len / 4);
+                if (seekPos + check.length > len) seekPos = len - check.length;
+                raf.seek(seekPos);
+                raf.read(check);
+                
+                boolean allZero = true;
+                for (int j = 0; j < check.length; j++) {
+                    if (check[j] != 0) { allZero = false; break; }
+                }
+                
+                if (allZero) {
+                    debug("   ⏳ Posição " + (seekPos/1048576) + "MB ainda são zeros");
+                    raf.close();
+                    return false;
+                }
+            }
+            raf.close();
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+    
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
@@ -193,6 +224,9 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
+        debug("╔══════════════════════════╗");
+        debug("║   INICIANDO              ║");
+        debug("╚══════════════════════════╝");
         debug("⏳ Baixando (4 MB/s)...");
         
         new Thread(() -> {
@@ -212,33 +246,43 @@ public class MainActivity extends AppCompatActivity {
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
                     debug("📊 " + torrentHandle.status().getNum_peers() + " peers");
-                    for (int j = 0; j < 200; j++) {
-                        try { torrentHandle.set_piece_deadline(j, 10); } catch (Exception ex) {}
+                    
+                    // Prioridade MÁXIMA para primeiras 400 peças (~100MB)
+                    for (int j = 0; j < 400; j++) {
+                        try { torrentHandle.set_piece_deadline(j, 5); } catch (Exception ex) {}
                     }
-                    debug("🎯 Priorizando primeiras 200 peças (~50MB)");
+                    debug("🎯 Priorizando primeiras 400 peças (~100MB)");
                 }
                 
+                debug("🔍 Procurando arquivo com dados reais...");
                 for (int i = 0; i < 300 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && f.length() > 10485760) {
-                        byte[] check = new byte[1024];
-                        try { new RandomAccessFile(f, "r").read(check); } catch (Exception e2) { continue; }
+                    if (f != null && isFileReady(f)) {
+                        videoFile = f;
+                        long mb = f.length()/1048576;
+                        debug("✅ Arquivo pronto! " + f.getName() + " (" + mb + "MB)");
                         
-                        boolean allZero = true;
-                        for (int j = 8; j < check.length; j++) {
-                            if (check[j] != 0) { allZero = false; break; }
-                        }
+                        // Verifica mais algumas posições
+                        try {
+                            RandomAccessFile raf = new RandomAccessFile(f, "r");
+                            long flen = f.length();
+                            for (int pos = 0; pos < 5; pos++) {
+                                long seekPos = pos * flen / 5;
+                                raf.seek(seekPos);
+                                byte[] b = new byte[100];
+                                raf.read(b);
+                                int nonZero = 0;
+                                for (byte by : b) if (by != 0) nonZero++;
+                                debug("   Pos " + (seekPos/1048576) + "MB: " + nonZero + "% dados reais");
+                            }
+                            raf.close();
+                        } catch (Exception e) {}
                         
-                        if (!allZero) {
-                            videoFile = f;
-                            long mb = f.length()/1048576;
-                            debug("✅ " + f.getName() + " (" + mb + "MB)");
-                            handler.post(() -> {
-                                btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
-                                btnWatch.setVisibility(View.VISIBLE);
-                            });
-                            break;
-                        }
+                        handler.post(() -> {
+                            btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
+                            btnWatch.setVisibility(View.VISIBLE);
+                        });
+                        break;
                     }
                     Thread.sleep(1000);
                 }
@@ -248,7 +292,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ WebView Player via HTTP");
+        debug("▶️ WebView Player");
         debug("   " + videoFile.getAbsolutePath());
         debug("   " + (videoFile.length()/1048576) + "MB");
         
@@ -259,27 +303,44 @@ public class MainActivity extends AppCompatActivity {
             spinnerBar.setVisibility(View.VISIBLE);
         });
         
-        // HTML5 video player que conecta no servidor HTTP
         String html = "<!DOCTYPE html><html><head><style>" +
             "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;}" +
             "video{width:100%;max-height:100vh;}" +
             "</style></head><body>" +
-            "<video controls autoplay playsinline>" +
+            "<video id='v' controls autoplay playsinline>" +
             "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
             "</video>" +
             "<script>" +
-            "var v=document.querySelector('video');" +
+            "var v=document.getElementById('v');" +
+            "v.addEventListener('loadedmetadata',function(){document.title='📏 '+v.duration+'s'});" +
             "v.addEventListener('playing',function(){document.title='▶️'});" +
             "v.addEventListener('waiting',function(){document.title='⏳'});" +
-            "v.addEventListener('error',function(e){document.title='❌ '+v.error.code;});" +
+            "v.addEventListener('ended',function(){document.title='🏁'});" +
+            "v.addEventListener('error',function(){document.title='❌'});" +
             "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        
+        // Recarrega o player a cada 5 segundos para pegar novos dados
+        reloadRunnable = new Runnable() {
+            @Override public void run() {
+                if (downloading && videoFile != null && webView.getVisibility() == View.VISIBLE) {
+                    long fileSize = videoFile.length();
+                    debug("🔄 Recarregando player... (" + (fileSize/1048576) + "MB disponíveis)");
+                    webView.loadUrl("javascript:var v=document.getElementById('v');" +
+                        "var p=v.currentTime;var w=v.paused;" +
+                        "v.load();v.currentTime=p;if(!w)v.play();");
+                    handler.postDelayed(this, 5000);
+                }
+            }
+        };
+        handler.postDelayed(reloadRunnable, 5000);
     }
     
     private void stop() {
         debug("⏹️ Parado");
         downloading = false;
+        handler.removeCallbacks(reloadRunnable);
         handler.removeCallbacksAndMessages(null);
         webView.loadUrl("about:blank");
         webView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
