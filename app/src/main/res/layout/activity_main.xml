@@ -4,144 +4,79 @@
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="#0a0a0a"
-    android:gravity="center_horizontal"
-    android:padding="8dp">
+    android:padding="16dp"
+    android:gravity="center">
     
-    <WebView
-        android:id="@+id/webview"
-        android:layout_width="match_parent"
+    <TextView
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:text="🎬 Torrent Player"
+        android:textColor="#e74c3c"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:layout_marginBottom="20dp" />
+    
+    <EditText
+        android:id="@+id/magnet_input"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:background="#1a1a1a"
+        android:hint="Magnet link..."
+        android:textColorHint="#555"
+        android:inputType="textMultiLine"
+        android:padding="10dp"
+        android:textColor="#fff"
+        android:textSize="12sp"
+        android:layout_marginBottom="10dp" />
+    
+    <Button
+        android:id="@+id/btn_play"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:backgroundTint="#e74c3c"
+        android:text="▶️ BAIXAR"
+        android:textColor="#fff"
+        android:textStyle="bold"
+        android:layout_marginBottom="8dp" />
+    
+    <Button
+        android:id="@+id/btn_watch"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:backgroundTint="#4ecb71"
+        android:text="🌐 ABRIR NO MI BROWSER"
+        android:textColor="#000"
+        android:textStyle="bold"
+        android:visibility="gone"
+        android:layout_marginBottom="8dp" />
+    
+    <Button
+        android:id="@+id/btn_stop"
+        android:layout_width="match_parent"
+        android:layout_height="50dp"
+        android:backgroundTint="#555"
+        android:text="⏹️ PARAR"
+        android:textColor="#fff"
+        android:textStyle="bold"
         android:visibility="gone" />
     
-    <FrameLayout
-        android:id="@+id/loading_overlay"
+    <ProgressBar
+        android:id="@+id/buffer_bar"
+        style="?android:attr/progressBarStyleHorizontal"
         android:layout_width="match_parent"
-        android:layout_height="150dp"
-        android:visibility="gone"
-        android:background="#1a1a1a">
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_gravity="center"
-            android:orientation="vertical"
-            android:gravity="center">
-            <ProgressBar
-                android:id="@+id/spinner_bar"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:indeterminateTint="#e74c3c" />
-        </LinearLayout>
-    </FrameLayout>
+        android:layout_height="5dp"
+        android:layout_marginTop="10dp"
+        android:progressTint="#e74c3c"
+        android:visibility="gone" />
     
-    <ScrollView
-        android:id="@+id/debug_scroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#0d0d0d"
-        android:padding="4dp">
-        <TextView
-            android:id="@+id/debug_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#4ecb71"
-            android:textSize="8sp"
-            android:fontFamily="monospace" />
-    </ScrollView>
-    
-    <LinearLayout
-        android:layout_width="match_parent"
+    <TextView
+        android:id="@+id/status_text"
+        android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:layout_marginTop="4dp">
-        
-        <EditText
-            android:id="@+id/magnet_input"
-            android:layout_width="match_parent"
-            android:layout_height="50dp"
-            android:background="#1a1a1a"
-            android:hint="Magnet link..."
-            android:textColorHint="#555"
-            android:inputType="textMultiLine"
-            android:padding="6dp"
-            android:textColor="#fff"
-            android:textSize="11sp" />
-        
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="4dp">
-            
-            <Button
-                android:id="@+id/btn_play"
-                android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_weight="1"
-                android:backgroundTint="#e74c3c"
-                android:text="▶️ BAIXAR"
-                android:textColor="#fff"
-                android:textStyle="bold"
-                android:textSize="11sp" />
-            
-            <Button
-                android:id="@+id/btn_watch"
-                android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:backgroundTint="#4ecb71"
-                android:text="🎬 WebView"
-                android:textColor="#000"
-                android:textStyle="bold"
-                android:textSize="11sp"
-                android:visibility="gone" />
-            
-            <Button
-                android:id="@+id/btn_mi_browser"
-                android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:backgroundTint="#ff9800"
-                android:text="🌐 Mi Browser"
-                android:textColor="#fff"
-                android:textStyle="bold"
-                android:textSize="11sp"
-                android:visibility="gone" />
-            
-            <Button
-                android:id="@+id/btn_stop"
-                android:layout_width="0dp"
-                android:layout_height="42dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:backgroundTint="#555"
-                android:text="⏹️ PARAR"
-                android:textColor="#fff"
-                android:textStyle="bold"
-                android:textSize="11sp"
-                android:visibility="gone" />
-        </LinearLayout>
-        
-        <ProgressBar
-            android:id="@+id/buffer_bar"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="4dp"
-            android:layout_marginTop="4dp"
-            android:progressTint="#e74c3c"
-            android:visibility="gone" />
-        
-        <TextView
-            android:id="@+id/status_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="Pronto"
-            android:textColor="#4ecb71"
-            android:textSize="10sp"
-            android:fontFamily="monospace" />
-    </LinearLayout>
+        android:layout_marginTop="10dp"
+        android:text="Pronto"
+        android:textColor="#4ecb71"
+        android:textSize="12sp"
+        android:fontFamily="monospace" />
     
 </LinearLayout>
