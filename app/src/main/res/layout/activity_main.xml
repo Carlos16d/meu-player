@@ -13,6 +13,44 @@
         android:layout_height="wrap_content"
         android:visibility="gone" />
     
+    <!-- Controles personalizados -->
+    <LinearLayout
+        android:id="@+id/media_controls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:padding="8dp"
+        android:visibility="gone"
+        android:background="#1a1a1a">
+        
+        <Button
+            android:id="@+id/btn_seek_back"
+            android:layout_width="50dp"
+            android:layout_height="40dp"
+            android:text="⏪"
+            android:textSize="18sp"
+            android:backgroundTint="#333" />
+        
+        <Button
+            android:id="@+id/btn_pause"
+            android:layout_width="60dp"
+            android:layout_height="40dp"
+            android:text="⏸️"
+            android:textSize="18sp"
+            android:backgroundTint="#e74c3c"
+            android:layout_marginStart="8dp"
+            android:layout_marginEnd="8dp" />
+        
+        <Button
+            android:id="@+id/btn_seek_fwd"
+            android:layout_width="50dp"
+            android:layout_height="40dp"
+            android:text="⏩"
+            android:textSize="18sp"
+            android:backgroundTint="#333" />
+    </LinearLayout>
+    
     <FrameLayout
         android:id="@+id/loading_overlay"
         android:layout_width="match_parent"
@@ -32,33 +70,8 @@
                 android:layout_width="40dp"
                 android:layout_height="40dp"
                 android:indeterminateTint="#e74c3c" />
-            
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:text="⏳ Carregando..."
-                android:textColor="#e74c3c"
-                android:textSize="14sp" />
         </LinearLayout>
     </FrameLayout>
-    
-    <ScrollView
-        android:id="@+id/debug_scroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:background="#0d0d0d"
-        android:padding="4dp">
-        
-        <TextView
-            android:id="@+id/debug_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:textColor="#4ecb71"
-            android:textSize="8sp"
-            android:fontFamily="monospace" />
-    </ScrollView>
     
     <LinearLayout
         android:layout_width="match_parent"
