@@ -21,7 +21,7 @@ import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
-public class MainActivity extends AppCompatActivity implements IVLCVout.OnNewVideoLayout {
+public class MainActivity extends AppCompatActivity {
     private SurfaceView videoSurface;
     private TextView statusText, debugText;
     private ProgressBar bufferBar, spinnerBar;
@@ -39,7 +39,6 @@ public class MainActivity extends AppCompatActivity implements IVLCVout.OnNewVid
     private Thread serverThread;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
     private StringBuilder debugLog = new StringBuilder();
-    private int httpReqCount = 0;
     
     // VLC
     private LibVLC libVLC;
@@ -76,18 +75,14 @@ public class MainActivity extends AppCompatActivity implements IVLCVout.OnNewVid
         
         // Configura VLC
         ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=2000");
-        options.add("--file-caching=2000");
-        options.add("--clock-synchro=0");
-        options.add("--no-audio-time-stretch");
+        options.add("--network-caching=3000");
+        options.add("--file-caching=3000");
         options.add("-vvv");
         
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
-        
-        IVLCVout vout = vlcPlayer.getVLCVout();
-        vout.setVideoView(videoSurface);
-        vout.attachViews(this);
+        vlcPlayer.getVLCVout().setVideoView(videoSurface);
+        vlcPlayer.getVLCVout().attachViews();
         
         vlcPlayer.setEventListener(new MediaPlayer.EventListener() {
             @Override
@@ -98,20 +93,20 @@ public class MainActivity extends AppCompatActivity implements IVLCVout.OnNewVid
                         break;
                     case MediaPlayer.Event.Playing:
                         debug("▶️ VLC: Playing");
-                        loadingOverlay.setVisibility(View.GONE);
-                        spinnerBar.setVisibility(View.GONE);
+                        handler.post(() -> {
+                            loadingOverlay.setVisibility(View.GONE);
+                            spinnerBar.setVisibility(View.GONE);
+                        });
                         break;
                     case MediaPlayer.Event.Buffering:
-                        float buffering = event.getBuffering();
-                        debug("⏳ VLC: Buffering " + buffering + "%");
-                        loadingOverlay.setVisibility(View.VISIBLE);
-                        spinnerBar.setVisibility(View.VISIBLE);
+                        debug("⏳ VLC: Buffering " + event.getBuffering() + "%");
+                        handler.post(() -> {
+                            loadingOverlay.setVisibility(View.VISIBLE);
+                            spinnerBar.setVisibility(View.VISIBLE);
+                        });
                         break;
                     case MediaPlayer.Event.Stopped:
                         debug("⏹️ VLC: Stopped");
-                        break;
-                    case MediaPlayer.Event.EndReached:
-                        debug("🏁 VLC: End");
                         break;
                     case MediaPlayer.Event.EncounteredError:
                         debug("❌ VLC: Error");
@@ -132,11 +127,6 @@ public class MainActivity extends AppCompatActivity implements IVLCVout.OnNewVid
         btnWatch.setOnClickListener(v -> watch());
         
         debug("══════ APP INICIADO ══════");
-    }
-    
-    @Override
-    public void onNewVideoLayout(IVLCVout vout, int width, int height, int visibleWidth, int visibleHeight, int sarNum, int sarDen) {
-        debug("📐 VLC: " + width + "x" + height);
     }
     
     private void debug(String msg) {
@@ -189,7 +179,6 @@ public class MainActivity extends AppCompatActivity implements IVLCVout.OnNewVid
                 for (int j = startP; j <= endP; j++) {
                     try { torrentHandle.set_piece_deadline(j, 30); } catch (Exception ex) {}
                 }
-                debug("🎯 Peças " + startP + "-" + endP + " | Pos " + (s/1048576) + "MB");
             }
             
             File vf = videoFile;
