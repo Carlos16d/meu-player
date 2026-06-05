@@ -109,7 +109,7 @@ public class MainActivity extends AppCompatActivity {
             handler.postDelayed(() -> {
                 if (downloading && videoFile != null && videoFile.exists()) {
                     debug("🔄 Retry...");
-                    videoView.setVideoPath(videoFile.getAbsolutePath());
+                    videoView.setVideoURI(Uri.parse("http://127.0.0.1:8080/video"));
                     videoView.start();
                 }
             }, 2000);
@@ -218,7 +218,7 @@ public class MainActivity extends AppCompatActivity {
             
             String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
             int size = (int)(endByte - startByte + 1);
-            if (size > 65536) size = 65536;
+            if (size > 524288) size = 524288; // 512KB por chunk
             
             byte[] buf = new byte[size];
             RandomAccessFile raf = new RandomAccessFile(vf, "r");
@@ -269,7 +269,7 @@ public class MainActivity extends AppCompatActivity {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(0));
-                p.setDownload_limit(4 * 1024 * 1024);
+                p.setDownload_limit(2 * 1024 * 1024); // 2 MB/s
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
                 p.set_file_priorities(pr);
