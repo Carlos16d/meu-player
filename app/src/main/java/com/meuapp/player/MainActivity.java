@@ -38,10 +38,8 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
     private StringBuilder debugLog = new StringBuilder();
-    private int httpReqCount = 0;
     private Runnable reloadRunnable;
-    private long lastPlayerPosition = 0;
-    private long downloadTarget = 52428800; // 50MB inicial
+    private Runnable downloadExpander;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,9 +88,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         
-        debug("╔══════════════════════════╗");
-        debug("║   APP INICIADO           ║");
-        debug("╚══════════════════════════╝");
+        debug("📱 App iniciado");
     }
     
     private void debug(String msg) {
@@ -143,17 +139,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            // 🎯 Prioriza a região que o player pediu
-            if (torrentHandle != null && torrentHandle.is_valid()) {
-                int pieceLen = 262144;
-                int startP = (int)(s / pieceLen);
-                int endP = Math.min(startP + 50, 9999);
-                for (int j = startP; j <= endP; j++) {
-                    try { torrentHandle.set_piece_deadline(j, 30); } catch (Exception ex) {}
-                }
-                debug("🎯 Player pediu pos " + (s/1048576) + "MB → priorizando peças " + startP + "-" + endP);
-            }
-            
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
                 o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return;
@@ -182,6 +167,17 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
     }
     
+    private void prioritizeRange(long startByte, long endByte) {
+        if (torrentHandle == null || !torrentHandle.is_valid()) return;
+        int pieceLen = 262144;
+        int startP = (int)(startByte / pieceLen);
+        int endP = (int)(endByte / pieceLen) + 20;
+        for (int j = startP; j <= Math.min(endP, 9999); j++) {
+            try { torrentHandle.set_piece_deadline(j, 30); } catch (Exception ex) {}
+        }
+        debug("🎯 Priorizando " + (startByte/1048576) + "MB - " + (endByte/1048576) + "MB");
+    }
+    
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
@@ -189,14 +185,12 @@ public class MainActivity extends AppCompatActivity {
         File torrentDir = new File(savePath);
         if (torrentDir.exists()) {
             for (File f : torrentDir.listFiles()) deleteRecursive(f);
-            debug("🗑️ Arquivos antigos deletados");
         }
         new File(savePath).mkdirs();
         
         downloading = true;
         videoFile = null;
         torrentHandle = null;
-        downloadTarget = 52428800; // 50MB inicial
         debugLog.setLength(0);
         
         handler.post(() -> {
@@ -205,10 +199,7 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        debug("╔══════════════════════════╗");
-        debug("║   INICIANDO              ║");
-        debug("╚══════════════════════════╝");
-        debug("⏳ Baixando primeiros 50MB...");
+        debug("⏳ Baixando (4 MB/s)...");
         
         new Thread(() -> {
             try {
@@ -227,30 +218,22 @@ public class MainActivity extends AppCompatActivity {
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
                     debug("📊 " + torrentHandle.status().getNum_peers() + " peers");
-                    
-                    // Prioridade MÁXIMA para primeiras 200 peças (~50MB)
-                    for (int j = 0; j < 200; j++) {
-                        try { torrentHandle.set_piece_deadline(j, 5); } catch (Exception ex) {}
-                    }
-                    debug("🎯 Priorizando primeiras 200 peças (~50MB)");
+                    prioritizeRange(0, 52428800); // Primeiros 50MB
                 }
                 
-                // Aguarda SÓ os primeiros 5MB com dados reais
-                debug("🔍 Aguardando 5MB de dados reais...");
                 for (int i = 0; i < 300 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && f.length() > 5242880) { // 5MB
+                    if (f != null && f.length() > 5242880) {
                         byte[] check = new byte[4096];
                         try { new RandomAccessFile(f, "r").read(check); } catch (Exception e2) { continue; }
                         
                         int nonZero = 0;
                         for (byte b : check) if (b != 0) nonZero++;
                         
-                        if (nonZero > check.length * 0.3) { // 30% de dados reais
+                        if (nonZero > check.length * 0.3) {
                             videoFile = f;
                             long mb = f.length()/1048576;
-                            debug("✅ " + f.getName() + " (" + mb + "MB) | " + 
-                                  (nonZero*100/check.length) + "% dados reais");
+                            debug("✅ " + f.getName() + " (" + mb + "MB)");
                             handler.post(() -> {
                                 btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
                                 btnWatch.setVisibility(View.VISIBLE);
@@ -266,9 +249,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ WebView Player");
-        debug("   " + videoFile.getAbsolutePath());
-        debug("   " + (videoFile.length()/1048576) + "MB");
+        debug("▶️ Reproduzindo...");
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
@@ -283,43 +264,23 @@ public class MainActivity extends AppCompatActivity {
             "</style></head><body>" +
             "<video id='v' controls autoplay playsinline>" +
             "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
-            "</video>" +
-            "<script>" +
-            "var v=document.getElementById('v');" +
-            "setInterval(function(){" +
-            "  Android.onPosition(v.currentTime);" +
-            "},2000);" +
-            "</script></body></html>";
-        
-        webView.addJavascriptInterface(new Object() {
-            @android.webkit.JavascriptInterface
-            public void onPosition(float seconds) {
-                long bytePos = (long)(seconds * videoFile.length() / 634); // estimativa
-                if (bytePos > downloadTarget - 10485760) { // a 10MB do fim
-                    downloadTarget += 52428800; // mais 50MB
-                    debug("📥 Player em " + (int)seconds + "s → expandindo download para " + 
-                          (downloadTarget/1048576) + "MB");
-                    
-                    // Prioriza as próximas peças
-                    if (torrentHandle != null && torrentHandle.is_valid()) {
-                        int startP = (int)(downloadTarget / 262144);
-                        for (int j = startP - 20; j < startP + 80; j++) {
-                            try { torrentHandle.set_piece_deadline(j, 20); } catch (Exception ex) {}
-                        }
-                    }
-                }
-            }
-        }, "Android");
+            "</video></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
         
-        // Recarrega periodicamente para pegar novos dados
+        // Recarrega a cada 5s
         reloadRunnable = new Runnable() {
             @Override public void run() {
                 if (downloading && videoFile != null && webView.getVisibility() == View.VISIBLE) {
+                    long fileSize = videoFile.length();
                     webView.loadUrl("javascript:var v=document.getElementById('v');" +
                         "var p=v.currentTime;var w=v.paused;" +
                         "v.load();v.currentTime=p;if(!w)v.play();");
+                    
+                    // Expande download se necessário (a cada 30s)
+                    if (fileSize > 0 && fileSize < 209715200) { // menos de 200MB
+                        prioritizeRange(fileSize, fileSize + 52428800); // mais 50MB
+                    }
                     handler.postDelayed(this, 5000);
                 }
             }
