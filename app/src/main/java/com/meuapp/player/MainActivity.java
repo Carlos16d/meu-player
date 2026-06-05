@@ -8,12 +8,8 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
-import android.webkit.WebChromeClient;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.content.FileProvider;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
@@ -24,64 +20,37 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    private WebView webView;
-    private TextView statusText, debugText;
-    private ProgressBar bufferBar, spinnerBar;
-    private FrameLayout loadingOverlay;
+    private TextView statusText;
+    private ProgressBar bufferBar;
     private EditText magnetInput;
-    private Button btnPlay, btnStop, btnWatch, btnMiBrowser;
-    private ScrollView debugScroll;
+    private Button btnPlay, btnStop, btnWatch;
     
     private String savePath;
     private SessionManager session;
-    private torrent_handle torrentHandle;
     private volatile boolean downloading;
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
-    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
-    private StringBuilder debugLog = new StringBuilder();
+    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        webView = findViewById(R.id.webview);
         statusText = findViewById(R.id.status_text);
-        debugText = findViewById(R.id.debug_text);
-        debugScroll = findViewById(R.id.debug_scroll);
         bufferBar = findViewById(R.id.buffer_bar);
-        spinnerBar = findViewById(R.id.spinner_bar);
-        loadingOverlay = findViewById(R.id.loading_overlay);
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
-        btnMiBrowser = findViewById(R.id.btn_mi_browser);
-        
-        webView.post(() -> {
-            int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.92);
-            int h = (int)(w * 9.0 / 16.0);
-            ViewGroup.LayoutParams p = webView.getLayoutParams();
-            p.width = w; p.height = h;
-            webView.setLayoutParams(p);
-        });
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        webView.getSettings().setJavaScriptEnabled(true);
-        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-        webView.getSettings().setAllowFileAccess(true);
-        webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
-        webView.setVisibility(View.GONE);
-        
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); debug("✅ OK"); } 
-            catch (Exception e) { debug("❌ " + e.getMessage()); }
+            try { session = new SessionManager(); session.start(); } catch (Exception e) {}
         }).start();
         
         startServer();
@@ -89,31 +58,21 @@ public class MainActivity extends AppCompatActivity {
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
-        btnMiBrowser.setOnClickListener(v -> openInMiBrowser());
         
-        debug("📱 App iniciado");
+        log("📱 Pronto");
     }
     
-    private void debug(String msg) {
-        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
-        debugLog.append(line);
-        handler.post(() -> {
-            statusText.setText(msg);
-            debugText.setText(debugLog.toString());
-            debugScroll.post(() -> debugScroll.fullScroll(View.FOCUS_DOWN));
-        });
+    private void log(String msg) {
+        handler.post(() -> statusText.setText("[" + sdf.format(new Date()) + "] " + msg));
     }
     
-    private boolean deleteRecursive(File f) {
-        if (f.isDirectory()) {
-            File[] children = f.listFiles();
-            if (children != null) for (File child : children) deleteRecursive(child);
-        }
-        return f.delete();
+    private void deleteRecursive(File f) {
+        if (f.isDirectory()) for (File child : f.listFiles()) deleteRecursive(child);
+        f.delete();
     }
     
     private void startServer() {
-        serverThread = new Thread(() -> {
+        new Thread(() -> {
             try {
                 ServerSocket server = new ServerSocket(8080, 10);
                 server.setReuseAddress(true);
@@ -122,9 +81,7 @@ public class MainActivity extends AppCompatActivity {
                 }
                 server.close();
             } catch (IOException e) {}
-        });
-        serverThread.setDaemon(true);
-        serverThread.start();
+        }).start();
     }
     
     private void handleHttp(Socket c) {
@@ -177,34 +134,20 @@ public class MainActivity extends AppCompatActivity {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
         
-        // 🗑️ FORÇA deleção
-        debug("🗑️ Deletando arquivos antigos...");
         File torrentDir = new File(savePath);
-        if (torrentDir.exists()) {
-            File[] files = torrentDir.listFiles();
-            if (files != null) for (File f : files) {
-                deleteRecursive(f);
-                debug("   🗑️ " + f.getName());
-            }
-        }
-        torrentDir.mkdirs();
-        debug("✅ Pasta limpa");
+        if (torrentDir.exists()) for (File f : torrentDir.listFiles()) deleteRecursive(f);
+        new File(savePath).mkdirs();
         
         downloading = true;
         videoFile = null;
-        torrentHandle = null;
-        debugLog.setLength(0);
         
         handler.post(() -> {
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
-            btnMiBrowser.setVisibility(View.GONE);
         });
         
-        debug("╔══════════════════════════╗");
-        debug("║   TESTE: Minuto 8        ║");
-        debug("╚══════════════════════════╝");
+        log("⏳ Baixando...");
         
         new Thread(() -> {
             try {
@@ -219,143 +162,51 @@ public class MainActivity extends AppCompatActivity {
                 session.swig().async_add_torrent(p);
                 Thread.sleep(3000);
                 
-                torrent_handle_vector h = session.swig().get_torrents();
-                if (h.size() > 0) {
-                    torrentHandle = h.get(0);
-                    debug("📊 " + torrentHandle.status().getNum_peers() + " peers");
-                    
-                    // Prioriza APENAS a região 210MB-260MB
-                    long startByte = 210L * 1048576;
-                    long endByte = startByte + 52428800L;
-                    int pieceLen = 262144;
-                    int startP = (int)(startByte / pieceLen);
-                    int endP = (int)(endByte / pieceLen) + 30;
-                    
-                    debug("🎯 Priorizando peças " + startP + "-" + endP);
-                    
-                    // Força prioridade ZERO para o início (para NÃO baixar)
-                    for (int j = 0; j < startP; j++) {
-                        try { torrentHandle.set_piece_deadline(j, Integer.MAX_VALUE); } catch (Exception ex) {}
-                    }
-                    // Prioridade MÁXIMA para a região alvo
-                    for (int j = startP; j <= Math.min(endP, 9999); j++) {
-                        try { torrentHandle.set_piece_deadline(j, 10); } catch (Exception ex) {}
-                    }
-                    debug("🔒 Início BLOQUEADO, região 210-260MB PRIORIZADA");
-                }
-                
-                // Monitora dados reais
-                debug("🔍 Monitorando dados...");
                 for (int i = 0; i < 300 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && f.length() > 215000000L) {
-                        byte[] checkStart = new byte[4096];
-                        byte[] checkTarget = new byte[4096];
-                        try {
-                            RandomAccessFile raf = new RandomAccessFile(f, "r");
-                            raf.seek(0);
-                            raf.read(checkStart);
-                            raf.seek(215000000L);
-                            raf.read(checkTarget);
-                            raf.close();
-                            
-                            int nzStart = 0, nzTarget = 0;
-                            for (byte b : checkStart) if (b != 0) nzStart++;
-                            for (byte b : checkTarget) if (b != 0) nzTarget++;
-                            
-                            debug("   [" + (i+1) + "s] " + (f.length()/1048576) + "MB | " +
-                                  "Início: " + (nzStart*100/checkStart.length) + "% | " +
-                                  "Alvo: " + (nzTarget*100/checkTarget.length) + "%");
-                            
-                            if (nzTarget > checkTarget.length * 0.5) {
-                                videoFile = f;
-                                debug("✅ Região alvo pronta!");
-                                debug("   Início: " + (nzStart*100/checkStart.length) + "% reais");
-                                debug("   Alvo: " + (nzTarget*100/checkTarget.length) + "% reais");
-                                
-                                handler.post(() -> {
-                                    btnWatch.setText("🎬 WebView");
-                                    btnWatch.setVisibility(View.VISIBLE);
-                                    btnMiBrowser.setText("🌐 Mi Browser");
-                                    btnMiBrowser.setVisibility(View.VISIBLE);
-                                });
-                                break;
-                            }
-                        } catch (Exception e2) {}
+                    if (f != null && f.length() > 5242880) {
+                        videoFile = f;
+                        long mb = f.length()/1048576;
+                        log("📁 " + f.getName() + " (" + mb + "MB)");
+                        handler.post(() -> {
+                            btnWatch.setText("🌐 ABRIR NO MI BROWSER");
+                            btnWatch.setVisibility(View.VISIBLE);
+                        });
+                        break;
                     }
                     Thread.sleep(1000);
                 }
-            } catch (Exception e2) { debug("❌ " + e2.getMessage()); }
+            } catch (Exception e2) { log("❌ " + e2.getMessage()); }
         }).start();
     }
     
     private void watch() {
-        if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ WebView Player");
-        
-        handler.post(() -> { 
-            webView.setVisibility(View.VISIBLE); 
-            btnWatch.setVisibility(View.GONE);
-            btnMiBrowser.setVisibility(View.GONE);
-        });
-        
-        String html = "<!DOCTYPE html><html><head><style>" +
-            "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;}" +
-            "video{width:100%;max-height:100vh;}" +
-            "</style></head><body>" +
-            "<video id='v' controls autoplay playsinline>" +
-            "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
-            "</video>" +
-            "<script>" +
-            "var v=document.getElementById('v');" +
-            "v.addEventListener('loadedmetadata',function(){" +
-            "  v.currentTime=480;v.play();" +
-            "  document.title='▶️ Min 8'" +
-            "});" +
-            "v.addEventListener('error',function(){document.title='❌ '+v.error.code});" +
-            "v.addEventListener('waiting',function(){document.title='⏳'});" +
-            "</script></body></html>";
-        
-        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-    }
-    
-    private void openInMiBrowser() {
-        if (videoFile == null || !videoFile.exists()) return;
-        
-        debug("🌐 Abrindo no Mi Browser...");
+        if (videoFile == null || !videoFile.exists()) { log("❌ Arquivo não encontrado"); return; }
+        log("🌐 Abrindo no navegador...");
         
         try {
-            // Tenta abrir o servidor HTTP no navegador
             Intent intent = new Intent(Intent.ACTION_VIEW);
-            intent.setData(Uri.parse("http://127.0.0.1:8080/video"));
+            intent.setDataAndType(Uri.parse("http://127.0.0.1:8080/video"), "video/*");
             intent.setPackage("com.mi.globalbrowser");
             startActivity(intent);
-            debug("✅ Mi Browser aberto!");
         } catch (Exception e) {
-            // Fallback: abre com qualquer navegador
             try {
                 Intent intent = new Intent(Intent.ACTION_VIEW);
                 intent.setData(Uri.parse("http://127.0.0.1:8080/video"));
                 startActivity(intent);
-                debug("✅ Navegador aberto (fallback)");
             } catch (Exception e2) {
-                debug("❌ Nenhum navegador encontrado");
+                log("❌ Nenhum navegador encontrado");
             }
         }
     }
     
     private void stop() {
-        debug("⏹️ Parado");
         downloading = false;
         handler.removeCallbacksAndMessages(null);
-        webView.loadUrl("about:blank");
-        webView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); 
-        btnWatch.setVisibility(View.GONE); btnMiBrowser.setVisibility(View.GONE);
-        bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
-        if (torrentHandle != null && session != null) {
-            try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
-            torrentHandle = null;
-        }
+        videoFile = null;
+        btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
+        bufferBar.setVisibility(View.GONE);
+        log("⏹️ Parado");
     }
     
     private File find(File dir) {
@@ -370,7 +221,6 @@ public class MainActivity extends AppCompatActivity {
     
     @Override protected void onDestroy() {
         stop();
-        if (serverThread != null) serverThread.interrupt();
         if (session != null) session.stop();
         super.onDestroy();
     }
