@@ -38,8 +38,6 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
     private StringBuilder debugLog = new StringBuilder();
-    private Runnable reloadRunnable;
-    private Runnable downloadExpander;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -167,17 +165,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
     }
     
-    private void prioritizeRange(long startByte, long endByte) {
-        if (torrentHandle == null || !torrentHandle.is_valid()) return;
-        int pieceLen = 262144;
-        int startP = (int)(startByte / pieceLen);
-        int endP = (int)(endByte / pieceLen) + 20;
-        for (int j = startP; j <= Math.min(endP, 9999); j++) {
-            try { torrentHandle.set_piece_deadline(j, 30); } catch (Exception ex) {}
-        }
-        debug("🎯 Priorizando " + (startByte/1048576) + "MB - " + (endByte/1048576) + "MB");
-    }
-    
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
@@ -199,14 +186,17 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        debug("⏳ Baixando (4 MB/s)...");
+        debug("╔══════════════════════════╗");
+        debug("║   TESTE: Minuto 8 (50MB) ║");
+        debug("╚══════════════════════════╝");
+        debug("⏳ Baixando APENAS 50MB a partir do minuto 8...");
         
         new Thread(() -> {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(0));
-                p.setDownload_limit(4 * 1024 * 1024);
+                p.setDownload_limit(2 * 1024 * 1024); // 2 MB/s
                 
                 byte_vector pr = new byte_vector(); pr.add((byte)7);
                 p.set_file_priorities(pr);
@@ -217,29 +207,55 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
-                    debug("📊 " + torrentHandle.status().getNum_peers() + " peers");
-                    prioritizeRange(0, 52428800); // Primeiros 50MB
+                    int peers = torrentHandle.status().getNum_peers();
+                    debug("📊 " + peers + " peers");
+                    
+                    // Vídeo de 10 minutos (600s), minuto 8 = 480s
+                    // 263MB / 600s = 0.438 MB/s
+                    // Minuto 8 = 480 * 0.438 = 210MB
+                    long startByte = 210 * 1048576; // ~210MB
+                    long endByte = startByte + 52428800; // +50MB
+                    
+                    debug("🎯 Priorizando APENAS " + (startByte/1048576) + "MB - " + (endByte/1048576) + "MB (minuto 8)");
+                    
+                    int pieceLen = 262144;
+                    int startP = (int)(startByte / pieceLen);
+                    int endP = (int)(endByte / pieceLen) + 10;
+                    
+                    for (int j = startP; j <= endP; j++) {
+                        try { torrentHandle.set_piece_deadline(j, 20); } catch (Exception ex) {}
+                    }
                 }
                 
+                // Aguarda 5MB de dados na região do minuto 8
+                debug("🔍 Aguardando dados na região do minuto 8...");
                 for (int i = 0; i < 300 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && f.length() > 5242880) {
+                    if (f != null && f.length() > 220200960) { // Pelo menos 210MB
+                        // Verifica se tem dados reais na região 210MB-260MB
                         byte[] check = new byte[4096];
-                        try { new RandomAccessFile(f, "r").read(check); } catch (Exception e2) { continue; }
-                        
-                        int nonZero = 0;
-                        for (byte b : check) if (b != 0) nonZero++;
-                        
-                        if (nonZero > check.length * 0.3) {
-                            videoFile = f;
-                            long mb = f.length()/1048576;
-                            debug("✅ " + f.getName() + " (" + mb + "MB)");
-                            handler.post(() -> {
-                                btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
-                                btnWatch.setVisibility(View.VISIBLE);
-                            });
-                            break;
-                        }
+                        try {
+                            RandomAccessFile raf = new RandomAccessFile(f, "r");
+                            raf.seek(220200960); // ~210MB
+                            raf.read(check);
+                            raf.close();
+                            
+                            int nonZero = 0;
+                            for (byte b : check) if (b != 0) nonZero++;
+                            
+                            debug("   Dados em 210MB: " + (nonZero*100/check.length) + "% reais (" + 
+                                  (f.length()/1048576) + "MB total)");
+                            
+                            if (nonZero > check.length * 0.5) {
+                                videoFile = f;
+                                debug("✅ Dados suficientes! " + (f.length()/1048576) + "MB");
+                                handler.post(() -> {
+                                    btnWatch.setText("🎬 ASSISTIR (min 8)");
+                                    btnWatch.setVisibility(View.VISIBLE);
+                                });
+                                break;
+                            }
+                        } catch (Exception e2) {}
                     }
                     Thread.sleep(1000);
                 }
@@ -249,49 +265,36 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
-        debug("▶️ Reproduzindo...");
+        debug("▶️ Reproduzindo minuto 8...");
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
             btnWatch.setVisibility(View.GONE);
-            loadingOverlay.setVisibility(View.VISIBLE);
-            spinnerBar.setVisibility(View.VISIBLE);
         });
         
+        // HTML5 player que pula direto para o minuto 8 (480 segundos)
         String html = "<!DOCTYPE html><html><head><style>" +
             "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;}" +
             "video{width:100%;max-height:100vh;}" +
             "</style></head><body>" +
             "<video id='v' controls autoplay playsinline>" +
-            "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
-            "</video></body></html>";
+            "<source src='http://127.0.0.1:8080/video#t=480' type='video/mp4'>" +
+            "</video>" +
+            "<script>" +
+            "var v=document.getElementById('v');" +
+            "v.addEventListener('loadedmetadata',function(){" +
+            "  v.currentTime=480;v.play();" +
+            "  document.title='▶️ Min 8'}" +
+            ");" +
+            "v.addEventListener('error',function(){document.title='❌'});" +
+            "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        
-        // Recarrega a cada 5s
-        reloadRunnable = new Runnable() {
-            @Override public void run() {
-                if (downloading && videoFile != null && webView.getVisibility() == View.VISIBLE) {
-                    long fileSize = videoFile.length();
-                    webView.loadUrl("javascript:var v=document.getElementById('v');" +
-                        "var p=v.currentTime;var w=v.paused;" +
-                        "v.load();v.currentTime=p;if(!w)v.play();");
-                    
-                    // Expande download se necessário (a cada 30s)
-                    if (fileSize > 0 && fileSize < 209715200) { // menos de 200MB
-                        prioritizeRange(fileSize, fileSize + 52428800); // mais 50MB
-                    }
-                    handler.postDelayed(this, 5000);
-                }
-            }
-        };
-        handler.postDelayed(reloadRunnable, 5000);
     }
     
     private void stop() {
         debug("⏹️ Parado");
         downloading = false;
-        handler.removeCallbacks(reloadRunnable);
         handler.removeCallbacksAndMessages(null);
         webView.loadUrl("about:blank");
         webView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
