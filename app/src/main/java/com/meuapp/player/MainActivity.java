@@ -40,6 +40,8 @@ public class MainActivity extends AppCompatActivity {
     private StringBuilder debugLog = new StringBuilder();
     private int httpReqCount = 0;
     private Runnable reloadRunnable;
+    private long lastPlayerPosition = 0;
+    private long downloadTarget = 52428800; // 50MB inicial
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -73,7 +75,6 @@ public class MainActivity extends AppCompatActivity {
         webView.getSettings().setJavaScriptEnabled(true);
         webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
         webView.getSettings().setAllowFileAccess(true);
-        webView.getSettings().setAllowContentAccess(true);
         webView.setWebChromeClient(new WebChromeClient());
         webView.setWebViewClient(new WebViewClient());
         webView.setVisibility(View.GONE);
@@ -142,6 +143,17 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
+            // 🎯 Prioriza a região que o player pediu
+            if (torrentHandle != null && torrentHandle.is_valid()) {
+                int pieceLen = 262144;
+                int startP = (int)(s / pieceLen);
+                int endP = Math.min(startP + 50, 9999);
+                for (int j = startP; j <= endP; j++) {
+                    try { torrentHandle.set_piece_deadline(j, 30); } catch (Exception ex) {}
+                }
+                debug("🎯 Player pediu pos " + (s/1048576) + "MB → priorizando peças " + startP + "-" + endP);
+            }
+            
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
                 o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return;
@@ -170,38 +182,6 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
     }
     
-    private boolean isFileReady(File f) {
-        // Verifica 3 posições do arquivo (0%, 25%, 50%)
-        try {
-            RandomAccessFile raf = new RandomAccessFile(f, "r");
-            long len = f.length();
-            if (len < 10485760) { raf.close(); return false; } // mínimo 10MB
-            
-            for (int pos = 0; pos < 3; pos++) {
-                byte[] check = new byte[10240]; // 10KB
-                long seekPos = pos * (len / 4);
-                if (seekPos + check.length > len) seekPos = len - check.length;
-                raf.seek(seekPos);
-                raf.read(check);
-                
-                boolean allZero = true;
-                for (int j = 0; j < check.length; j++) {
-                    if (check[j] != 0) { allZero = false; break; }
-                }
-                
-                if (allZero) {
-                    debug("   ⏳ Posição " + (seekPos/1048576) + "MB ainda são zeros");
-                    raf.close();
-                    return false;
-                }
-            }
-            raf.close();
-            return true;
-        } catch (Exception e) {
-            return false;
-        }
-    }
-    
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
@@ -216,6 +196,7 @@ public class MainActivity extends AppCompatActivity {
         downloading = true;
         videoFile = null;
         torrentHandle = null;
+        downloadTarget = 52428800; // 50MB inicial
         debugLog.setLength(0);
         
         handler.post(() -> {
@@ -227,7 +208,7 @@ public class MainActivity extends AppCompatActivity {
         debug("╔══════════════════════════╗");
         debug("║   INICIANDO              ║");
         debug("╚══════════════════════════╝");
-        debug("⏳ Baixando (4 MB/s)...");
+        debug("⏳ Baixando primeiros 50MB...");
         
         new Thread(() -> {
             try {
@@ -247,42 +228,35 @@ public class MainActivity extends AppCompatActivity {
                     torrentHandle = h.get(0);
                     debug("📊 " + torrentHandle.status().getNum_peers() + " peers");
                     
-                    // Prioridade MÁXIMA para primeiras 400 peças (~100MB)
-                    for (int j = 0; j < 400; j++) {
+                    // Prioridade MÁXIMA para primeiras 200 peças (~50MB)
+                    for (int j = 0; j < 200; j++) {
                         try { torrentHandle.set_piece_deadline(j, 5); } catch (Exception ex) {}
                     }
-                    debug("🎯 Priorizando primeiras 400 peças (~100MB)");
+                    debug("🎯 Priorizando primeiras 200 peças (~50MB)");
                 }
                 
-                debug("🔍 Procurando arquivo com dados reais...");
+                // Aguarda SÓ os primeiros 5MB com dados reais
+                debug("🔍 Aguardando 5MB de dados reais...");
                 for (int i = 0; i < 300 && downloading; i++) {
                     File f = find(new File(savePath));
-                    if (f != null && isFileReady(f)) {
-                        videoFile = f;
-                        long mb = f.length()/1048576;
-                        debug("✅ Arquivo pronto! " + f.getName() + " (" + mb + "MB)");
+                    if (f != null && f.length() > 5242880) { // 5MB
+                        byte[] check = new byte[4096];
+                        try { new RandomAccessFile(f, "r").read(check); } catch (Exception e2) { continue; }
                         
-                        // Verifica mais algumas posições
-                        try {
-                            RandomAccessFile raf = new RandomAccessFile(f, "r");
-                            long flen = f.length();
-                            for (int pos = 0; pos < 5; pos++) {
-                                long seekPos = pos * flen / 5;
-                                raf.seek(seekPos);
-                                byte[] b = new byte[100];
-                                raf.read(b);
-                                int nonZero = 0;
-                                for (byte by : b) if (by != 0) nonZero++;
-                                debug("   Pos " + (seekPos/1048576) + "MB: " + nonZero + "% dados reais");
-                            }
-                            raf.close();
-                        } catch (Exception e) {}
+                        int nonZero = 0;
+                        for (byte b : check) if (b != 0) nonZero++;
                         
-                        handler.post(() -> {
-                            btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
-                            btnWatch.setVisibility(View.VISIBLE);
-                        });
-                        break;
+                        if (nonZero > check.length * 0.3) { // 30% de dados reais
+                            videoFile = f;
+                            long mb = f.length()/1048576;
+                            debug("✅ " + f.getName() + " (" + mb + "MB) | " + 
+                                  (nonZero*100/check.length) + "% dados reais");
+                            handler.post(() -> {
+                                btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
+                                btnWatch.setVisibility(View.VISIBLE);
+                            });
+                            break;
+                        }
                     }
                     Thread.sleep(1000);
                 }
@@ -312,21 +286,37 @@ public class MainActivity extends AppCompatActivity {
             "</video>" +
             "<script>" +
             "var v=document.getElementById('v');" +
-            "v.addEventListener('loadedmetadata',function(){document.title='📏 '+v.duration+'s'});" +
-            "v.addEventListener('playing',function(){document.title='▶️'});" +
-            "v.addEventListener('waiting',function(){document.title='⏳'});" +
-            "v.addEventListener('ended',function(){document.title='🏁'});" +
-            "v.addEventListener('error',function(){document.title='❌'});" +
+            "setInterval(function(){" +
+            "  Android.onPosition(v.currentTime);" +
+            "},2000);" +
             "</script></body></html>";
+        
+        webView.addJavascriptInterface(new Object() {
+            @android.webkit.JavascriptInterface
+            public void onPosition(float seconds) {
+                long bytePos = (long)(seconds * videoFile.length() / 634); // estimativa
+                if (bytePos > downloadTarget - 10485760) { // a 10MB do fim
+                    downloadTarget += 52428800; // mais 50MB
+                    debug("📥 Player em " + (int)seconds + "s → expandindo download para " + 
+                          (downloadTarget/1048576) + "MB");
+                    
+                    // Prioriza as próximas peças
+                    if (torrentHandle != null && torrentHandle.is_valid()) {
+                        int startP = (int)(downloadTarget / 262144);
+                        for (int j = startP - 20; j < startP + 80; j++) {
+                            try { torrentHandle.set_piece_deadline(j, 20); } catch (Exception ex) {}
+                        }
+                    }
+                }
+            }
+        }, "Android");
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
         
-        // Recarrega o player a cada 5 segundos para pegar novos dados
+        // Recarrega periodicamente para pegar novos dados
         reloadRunnable = new Runnable() {
             @Override public void run() {
                 if (downloading && videoFile != null && webView.getVisibility() == View.VISIBLE) {
-                    long fileSize = videoFile.length();
-                    debug("🔄 Recarregando player... (" + (fileSize/1048576) + "MB disponíveis)");
                     webView.loadUrl("javascript:var v=document.getElementById('v');" +
                         "var p=v.currentTime;var w=v.paused;" +
                         "v.load();v.currentTime=p;if(!w)v.play();");
