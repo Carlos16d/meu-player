@@ -96,11 +96,6 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    private void deleteRecursive(File f) {
-        if (f.isDirectory()) for (File child : f.listFiles()) deleteRecursive(child);
-        f.delete();
-    }
-    
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
@@ -134,8 +129,6 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            debug("📥 Range: " + s + "-" + (e == -1 ? "?" : e));
-            
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
                 o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return;
@@ -146,7 +139,7 @@ public class MainActivity extends AppCompatActivity {
             
             String m = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
             int sz = (int)(e - s + 1);
-            if (sz > 65536) sz = 65536;
+            if (sz > 262144) sz = 262144;
             
             byte[] b = new byte[sz];
             RandomAccessFile raf = new RandomAccessFile(vf, "r");
@@ -154,21 +147,12 @@ public class MainActivity extends AppCompatActivity {
             int t = raf.read(b);
             raf.close();
             
-            // Verifica se os dados NÃO são zeros
-            int nonZero = 0;
-            for (int j = 0; j < Math.min(t, 100); j++) if (b[j] != 0) nonZero++;
-            
-            if (t <= 0 || nonZero < 10) {
-                o.write("HTTP/1.1 503\r\nRetry-After: 2\r\n\r\n".getBytes()); o.flush(); c.close();
-                debug("   ↪ 503 - dados zeros ou insuficientes (nonZero=" + nonZero + ")");
-                return;
-            }
+            if (t <= 0) { o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
             
             String resp = "HTTP/1.1 206\r\nContent-Type: " + m + "\r\n" +
                 "Content-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\n" +
                 "Content-Length: " + t + "\r\nAccept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
             o.write(resp.getBytes()); o.write(b, 0, t); o.flush(); c.close();
-            debug("   ✅ 206 | " + t + " bytes | nonZero=" + nonZero);
             
         } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
     }
@@ -177,9 +161,42 @@ public class MainActivity extends AppCompatActivity {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
         
-        File torrentDir = new File(savePath);
-        if (torrentDir.exists()) for (File f : torrentDir.listFiles()) deleteRecursive(f);
+        // 🗑️ FORÇA BRUTA DE DELEÇÃO
+        debug("🗑️ Limpando pasta...");
+        File dir = new File(savePath);
+        
+        // Método 1: deleta recursivo
+        if (dir.exists()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    deleteRecursive(f);
+                }
+            }
+        }
+        
+        // Verifica se deletou
+        dir = new File(savePath);
+        File[] remaining = dir.exists() ? dir.listFiles() : null;
+        if (remaining != null && remaining.length > 0) {
+            debug("⚠️ Ainda restam " + remaining.length + " arquivos:");
+            for (File f : remaining) {
+                debug("   → " + f.getName() + " (" + (f.length()/1048576) + "MB)");
+                f.delete();
+            }
+        }
+        
+        // Recria pasta
         new File(savePath).mkdirs();
+        
+        // Verifica final
+        dir = new File(savePath);
+        remaining = dir.exists() ? dir.listFiles() : null;
+        if (remaining == null || remaining.length == 0) {
+            debug("✅ Pasta LIMPA! Iniciando download novo...");
+        } else {
+            debug("❌ NÃO FOI POSSÍVEL LIMPAR! " + remaining.length + " arquivos restantes");
+        }
         
         downloading = true;
         videoFile = null;
@@ -215,65 +232,67 @@ public class MainActivity extends AppCompatActivity {
                     torrentHandle = h.get(0);
                     debug("📊 " + torrentHandle.status().getNum_peers() + " peers");
                     
-                    // Prioridade EXTREMA: apenas 40 peças na região 210MB-220MB
                     int pieceLen = 262144;
-                    int startP = (int)(210L * 1048576 / pieceLen); // ~840
-                    int endP = startP + 40; // apenas 40 peças = ~10MB
+                    int startP = (int)(210L * 1048576 / pieceLen);
+                    int endP = startP + 40;
                     
-                    // ZERA prioridade de TUDO
-                    for (int j = 0; j < Math.min(endP + 100, 9999); j++) {
-                        try { 
-                            if (j >= startP && j <= endP) {
-                                torrentHandle.set_piece_deadline(j, 10); // URGENTE
-                            } else {
-                                torrentHandle.reset_piece_deadline(j); // SEM pressa
-                            }
-                        } catch (Exception ex) {}
+                    for (int j = startP; j <= Math.min(endP, 9999); j++) {
+                        try { torrentHandle.set_piece_deadline(j, 10); } catch (Exception ex) {}
                     }
-                    debug("🎯 Apenas peças " + startP + "-" + endP + " são urgentes");
+                    debug("🎯 Peças " + startP + "-" + endP + " priorizadas");
                 }
                 
-                // Monitora até ter 10MB na região 210MB
                 debug("🔍 Aguardando 10MB em 210MB...");
                 for (int i = 0; i < 300 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null) {
                         long flen = f.length();
                         
-                        // Verifica se tem dados em 210MB e NÃO tem no início (prova que priorização funciona)
-                        byte[] checkStart = new byte[1024];
-                        byte[] checkTarget = new byte[1024];
-                        try {
-                            RandomAccessFile raf = new RandomAccessFile(f, "r");
-                            if (flen > 100) { raf.seek(0); raf.read(checkStart); }
-                            if (flen > 215000000L) { raf.seek(215000000L); raf.read(checkTarget); }
-                            raf.close();
-                            
-                            int nzStart = 0, nzTarget = 0;
-                            for (byte b : checkStart) if (b != 0) nzStart++;
-                            for (byte b : checkTarget) if (b != 0) nzTarget++;
-                            
-                            debug("   [" + (i+1) + "s] " + (flen/1048576) + "MB | " +
-                                  "Início: " + nzStart + "/1024 | " +
-                                  "210MB: " + nzTarget + "/1024");
-                            
-                            if (nzTarget > 500) {
-                                videoFile = f;
-                                debug("✅ DADOS ENCONTRADOS em 210MB!");
-                                debug("   Início: " + (nzStart*100/1024) + "% reais");
-                                debug("   210MB: " + (nzTarget*100/1024) + "% reais");
-                                handler.post(() -> {
-                                    btnWatch.setText("🎬 TESTAR MIN 8");
-                                    btnWatch.setVisibility(View.VISIBLE);
-                                });
-                                break;
+                        if (flen > 215000000L) {
+                            byte[] check = new byte[1024];
+                            try {
+                                RandomAccessFile raf = new RandomAccessFile(f, "r");
+                                raf.seek(215000000L);
+                                raf.read(check);
+                                raf.close();
+                                
+                                int nz = 0;
+                                for (byte b : check) if (b != 0) nz++;
+                                
+                                debug("   [" + (i+1) + "s] " + (flen/1048576) + "MB | 210MB: " + nz + "/1024 bytes reais");
+                                
+                                if (nz > 500) {
+                                    videoFile = f;
+                                    debug("✅ DADOS REAIS ENCONTRADOS em 210MB!");
+                                    handler.post(() -> {
+                                        btnWatch.setText("🎬 TESTAR MIN 8");
+                                        btnWatch.setVisibility(View.VISIBLE);
+                                    });
+                                    break;
+                                }
+                            } catch (Exception e2) {}
+                        } else {
+                            if (i % 5 == 0) {
+                                debug("   [" + (i+1) + "s] " + (flen/1048576) + "MB (ainda não chegou em 215MB)");
                             }
-                        } catch (Exception e2) {}
+                        }
                     }
                     Thread.sleep(1000);
                 }
             } catch (Exception e2) { debug("❌ " + e2.getMessage()); }
         }).start();
+    }
+    
+    private boolean deleteRecursive(File f) {
+        if (f.isDirectory()) {
+            File[] children = f.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursive(child);
+                }
+            }
+        }
+        return f.delete();
     }
     
     private void watch() {
@@ -298,10 +317,6 @@ public class MainActivity extends AppCompatActivity {
             "  v.currentTime=480;v.play();" +
             "  document.title='▶️ Min 8'" +
             "});" +
-            "v.addEventListener('error',function(){document.title='❌ '+v.error.code});" +
-            "v.addEventListener('waiting',function(){document.title='⏳'});" +
-            "v.addEventListener('playing',function(){document.title='▶️'});" +
-            "v.addEventListener('seeked',function(){document.title='🎯 '+v.currentTime});" +
             "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
