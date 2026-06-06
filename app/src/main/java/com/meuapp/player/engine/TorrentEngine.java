@@ -39,7 +39,6 @@ public class TorrentEngine {
                 session = new SessionManager();
                 Thread.sleep(3000);
                 
-                // Não verifica swig(), apenas assume que funcionou
                 ready = true;
                 notifyReady();
                 notifyStatus("Motor P2P pronto!");
@@ -67,10 +66,10 @@ public class TorrentEngine {
                 params.setDownload_limit(0);
                 params.setUpload_limit(0);
                 
-                session.async_add_torrent(params);
+                session.swig().async_add_torrent(params);
                 Thread.sleep(5000);
                 
-                torrent_handle_vector handles = session.get_torrents();
+                torrent_handle_vector handles = session.swig().get_torrents();
                 
                 if (handles != null && handles.size() > 0) {
                     torrentHandle = handles.get(0);
@@ -140,8 +139,8 @@ public class TorrentEngine {
     
     public void stop() {
         downloading = false;
-        if (torrentHandle != null && session != null) {
-            try { session.remove_torrent(torrentHandle); } catch (Exception e) {}
+        if (torrentHandle != null && session != null && session.swig() != null) {
+            try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
         }
     }
     
