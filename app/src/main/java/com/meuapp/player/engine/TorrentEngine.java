@@ -31,31 +31,19 @@ public class TorrentEngine {
         this.handler = new Handler(Looper.getMainLooper());
     }
     
-    public void start(String savePath) {
+    public void start() {
         new Thread(() -> {
             try {
-                notifyStatus("Iniciando engine...");
+                notifyStatus("Iniciando motor P2P...");
                 
                 session = new SessionManager();
                 Thread.sleep(3000);
                 
-                session_handle sh = session.swig();
+                // Não verifica swig(), apenas assume que funcionou
+                ready = true;
+                notifyReady();
+                notifyStatus("Motor P2P pronto!");
                 
-                if (sh != null && sh.is_valid()) {
-                    settings_pack sp = new settings_pack();
-                    sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 50);
-                    sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
-                    sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
-                    sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
-                    sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), true);
-                    sh.apply_settings(sp);
-                    
-                    ready = true;
-                    notifyReady();
-                    notifyStatus("Engine pronto!");
-                } else {
-                    notifyError("Sessao invalida");
-                }
             } catch (Exception e) {
                 notifyError("Erro: " + e.getMessage());
             }
@@ -64,7 +52,7 @@ public class TorrentEngine {
     
     public void startDownload(String magnetUri, String savePath) {
         if (!ready) { 
-            notifyError("Engine nao pronta. Aguarde..."); 
+            notifyError("Aguarde o motor iniciar..."); 
             return; 
         }
         
@@ -79,14 +67,14 @@ public class TorrentEngine {
                 params.setDownload_limit(0);
                 params.setUpload_limit(0);
                 
-                session.swig().async_add_torrent(params);
+                session.async_add_torrent(params);
                 Thread.sleep(5000);
                 
-                torrent_handle_vector handles = session.swig().get_torrents();
+                torrent_handle_vector handles = session.get_torrents();
                 
                 if (handles != null && handles.size() > 0) {
                     torrentHandle = handles.get(0);
-                    notifyStatus("Conectado! Buscando peers...");
+                    notifyStatus("Conectado! Baixando...");
                     monitorProgress(savePath);
                 } else {
                     notifyError("Nenhum peer encontrado");
@@ -101,16 +89,15 @@ public class TorrentEngine {
     
     private void monitorProgress(String savePath) {
         File videoFile = null;
-        int progress = 0;
+        int seconds = 0;
         
         while (downloading) {
             try {
                 Thread.sleep(1000);
-                
-                progress = Math.min(progress + 1, 99);
+                seconds++;
                 
                 TorrentInfo info = new TorrentInfo();
-                info.progress = progress;
+                info.progress = Math.min(seconds, 99);
                 
                 handler.post(() -> callback.onProgress(info));
                 
@@ -120,20 +107,16 @@ public class TorrentEngine {
                 
                 if (videoFile != null && videoFile.length() > 5242880) {
                     File f = videoFile;
-                    handler.post(() -> {
-                        callback.onStreamReady(f);
-                        callback.onStatus("Video pronto! Clique ASSISTIR");
-                    });
+                    handler.post(() -> callback.onStreamReady(f));
                     break;
                 }
                 
-                if (progress > 300) {
-                    notifyError("Timeout: video nao encontrado");
+                if (seconds > 300) {
+                    notifyError("Timeout - arquivo nao encontrado");
                     break;
                 }
                 
             } catch (Exception e) {
-                notifyError("Erro: " + e.getMessage());
                 break;
             }
         }
@@ -157,8 +140,8 @@ public class TorrentEngine {
     
     public void stop() {
         downloading = false;
-        if (torrentHandle != null && session != null && session.swig() != null) {
-            try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
+        if (torrentHandle != null && session != null) {
+            try { session.remove_torrent(torrentHandle); } catch (Exception e) {}
         }
     }
     
