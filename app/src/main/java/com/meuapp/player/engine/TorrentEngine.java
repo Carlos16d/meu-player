@@ -12,7 +12,6 @@ import java.io.*;
 
 public class TorrentEngine {
     private SessionManager session;
-    private torrent_handle torrentHandle;
     private boolean ready = false;
     private boolean downloading = false;
     private Handler handler;
@@ -36,12 +35,19 @@ public class TorrentEngine {
             try {
                 notifyStatus("Iniciando motor P2P...");
                 
-                session = new SessionManager();
-                Thread.sleep(3000);
+                System.loadLibrary("torrent4j");
                 
-                ready = true;
-                notifyReady();
-                notifyStatus("Motor P2P pronto!");
+                session = new SessionManager();
+                
+                Thread.sleep(4000);
+                
+                if (session != null) {
+                    ready = true;
+                    notifyReady();
+                    notifyStatus("Motor P2P pronto!");
+                } else {
+                    notifyError("Falha ao criar sessao");
+                }
                 
             } catch (Exception e) {
                 notifyError("Erro: " + e.getMessage());
@@ -61,24 +67,12 @@ public class TorrentEngine {
             try {
                 notifyStatus("Conectando ao tracker...");
                 
-                add_torrent_params params = libtorrent.parse_magnet_uri(magnetUri, new error_code());
-                params.setSave_path(savePath);
-                params.setDownload_limit(0);
-                params.setUpload_limit(0);
+                session.download(magnetUri, savePath);
                 
-                session.swig().async_add_torrent(params);
-                Thread.sleep(5000);
+                notifyStatus("Download iniciado! Aguardando dados...");
                 
-                torrent_handle_vector handles = session.swig().get_torrents();
+                monitorProgress(savePath);
                 
-                if (handles != null && handles.size() > 0) {
-                    torrentHandle = handles.get(0);
-                    notifyStatus("Conectado! Baixando...");
-                    monitorProgress(savePath);
-                } else {
-                    notifyError("Nenhum peer encontrado");
-                    downloading = false;
-                }
             } catch (Exception e) {
                 notifyError("Erro: " + e.getMessage());
                 downloading = false;
@@ -139,8 +133,8 @@ public class TorrentEngine {
     
     public void stop() {
         downloading = false;
-        if (torrentHandle != null && session != null && session.swig() != null) {
-            try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
+        if (session != null) {
+            try { session.stop(); } catch (Exception e) {}
         }
     }
     
