@@ -1,6 +1,7 @@
 package com.meuapp.player.player;
 
 import android.net.Uri;
+import android.util.Log;
 import android.view.View;
 
 import com.google.android.exoplayer2.*;
@@ -11,9 +12,9 @@ import com.google.android.exoplayer2.upstream.*;
 import com.google.android.exoplayer2.util.*;
 
 public class ExoPlayerManager {
+    private static final String TAG = "ExoPlayer";
     private SimpleExoPlayer player;
     private PlayerView playerView;
-    private TrackSelector trackSelector;
     private PlayerListener playerListener;
     
     public interface PlayerListener {
@@ -26,16 +27,20 @@ public class ExoPlayerManager {
         this.playerView = view;
         this.player = p;
         
-        // Configura o player para mostrar controles de áudio/legendas
+        Log.d(TAG, "Inicializando ExoPlayer...");
+        
+        // Configura controles de áudio/legendas
         playerView.setPlayer(player);
         playerView.setUseController(true);
         playerView.setControllerShowTimeoutMs(5000);
         playerView.setKeepScreenOn(true);
-        
-        // Habilita seek em qualquer posição
         playerView.setControllerAutoShow(true);
         
+        // Mostra botões de áudio e legendas
+        playerView.setShowBuffering(PlayerView.SHOW_BUFFERING_WHEN_PLAYING);
+        
         setupPlayerListener();
+        Log.d(TAG, "ExoPlayer configurado");
     }
     
     private void setupPlayerListener() {
@@ -45,14 +50,33 @@ public class ExoPlayerManager {
                 int audioTracks = 0;
                 int subtitleTracks = 0;
                 
+                Log.d(TAG, "=== TRACKS DISPONÍVEIS ===");
+                Log.d(TAG, "Grupos: " + tracks.getGroups().size());
+                
                 for (Tracks.Group group : tracks.getGroups()) {
-                    if (group.getMediaTrackGroup().type == C.TRACK_TYPE_AUDIO) {
+                    int type = group.getMediaTrackGroup().type;
+                    String typeName = type == C.TRACK_TYPE_AUDIO ? "ÁUDIO" : 
+                                     type == C.TRACK_TYPE_TEXT ? "LEGENDA" : 
+                                     type == C.TRACK_TYPE_VIDEO ? "VÍDEO" : "OUTRO";
+                    
+                    Log.d(TAG, "Grupo " + typeName + ": " + group.length + " faixas");
+                    
+                    for (int i = 0; i < group.length; i++) {
+                        Format format = group.getTrackFormat(i);
+                        Log.d(TAG, "  Faixa " + i + ": " + format.language + 
+                              " - " + format.label + 
+                              " - " + format.sampleMimeType);
+                    }
+                    
+                    if (type == C.TRACK_TYPE_AUDIO) {
                         audioTracks += group.length;
                     }
-                    if (group.getMediaTrackGroup().type == C.TRACK_TYPE_TEXT) {
+                    if (type == C.TRACK_TYPE_TEXT) {
                         subtitleTracks += group.length;
                     }
                 }
+                
+                Log.d(TAG, "Total áudio: " + audioTracks + ", legendas: " + subtitleTracks);
                 
                 if (playerListener != null) {
                     playerListener.onTracksAvailable(audioTracks, subtitleTracks);
@@ -61,6 +85,16 @@ public class ExoPlayerManager {
             
             @Override
             public void onPlaybackStateChanged(int state) {
+                String stateName;
+                switch (state) {
+                    case Player.STATE_IDLE: stateName = "IDLE"; break;
+                    case Player.STATE_BUFFERING: stateName = "BUFFERING"; break;
+                    case Player.STATE_READY: stateName = "READY"; break;
+                    case Player.STATE_ENDED: stateName = "ENDED"; break;
+                    default: stateName = "UNKNOWN"; break;
+                }
+                Log.d(TAG, "Estado do player: " + stateName);
+                
                 if (playerListener != null) {
                     playerListener.onBuffering(state == Player.STATE_BUFFERING);
                 }
@@ -68,30 +102,31 @@ public class ExoPlayerManager {
             
             @Override
             public void onPlayerError(PlaybackException error) {
+                Log.e(TAG, "ERRO NO PLAYER: " + error.getMessage(), error);
                 if (playerListener != null) {
                     playerListener.onError(error.getMessage());
                 }
             }
             
             @Override
-            public void onPositionDiscontinuity(Player.PositionInfo oldPosition, 
-                                                 Player.PositionInfo newPosition, 
+            public void onPositionDiscontinuity(Player.PositionInfo oldPos, 
+                                                 Player.PositionInfo newPos, 
                                                  int reason) {
-                // Seek foi realizado - o player vai pedir os dados via HTTP Range
+                Log.d(TAG, "Seek: " + oldPos.positionMs + " -> " + newPos.positionMs + " (reason: " + reason + ")");
             }
         });
     }
     
     public void play(String url) {
+        Log.d(TAG, "Iniciando reprodução: " + url);
+        
         Uri videoUri = Uri.parse(url);
         
-        // Configura DataSource para suportar Range requests (essencial para seek)
         DataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(5000)
             .setReadTimeoutMs(15000)
             .setAllowCrossProtocolRedirects(true);
         
-        // Usa ProgressiveMediaSource que suporta seek em qualquer posição
         ProgressiveMediaSource.Factory mediaSourceFactory = 
             new ProgressiveMediaSource.Factory(dataSourceFactory);
         
@@ -104,9 +139,12 @@ public class ExoPlayerManager {
         player.setMediaSource(mediaSource);
         player.prepare();
         player.setPlayWhenReady(true);
+        
+        Log.d(TAG, "Reprodução iniciada");
     }
     
     public void stop() {
+        Log.d(TAG, "Parando player");
         if (player != null) {
             player.stop();
             player.clearMediaItems();
@@ -114,6 +152,7 @@ public class ExoPlayerManager {
     }
     
     public void release() {
+        Log.d(TAG, "Liberando player");
         if (player != null) {
             player.release();
             player = null;
@@ -124,6 +163,13 @@ public class ExoPlayerManager {
         this.playerListener = listener;
     }
     
-    public void show() { playerView.setVisibility(View.VISIBLE); }
-    public void hide() { playerView.setVisibility(View.GONE); }
+    public void show() { 
+        Log.d(TAG, "Mostrando player");
+        playerView.setVisibility(View.VISIBLE); 
+    }
+    
+    public void hide() { 
+        Log.d(TAG, "Escondendo player");
+        playerView.setVisibility(View.GONE); 
+    }
 }
