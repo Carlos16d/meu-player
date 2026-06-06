@@ -2,8 +2,6 @@ package com.meuapp.player.server;
 
 import android.util.Log;
 
-import com.meuapp.player.utils.LogUtils;
-
 import java.io.*;
 import java.net.*;
 
@@ -31,18 +29,18 @@ public class StreamServer {
             try {
                 serverSocket = new ServerSocket(PORT);
                 serverSocket.setReuseAddress(true);
-                LogUtils.d(TAG, "🔥 Servidor HTTP iniciado na porta " + PORT);
+                Log.d(TAG, "Servidor HTTP iniciado na porta " + PORT);
                 
                 while (running) {
                     try {
                         Socket client = serverSocket.accept();
                         new Thread(() -> httpHandler.handle(client)).start();
                     } catch (IOException e) {
-                        if (running) LogUtils.e(TAG, "Erro ao aceitar conexão", e);
+                        if (running) Log.e(TAG, "Erro ao aceitar conexão", e);
                     }
                 }
             } catch (IOException e) {
-                LogUtils.e(TAG, "Erro ao iniciar servidor", e);
+                Log.e(TAG, "Erro ao iniciar servidor", e);
             }
         }).start();
     }
@@ -52,6 +50,5 @@ public class StreamServer {
         try {
             if (serverSocket != null) serverSocket.close();
         } catch (IOException e) {}
-        LogUtils.d(TAG, "Servidor HTTP parado");
     }
 }
