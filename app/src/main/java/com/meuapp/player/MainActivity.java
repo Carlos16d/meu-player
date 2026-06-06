@@ -43,7 +43,6 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        // Solicita permissões
         requestPermissions();
         
         playerView = findViewById(R.id.player_view);
@@ -72,7 +71,7 @@ public class MainActivity extends AppCompatActivity {
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText("Baixando... " + info.progress + "%");
+                    progressText.setText(info.progress + "% | " + info.peers + " peers | " + (info.speed/1024) + " KB/s");
                 });
             }
             
@@ -84,7 +83,7 @@ public class MainActivity extends AppCompatActivity {
                     loadingOverlay.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
                     titleText.setText("Pronto para assistir!");
-                    setStatus("Video pronto!");
+                    setStatus("Video pronto! Clique ASSISTIR");
                 });
             }
             
@@ -111,24 +110,12 @@ public class MainActivity extends AppCompatActivity {
     
     private void requestPermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            String[] permissions = {
-                Manifest.permission.INTERNET,
-                Manifest.permission.ACCESS_NETWORK_STATE,
-                Manifest.permission.ACCESS_WIFI_STATE,
-                Manifest.permission.READ_EXTERNAL_STORAGE,
-                Manifest.permission.WRITE_EXTERNAL_STORAGE
-            };
-            
-            boolean allGranted = true;
-            for (String perm : permissions) {
-                if (ContextCompat.checkSelfPermission(this, perm) != PackageManager.PERMISSION_GRANTED) {
-                    allGranted = false;
+            String[] perms = {Manifest.permission.INTERNET, Manifest.permission.WRITE_EXTERNAL_STORAGE};
+            for (String p : perms) {
+                if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this, perms, 1);
                     break;
                 }
-            }
-            
-            if (!allGranted) {
-                ActivityCompat.requestPermissions(this, permissions, 1);
             }
         }
     }
