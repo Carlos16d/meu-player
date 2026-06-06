@@ -5,7 +5,6 @@ import android.os.Looper;
 import android.util.Log;
 
 import com.meuapp.player.model.TorrentInfo;
-import com.meuapp.player.utils.LogUtils;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
@@ -43,7 +42,7 @@ public class TorrentEngine {
         new Thread(() -> {
             try {
                 notifyStatus("Iniciando engine...");
-                LogUtils.d(TAG, "Criando sessão P2P");
+                Log.d(TAG, "Criando sessão P2P");
                 
                 session = new SessionManager();
                 Thread.sleep(2000);
@@ -56,7 +55,7 @@ public class TorrentEngine {
                     notifyError("Sessão P2P falhou");
                 }
             } catch (Exception e) {
-                LogUtils.e(TAG, "Erro engine", e);
+                Log.e(TAG, "Erro engine", e);
                 notifyError(e.getMessage());
             }
         }).start();
@@ -77,7 +76,13 @@ public class TorrentEngine {
                 if (source.startsWith("magnet:")) {
                     params = libtorrent.parse_magnet_uri(source, new error_code());
                 } else {
-                    params = add_torrent_params.create_from_file(source);
+                    // Lê arquivo .torrent
+                    File f = new File(source);
+                    byte[] data = new byte[(int)f.length()];
+                    new java.io.FileInputStream(f).read(data);
+                    byte_vector bv = new byte_vector();
+                    for (byte b : data) bv.add(b);
+                    params = libtorrent.parse_torrent_file(bv, new error_code());
                 }
                 
                 params.setSave_path(savePath);
@@ -98,7 +103,7 @@ public class TorrentEngine {
                     monitorProgress(savePath);
                 }
             } catch (Exception e) {
-                LogUtils.e(TAG, "Erro download", e);
+                Log.e(TAG, "Erro download", e);
                 notifyError(e.getMessage());
                 downloading = false;
             }
@@ -107,6 +112,7 @@ public class TorrentEngine {
     
     private void monitorProgress(String savePath) {
         File videoFile = null;
+        long lastDownloaded = 0;
         
         while (downloading) {
             try {
@@ -117,16 +123,17 @@ public class TorrentEngine {
                 torrent_status status = torrentHandle.status();
                 
                 TorrentInfo info = new TorrentInfo();
-                info.downloaded = status.get_total_download();
-                info.total = status.get_total_wanted();
-                info.speed = status.get_download_rate();
+                info.downloaded = status.get_total_done();
+                info.total = status.get_total_wanted_done();
+                info.speed = (int)(info.downloaded - lastDownloaded);
                 info.peers = status.get_num_peers();
                 info.seeds = status.get_num_seeds();
-                info.progress = info.total > 0 ? (int)(info.downloaded * 100 / info.total) : 0;
+                info.progress = (int)(status.get_progress() * 100);
+                lastDownloaded = info.downloaded;
                 
                 handler.post(() -> callback.onProgress(info));
                 
-                peersManager.update(status);
+                peersManager.update(info.peers, info.seeds);
                 
                 if (videoFile == null) {
                     videoFile = findVideoFile(new File(savePath));
@@ -138,7 +145,7 @@ public class TorrentEngine {
                 }
                 
             } catch (Exception e) {
-                LogUtils.e(TAG, "Erro monitor", e);
+                Log.e(TAG, "Erro monitor", e);
             }
         }
     }
