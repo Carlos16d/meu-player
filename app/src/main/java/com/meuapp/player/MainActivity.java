@@ -1,5 +1,6 @@
 package com.meuapp.player;
 
+import android.content.Intent; // ⭐ Faltou este import
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -10,8 +11,6 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -168,7 +167,6 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             
-            // Headers CORS
             String cors = "Access-Control-Allow-Origin: *\r\n";
             
             long start = 0, end = -1;
@@ -234,7 +232,6 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void openTorrentFile() {
-        // Abre seletor de arquivos .torrent
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
         intent.setType("*/*");
@@ -249,7 +246,6 @@ public class MainActivity extends AppCompatActivity {
         if (requestCode == 100 && resultCode == RESULT_OK && data != null) {
             Uri uri = data.getData();
             try {
-                // Copia o arquivo .torrent
                 InputStream is = getContentResolver().openInputStream(uri);
                 File torrentFile = new File(savePath, "temp.torrent");
                 FileOutputStream fos = new FileOutputStream(torrentFile);
@@ -275,7 +271,6 @@ public class MainActivity extends AppCompatActivity {
             return;
         }
         
-        // Limpa downloads anteriores
         File dir = new File(savePath);
         if (dir.exists()) {
             File[] files = dir.listFiles();
@@ -312,11 +307,18 @@ public class MainActivity extends AppCompatActivity {
                     p = libtorrent.parse_magnet_uri(source, new error_code());
                 } else {
                     // Carrega de arquivo .torrent
-                    byte[] torrentData = new byte[(int) new File(source).length()];
-                    new FileInputStream(source).read(torrentData);
+                    File torrentFile = new File(source);
+                    byte[] torrentData = new byte[(int) torrentFile.length()];
+                    FileInputStream fis = new FileInputStream(torrentFile);
+                    fis.read(torrentData);
+                    fis.close();
+                    
                     byte_vector bv = new byte_vector();
                     for (byte b : torrentData) bv.add(b);
-                    p = libtorrent.parse_torrent_buffer(bv, new error_code());
+                    
+                    // Usa add_torrent_params com buffer
+                    p = new add_torrent_params();
+                    p.set_ti(libtorrent.parse_torrent_file(bv, new error_code()));
                 }
                 
                 p.setSave_path(savePath);
@@ -335,11 +337,10 @@ public class MainActivity extends AppCompatActivity {
                     torrentHandle = h.get(0);
                     log("✅ Conectado! Baixando...");
                     
-                    // Monitora download
                     while (downloading) {
                         File f = findVideoFile(new File(savePath));
                         
-                        if (f != null && f.length() > 5242880) { // 5MB
+                        if (f != null && f.length() > 5242880) {
                             videoFile = f;
                             long mb = f.length() / 1048576;
                             
@@ -363,11 +364,11 @@ public class MainActivity extends AppCompatActivity {
                         // Atualiza progresso
                         if (torrentHandle != null && torrentHandle.is_valid()) {
                             torrent_status st = torrentHandle.status();
-                            long progress = st.get_progress();
-                            final int pct = (int)(progress * 100);
+                            final int pct = (int)(st.get_progress_ppm() / 10000);
                             handler.post(() -> {
                                 bufferBar.setProgress(pct);
-                                progressText.setText(pct + "% - " + (videoFile != null ? videoFile.length()/1048576 : 0) + " MB");
+                                String size = videoFile != null ? (videoFile.length()/1048576) + " MB" : "0 MB";
+                                progressText.setText(pct + "% - " + size);
                             });
                         }
                         
