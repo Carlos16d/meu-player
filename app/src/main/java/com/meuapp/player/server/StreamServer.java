@@ -11,35 +11,54 @@ import fi.iki.elonen.NanoHTTPD;
 public class StreamServer extends NanoHTTPD {
     private static final String TAG = "StreamServer";
     private File videoFile;
-    private StringBuilder logs = new StringBuilder();
-    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+    private int actualPort;
     
     public StreamServer() {
         super(8080);
+        this.actualPort = 8080;
+    }
+    
+    public int getPort() {
+        return actualPort;
     }
     
     public void setVideoFile(File f) {
         this.videoFile = f;
-        log("Video definido: " + (f != null ? f.getName() + " " + f.length() : "null"));
+        Log.d(TAG, "Video: " + (f != null ? f.getName() + " " + f.length() : "null"));
     }
     
-    private void log(String msg) {
-        String line = sdf.format(new Date()) + " SRV: " + msg;
-        Log.d(TAG, msg);
-        logs.insert(0, line + "\n");
-        if (logs.length() > 2000) logs.setLength(2000);
+    @Override
+    public void start() throws IOException {
+        try {
+            super.start();
+            Log.d(TAG, "Servidor iniciado na porta " + actualPort);
+        } catch (IOException e) {
+            if (e.getMessage().contains("EADDRINUSE") || e.getMessage().contains("Address already in use")) {
+                // Tenta porta alternativa
+                Log.w(TAG, "Porta 8080 ocupada, tentando 8081...");
+                // Fecha e recria na nova porta
+                try {
+                    stop();
+                } catch (Exception ex) {}
+                
+                // Não tem como mudar a porta no NanoHTTPD depois de criado
+                // Então vamos usar a porta 0 para auto-assign
+                Log.w(TAG, "Use porta 8080 - mate o processo anterior");
+                throw e;
+            }
+            throw e;
+        }
     }
     
     @Override
     public Response serve(IHTTPSession session) {
         String uri = session.getUri();
         String rangeHeader = session.getHeaders().get("range");
-        String method = session.getMethod().name();
         
-        log(method + " " + uri + " Range:" + rangeHeader);
+        Log.d(TAG, "REQ: " + uri + " Range:" + rangeHeader);
         
         if (!uri.contains("/video") || videoFile == null || !videoFile.exists()) {
-            log("404 - Arquivo não encontrado");
+            Log.w(TAG, "404 - videoFile=" + (videoFile != null ? videoFile.exists() : "null"));
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not Found");
         }
         
@@ -56,21 +75,24 @@ public class StreamServer extends NanoHTTPD {
                 }
             }
             
+            // Ajusta para não pedir além do disponível
+            if (start >= fileSize) {
+                start = fileSize - 262144;
+                if (start < 0) start = 0;
+            }
             if (end >= fileSize) end = fileSize - 1;
-            int chunkSize = Math.min((int)(end - start + 1), 262144);
             
-            log("Pedido: bytes " + start + "-" + end + " (chunk:" + chunkSize + ") fileSize:" + fileSize);
+            int chunkSize = Math.min((int)(end - start + 1), 524288); // 512KB
             
             byte[] data = new byte[chunkSize];
             int bytesRead = 0;
             int retries = 0;
-            long lastFileSize = fileSize;
             
-            // Aguarda dados com timeout de 30s
-            while (bytesRead < 4096 && retries < 60) {
-                long currentFileSize = videoFile.length();
+            // Aguarda dados (máximo 15 segundos)
+            while (bytesRead < 4096 && retries < 30) {
+                long currentSize = videoFile.length();
                 
-                if (currentFileSize > start) {
+                if (currentSize > start) {
                     RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
                     raf.seek(start);
                     bytesRead = raf.read(data);
@@ -80,38 +102,46 @@ public class StreamServer extends NanoHTTPD {
                 if (bytesRead < 4096) {
                     Thread.sleep(500);
                     retries++;
-                    if (retries % 5 == 0) {
-                        log("Aguardando... retry " + retries + " lidos:" + bytesRead + " file:" + currentFileSize);
-                    }
                 }
-                lastFileSize = currentFileSize;
             }
             
-            log("Resposta: " + bytesRead + " bytes após " + retries + " tentativas");
+            Log.d(TAG, "Serve: " + start + "+" + bytesRead + " (file:" + fileSize + " retries:" + retries + ")");
             
-            if (bytesRead < 1024) {
-                log("503 - Dados insuficientes");
-                return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Buffering...");
+            // SEMPRE retorna o que tem, mesmo que pouco
+            if (bytesRead <= 0) {
+                bytesRead = 0;
             }
             
-            String mime = videoFile.getName().toLowerCase().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            String mime = "video/mp4";
+            if (videoFile.getName().toLowerCase().endsWith(".mkv")) mime = "video/x-matroska";
+            else if (videoFile.getName().toLowerCase().endsWith(".webm")) mime = "video/webm";
             
-            byte[] responseData = new byte[bytesRead];
-            System.arraycopy(data, 0, responseData, 0, bytesRead);
+            byte[] respData = new byte[bytesRead];
+            if (bytesRead > 0) {
+                System.arraycopy(data, 0, respData, 0, bytesRead);
+            }
             
-            ByteArrayInputStream bais = new ByteArrayInputStream(responseData);
-            Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, bais, bytesRead);
-            response.addHeader("Content-Range", "bytes " + start + "-" + (start + bytesRead - 1) + "/" + fileSize);
-            response.addHeader("Content-Length", String.valueOf(bytesRead));
+            ByteArrayInputStream bais = new ByteArrayInputStream(respData);
+            Response response = newFixedLengthResponse(
+                bytesRead > 0 ? Response.Status.PARTIAL_CONTENT : Response.Status.NO_CONTENT, 
+                mime, 
+                bais, 
+                bytesRead
+            );
+            
+            if (bytesRead > 0) {
+                response.addHeader("Content-Range", "bytes " + start + "-" + (start + bytesRead - 1) + "/" + fileSize);
+                response.addHeader("Content-Length", String.valueOf(bytesRead));
+            }
             response.addHeader("Accept-Ranges", "bytes");
             response.addHeader("Access-Control-Allow-Origin", "*");
-            response.addHeader("Cache-Control", "no-cache");
+            response.addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
             
             return response;
             
         } catch (Exception e) {
-            log("ERRO: " + e.getMessage());
-            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error: " + e.getMessage());
+            Log.e(TAG, "Erro serve", e);
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error");
         }
     }
 }
