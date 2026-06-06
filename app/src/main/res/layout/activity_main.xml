@@ -35,7 +35,7 @@
             android:id="@+id/title_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/app_title"
+            android:text="🎬 Torrent Streaming"
             android:textColor="#fff"
             android:textSize="22sp"
             android:textStyle="bold"
@@ -45,7 +45,7 @@
             android:id="@+id/progress_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/ready"
+            android:text="Pronto para começar"
             android:textColor="#aabbcc"
             android:textSize="13sp"
             android:layout_marginBottom="16dp" />
@@ -55,7 +55,7 @@
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="3dp"
-            android:progressTint="@color/primary"
+            android:progressTint="#6c5ce7"
             android:progressBackgroundTint="#33ffffff"
             android:visibility="gone" />
         
@@ -65,7 +65,7 @@
             android:layout_height="48dp"
             android:layout_marginTop="16dp"
             android:background="@drawable/input_bg"
-            android:hint="@string/magnet_hint"
+            android:hint="Colar magnet link..."
             android:textColorHint="#667788"
             android:inputType="textMultiLine"
             android:padding="12dp"
@@ -84,22 +84,10 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:background="@drawable/btn_primary"
-                android:text="@string/btn_download"
+                android:text="▶️ STREAM"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp" />
-            
-            <Button
-                android:id="@+id/btn_torrent_file"
-                android:layout_width="0dp"
-                android:layout_height="44dp"
-                android:layout_weight="1"
-                android:layout_marginStart="8dp"
-                android:background="@drawable/btn_primary"
-                android:text="@string/btn_torrent"
-                android:textColor="#fff"
-                android:textStyle="bold"
-                android:textSize="11sp" />
             
             <Button
                 android:id="@+id/btn_watch"
@@ -108,7 +96,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/btn_success"
-                android:text="@string/btn_watch"
+                android:text="▶️ ASSISTIR"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp"
@@ -121,7 +109,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/btn_danger"
-                android:text="@string/btn_stop"
+                android:text="⏹️ PARAR"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp"
@@ -133,7 +121,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="@string/status_ready"
+            android:text="Pronto"
             android:textColor="#667788"
             android:textSize="11sp"
             android:fontFamily="monospace" />
@@ -150,7 +138,7 @@
             android:id="@+id/spinner_bar"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:indeterminateTint="@color/primary" />
+            android:indeterminateTint="#6c5ce7" />
     </FrameLayout>
     
 </FrameLayout>
