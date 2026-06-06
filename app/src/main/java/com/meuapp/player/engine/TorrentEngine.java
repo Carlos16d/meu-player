@@ -4,114 +4,88 @@ import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
 
+import com.meuapp.player.model.TorrentInfo;
+import com.meuapp.player.utils.LogUtils;
+
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
 
 import java.io.File;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 public class TorrentEngine {
     private static final String TAG = "TorrentEngine";
     
     private SessionManager session;
-    private torrent_handle currentTorrent;
-    private final AtomicBoolean ready = new AtomicBoolean(false);
-    private final AtomicBoolean downloading = new AtomicBoolean(false);
-    private final Handler mainHandler = new Handler(Looper.getMainLooper());
-    private EngineListener listener;
-    private String savePath;
+    private torrent_handle torrentHandle;
+    private boolean ready = false;
+    private boolean downloading = false;
+    private Handler handler;
+    private EngineCallback callback;
+    private PeersManager peersManager;
+    private TorrentSession torrentSession;
     
-    // Configurações Ace Stream
-    private static final int MAX_CONNECTIONS = 50;
-    private static final int CACHE_SIZE_MB = 1024; // 1GB
-    private static final int PRELOAD_PIECES = 50;
-    
-    public interface EngineListener {
-        void onEngineReady();
-        void onEngineError(String error);
-        void onMetadata(String name, long size);
-        void onProgress(long downloaded, long total, int speed, int peers);
+    public interface EngineCallback {
+        void onReady();
+        void onError(String error);
+        void onProgress(TorrentInfo info);
         void onStreamReady(File videoFile);
         void onStatus(String status);
     }
     
-    public TorrentEngine(EngineListener listener) {
-        this.listener = listener;
+    public TorrentEngine(EngineCallback callback) {
+        this.callback = callback;
+        this.handler = new Handler(Looper.getMainLooper());
+        this.peersManager = new PeersManager();
+        this.torrentSession = new TorrentSession();
     }
     
-    public void init(String savePath) {
-        this.savePath = savePath;
-        new File(savePath).mkdirs();
-        
+    public void start(String savePath) {
         new Thread(() -> {
             try {
-                notifyStatus("Iniciando motor P2P...");
+                notifyStatus("Iniciando engine...");
+                LogUtils.d(TAG, "Criando sessão P2P");
                 
                 session = new SessionManager();
                 Thread.sleep(2000);
                 
                 if (session != null && session.swig() != null) {
-                    applySettings();
-                    ready.set(true);
-                    mainHandler.post(() -> listener.onEngineReady());
-                    notifyStatus("Motor P2P pronto!");
+                    torrentSession.applySettings(session);
+                    ready = true;
+                    notifyReady();
                 } else {
-                    notifyError("Falha ao iniciar motor P2P");
+                    notifyError("Sessão P2P falhou");
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Erro init", e);
+                LogUtils.e(TAG, "Erro engine", e);
                 notifyError(e.getMessage());
             }
         }).start();
     }
     
-    private void applySettings() {
-        settings_pack sp = new settings_pack();
-        
-        sp.set_int(settings_pack.int_types.connections_limit.swigValue(), MAX_CONNECTIONS);
-        sp.set_int(settings_pack.int_types.cache_size.swigValue(), CACHE_SIZE_MB * 1024 * 1024);
-        sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
-        sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 5);
-        sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
-        sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 30);
-        sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 10000);
-        
-        sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
-        sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
-        sp.set_bool(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true);
-        sp.set_bool(settings_pack.bool_types.use_read_cache.swigValue(), true);
-        sp.set_bool(settings_pack.bool_types.use_write_cache.swigValue(), true);
-        
-        session.swig().apply_settings(sp);
-    }
-    
-    public void startDownload(String magnetOrFile) {
-        if (!ready.get()) {
-            notifyError("Motor não está pronto");
+    public void startDownload(String source, String savePath) {
+        if (!ready) {
+            notifyError("Engine não está pronta");
             return;
         }
         
-        downloading.set(true);
+        downloading = true;
         
         new Thread(() -> {
             try {
                 add_torrent_params params;
                 
-                if (magnetOrFile.startsWith("magnet:")) {
-                    params = libtorrent.parse_magnet_uri(magnetOrFile, new error_code());
+                if (source.startsWith("magnet:")) {
+                    params = libtorrent.parse_magnet_uri(source, new error_code());
                 } else {
-                    params = add_torrent_params.create_from_file(magnetOrFile);
+                    params = add_torrent_params.create_from_file(source);
                 }
                 
                 params.setSave_path(savePath);
                 params.setDownload_limit(0);
                 params.setUpload_limit(0);
                 
-                // Prioridade nas primeiras peças (streaming)
                 byte_vector priorities = new byte_vector();
-                for (int i = 0; i < PRELOAD_PIECES; i++) {
-                    priorities.add((byte)7);
-                }
+                for (int i = 0; i < 50; i++) priorities.add((byte)7);
                 params.set_file_priorities(priorities);
                 
                 session.swig().async_add_torrent(params);
@@ -119,51 +93,52 @@ public class TorrentEngine {
                 
                 torrent_handle_vector handles = session.swig().get_torrents();
                 if (handles.size() > 0) {
-                    currentTorrent = handles.get(0);
-                    notifyStatus("Conectado aos peers!");
-                    monitorProgress();
-                } else {
-                    notifyError("Não foi possível iniciar o torrent");
+                    torrentHandle = handles.get(0);
+                    notifyStatus("✅ Conectado!");
+                    monitorProgress(savePath);
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Erro download", e);
+                LogUtils.e(TAG, "Erro download", e);
                 notifyError(e.getMessage());
-                downloading.set(false);
+                downloading = false;
             }
         }).start();
     }
     
-    private void monitorProgress() {
+    private void monitorProgress(String savePath) {
         File videoFile = null;
         
-        while (downloading.get()) {
+        while (downloading) {
             try {
                 Thread.sleep(1000);
                 
-                if (currentTorrent == null || !currentTorrent.is_valid()) continue;
+                if (torrentHandle == null || !torrentHandle.is_valid()) continue;
                 
-                torrent_status status = currentTorrent.status();
+                torrent_status status = torrentHandle.status();
                 
-                long downloaded = status.get_total_download();
-                long total = status.get_total_wanted();
-                int speed = status.get_download_rate();
-                int peers = status.get_num_peers();
+                TorrentInfo info = new TorrentInfo();
+                info.downloaded = status.get_total_download();
+                info.total = status.get_total_wanted();
+                info.speed = status.get_download_rate();
+                info.peers = status.get_num_peers();
+                info.seeds = status.get_num_seeds();
+                info.progress = info.total > 0 ? (int)(info.downloaded * 100 / info.total) : 0;
                 
-                mainHandler.post(() -> listener.onProgress(downloaded, total, speed, peers));
+                handler.post(() -> callback.onProgress(info));
                 
-                // Procura arquivo de vídeo
+                peersManager.update(status);
+                
                 if (videoFile == null) {
                     videoFile = findVideoFile(new File(savePath));
                 }
                 
-                // Streaming pronto com 10MB
                 if (videoFile != null && videoFile.length() > 10485760) {
                     File f = videoFile;
-                    mainHandler.post(() -> listener.onStreamReady(f));
+                    handler.post(() -> callback.onStreamReady(f));
                 }
                 
             } catch (Exception e) {
-                Log.e(TAG, "Erro monitor", e);
+                LogUtils.e(TAG, "Erro monitor", e);
             }
         }
     }
@@ -185,9 +160,10 @@ public class TorrentEngine {
     }
     
     public void stop() {
-        downloading.set(false);
-        if (currentTorrent != null && session != null && session.swig() != null) {
-            try { session.swig().remove_torrent(currentTorrent); } catch (Exception e) {}
+        downloading = false;
+        if (torrentHandle != null && session != null && session.swig() != null) {
+            try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
+            torrentHandle = null;
         }
     }
     
@@ -195,13 +171,14 @@ public class TorrentEngine {
         stop();
         if (session != null) {
             try { session.stop(); } catch (Exception e) {}
+            session = null;
         }
-        ready.set(false);
+        ready = false;
     }
     
-    public boolean isReady() { return ready.get(); }
-    public boolean isDownloading() { return downloading.get(); }
+    public boolean isReady() { return ready; }
     
-    private void notifyStatus(String msg) { mainHandler.post(() -> listener.onStatus(msg)); }
-    private void notifyError(String msg) { mainHandler.post(() -> listener.onError(msg)); }
+    private void notifyReady() { handler.post(() -> callback.onReady()); }
+    private void notifyError(String msg) { handler.post(() -> callback.onError(msg)); }
+    private void notifyStatus(String msg) { handler.post(() -> callback.onStatus(msg)); }
 }
