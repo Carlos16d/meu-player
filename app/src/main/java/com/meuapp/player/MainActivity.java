@@ -64,7 +64,7 @@ public class MainActivity extends AppCompatActivity {
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "%");
+                    progressText.setText("Baixando... " + info.progress + "%");
                 });
             }
             
@@ -76,6 +76,7 @@ public class MainActivity extends AppCompatActivity {
                     loadingOverlay.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
                     titleText.setText("Pronto para assistir!");
+                    setStatus("Video pronto!");
                 });
             }
             
@@ -84,8 +85,12 @@ public class MainActivity extends AppCompatActivity {
         
         streamServer = new StreamServer();
         
-        torrentEngine.start(savePath);
-        streamServer.start();
+        try {
+            streamServer.start();
+            torrentEngine.start();
+        } catch (Exception e) {
+            setStatus("Erro: " + e.getMessage());
+        }
         
         btnPlay.setOnClickListener(v -> {
             String m = magnetInput.getText().toString().trim();
