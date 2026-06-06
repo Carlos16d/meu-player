@@ -64,6 +64,21 @@ public class MainActivity extends AppCompatActivity {
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerManager = new ExoPlayerManager(playerView, exoPlayer);
         
+        // Listener para tracks de áudio/legendas
+        playerManager.setPlayerListener(new ExoPlayerManager.PlayerListener() {
+            public void onTracksAvailable(int audio, int subs) {
+                String msg = "▶️ Reproduzindo";
+                if (audio > 1) msg += " | 🎵 " + audio + " áudios";
+                if (subs > 0) msg += " | 📝 " + subs + " legendas";
+                setStatus(msg);
+            }
+            public void onBuffering(boolean b) {
+                spinnerBar.setVisibility(b ? View.VISIBLE : View.GONE);
+                loadingOverlay.setVisibility(b ? View.VISIBLE : View.GONE);
+            }
+            public void onError(String e) { setStatus("Erro: " + e); }
+        });
+        
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
             public void onReady() { setStatus("Pronto!"); }
             public void onError(String e) { setStatus("Erro: " + e); }
@@ -71,7 +86,9 @@ public class MainActivity extends AppCompatActivity {
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% | " + info.peers + " peers | " + (info.speed/1024) + " KB/s");
+                    String s = info.progress + "% | " + info.peers + " peers";
+                    if (info.speed > 0) s += " | " + (info.speed/1024) + " KB/s";
+                    progressText.setText(s);
                 });
             }
             
@@ -82,8 +99,8 @@ public class MainActivity extends AppCompatActivity {
                     spinnerBar.setVisibility(View.GONE);
                     loadingOverlay.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
-                    titleText.setText("Pronto para assistir!");
-                    setStatus("Video pronto! Clique ASSISTIR");
+                    titleText.setText("🎬 Streaming pronto!");
+                    setStatus("Clique ASSISTIR para reproduzir");
                 });
             }
             
@@ -99,6 +116,7 @@ public class MainActivity extends AppCompatActivity {
             setStatus("Erro: " + e.getMessage());
         }
         
+        btnPlay.setText("▶️ STREAM");
         btnPlay.setOnClickListener(v -> {
             String m = magnetInput.getText().toString().trim();
             if (m.startsWith("magnet:")) startDownload(m);
@@ -128,6 +146,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
+        titleText.setText("⬇️ Preparando streaming...");
         torrentEngine.startDownload(magnet, savePath);
     }
     
@@ -135,6 +154,7 @@ public class MainActivity extends AppCompatActivity {
         glassPanel.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
+        titleText.setText("▶️ Reproduzindo");
         playerManager.play("http://127.0.0.1:8080/video");
     }
     
