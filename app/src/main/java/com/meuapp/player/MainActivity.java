@@ -1,7 +1,5 @@
 package com.meuapp.player;
 
-import android.content.Intent;
-import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.View;
@@ -30,7 +28,7 @@ public class MainActivity extends AppCompatActivity {
     private ProgressBar bufferBar, spinnerBar;
     private View loadingOverlay, glassPanel;
     private EditText magnetInput;
-    private Button btnPlay, btnStop, btnWatch, btnTorrentFile;
+    private Button btnPlay, btnStop, btnWatch;
     
     private File videoFile;
     private String savePath;
@@ -52,7 +50,6 @@ public class MainActivity extends AppCompatActivity {
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
-        btnTorrentFile = findViewById(R.id.btn_torrent_file);
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
@@ -67,7 +64,7 @@ public class MainActivity extends AppCompatActivity {
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% | " + info.peers + " peers");
+                    progressText.setText(info.progress + "%");
                 });
             }
             
@@ -95,18 +92,11 @@ public class MainActivity extends AppCompatActivity {
             if (m.startsWith("magnet:")) startDownload(m);
         });
         
-        btnTorrentFile.setOnClickListener(v -> {
-            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("*/*");
-            startActivityForResult(i, 100);
-        });
-        
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
     }
     
-    private void startDownload(String source) {
+    private void startDownload(String magnet) {
         glassPanel.setVisibility(View.VISIBLE);
         bufferBar.setVisibility(View.VISIBLE);
         spinnerBar.setVisibility(View.VISIBLE);
@@ -114,7 +104,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
-        torrentEngine.startDownload(source, savePath);
+        torrentEngine.startDownload(magnet, savePath);
     }
     
     private void watch() {
@@ -134,24 +124,6 @@ public class MainActivity extends AppCompatActivity {
         bufferBar.setVisibility(View.GONE);
         spinnerBar.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
-    }
-    
-    @Override
-    protected void onActivityResult(int req, int res, Intent data) {
-        super.onActivityResult(req, res, data);
-        if (req == 100 && res == RESULT_OK && data != null) {
-            try {
-                InputStream is = getContentResolver().openInputStream(data.getData());
-                File f = new File(savePath, "temp.torrent");
-                FileOutputStream fos = new FileOutputStream(f);
-                byte[] b = new byte[8192];
-                int l;
-                while ((l = is.read(b)) > 0) fos.write(b, 0, l);
-                fos.close();
-                is.close();
-                startDownload(f.getAbsolutePath());
-            } catch (Exception e) {}
-        }
     }
     
     private void setStatus(String s) {
