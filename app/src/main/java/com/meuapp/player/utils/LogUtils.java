@@ -1,0 +1,19 @@
+package com.meuapp.player.utils;
+
+import android.util.Log;
+
+public class LogUtils {
+    private static final String APP_TAG = "TorrentStream";
+    
+    public static void d(String tag, String msg) {
+        Log.d(APP_TAG, "[" + tag + "] " + msg);
+    }
+    
+    public static void e(String tag, String msg) {
+        Log.e(APP_TAG, "[" + tag + "] " + msg);
+    }
+    
+    public static void e(String tag, String msg, Throwable t) {
+        Log.e(APP_TAG, "[" + tag + "] " + msg, t);
+    }
+}
