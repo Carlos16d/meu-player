@@ -5,13 +5,11 @@
     android:layout_height="match_parent"
     android:background="#0a0a0f">
     
-    <!-- Fundo com gradiente -->
     <View
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:background="@drawable/bg_gradient" />
     
-    <!-- ExoPlayer View -->
     <com.google.android.exoplayer2.ui.PlayerView
         android:id="@+id/player_view"
         android:layout_width="match_parent"
@@ -22,7 +20,6 @@
         app:surface_type="texture_view"
         app:resize_mode="fit" />
     
-    <!-- Painel Glass -->
     <LinearLayout
         android:id="@+id/glass_panel"
         android:layout_width="match_parent"
@@ -38,18 +35,17 @@
             android:id="@+id/title_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🎬 Torrent Streaming"
+            android:text="@string/app_title"
             android:textColor="#fff"
             android:textSize="22sp"
             android:textStyle="bold"
-            android:letterSpacing="0.05"
             android:layout_marginBottom="16dp" />
         
         <TextView
             android:id="@+id/progress_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Pronto para começar"
+            android:text="@string/ready"
             android:textColor="#aabbcc"
             android:textSize="13sp"
             android:layout_marginBottom="16dp" />
@@ -59,7 +55,7 @@
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
             android:layout_height="3dp"
-            android:progressTint="#6c5ce7"
+            android:progressTint="@color/primary"
             android:progressBackgroundTint="#33ffffff"
             android:visibility="gone" />
         
@@ -69,14 +65,13 @@
             android:layout_height="48dp"
             android:layout_marginTop="16dp"
             android:background="@drawable/input_bg"
-            android:hint="Colar magnet link..."
+            android:hint="@string/magnet_hint"
             android:textColorHint="#667788"
             android:inputType="textMultiLine"
             android:padding="12dp"
             android:textColor="#fff"
             android:textSize="13sp" />
         
-        <!-- ⭐ AQUI ESTÃO OS BOTÕES - PRIMEIRA LINHA -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -89,7 +84,7 @@
                 android:layout_height="44dp"
                 android:layout_weight="1"
                 android:background="@drawable/btn_primary"
-                android:text="⬇️ BAIXAR"
+                android:text="@string/btn_download"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp" />
@@ -101,7 +96,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/btn_primary"
-                android:text="📁 .TORRENT"
+                android:text="@string/btn_torrent"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="11sp" />
@@ -113,7 +108,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/btn_success"
-                android:text="▶️ ASSISTIR"
+                android:text="@string/btn_watch"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp"
@@ -126,7 +121,7 @@
                 android:layout_weight="1"
                 android:layout_marginStart="8dp"
                 android:background="@drawable/btn_danger"
-                android:text="⏹️ PARAR"
+                android:text="@string/btn_stop"
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp"
@@ -138,13 +133,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
-            android:text="Pronto"
+            android:text="@string/status_ready"
             android:textColor="#667788"
             android:textSize="11sp"
             android:fontFamily="monospace" />
     </LinearLayout>
     
-    <!-- Loading overlay -->
     <FrameLayout
         android:id="@+id/loading_overlay"
         android:layout_width="wrap_content"
@@ -156,7 +150,7 @@
             android:id="@+id/spinner_bar"
             android:layout_width="32dp"
             android:layout_height="32dp"
-            android:indeterminateTint="#6c5ce7" />
+            android:indeterminateTint="@color/primary" />
     </FrameLayout>
     
 </FrameLayout>
