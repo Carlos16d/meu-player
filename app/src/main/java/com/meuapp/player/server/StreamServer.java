@@ -1,7 +1,6 @@
 package com.meuapp.player.server;
 
 import java.io.*;
-import java.util.Map;
 
 import fi.iki.elonen.NanoHTTPD;
 
@@ -55,7 +54,6 @@ public class StreamServer extends NanoHTTPD {
             
             String mime = videoFile.getName().toLowerCase().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
             
-            // NanoHTTPD: usa InputStream
             ByteArrayInputStream bais = new ByteArrayInputStream(data, 0, bytesRead);
             Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, bais, bytesRead);
             response.addHeader("Content-Range", "bytes " + start + "-" + (start + bytesRead - 1) + "/" + fileSize);
