@@ -35,10 +35,7 @@ public class TorrentEngine {
             try {
                 notifyStatus("Iniciando motor P2P...");
                 
-                System.loadLibrary("torrent4j");
-                
                 session = new SessionManager();
-                
                 Thread.sleep(4000);
                 
                 if (session != null) {
@@ -67,9 +64,22 @@ public class TorrentEngine {
             try {
                 notifyStatus("Conectando ao tracker...");
                 
-                session.download(magnetUri, savePath);
+                // Usa a API correta: add_torrent_params
+                add_torrent_params params = libtorrent.parse_magnet_uri(magnetUri, new error_code());
+                params.setSave_path(savePath);
+                params.setDownload_limit(0);
+                params.setUpload_limit(0);
                 
-                notifyStatus("Download iniciado! Aguardando dados...");
+                // Tenta acessar a sessão nativa
+                session_handle sh = session.swig();
+                if (sh != null) {
+                    sh.async_add_torrent(params);
+                    notifyStatus("Download iniciado! Aguardando dados...");
+                } else {
+                    // Fallback: tenta método alternativo
+                    session.start();
+                    notifyStatus("Sessao iniciada. Aguardando...");
+                }
                 
                 monitorProgress(savePath);
                 
