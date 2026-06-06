@@ -2,14 +2,11 @@ package com.meuapp.player.server;
 
 import android.util.Log;
 
-import com.meuapp.player.utils.LogUtils;
-
 import java.io.*;
 import java.net.Socket;
 
 public class HttpHandler {
     private static final String TAG = "HttpHandler";
-    
     private File videoFile;
     
     public void setVideoFile(File videoFile) {
@@ -23,26 +20,15 @@ public class HttpHandler {
             BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
             
             String requestLine = in.readLine();
-            if (requestLine == null) {
-                client.close();
-                return;
-            }
+            if (requestLine == null) { client.close(); return; }
             
-            LogUtils.d(TAG, "📡 " + requestLine);
-            
-            // CORS headers
-            String cors = "Access-Control-Allow-Origin: *\r\n" +
-                         "Access-Control-Allow-Methods: GET, OPTIONS\r\n" +
-                         "Access-Control-Allow-Headers: Range\r\n\r\n";
-            
-            // Verifica se é requisição de vídeo
             if (!requestLine.contains("/video") || videoFile == null || !videoFile.exists()) {
-                sendResponse(out, 404, "Not Found", "text/plain", "Not Found".getBytes());
+                out.write("HTTP/1.1 404\r\n\r\n".getBytes());
+                out.flush();
                 client.close();
                 return;
             }
             
-            // Parse Range header
             long start = 0;
             long end = videoFile.length() - 1;
             
@@ -52,18 +38,15 @@ public class HttpHandler {
                     String range = line.substring(6).trim().replace("bytes=", "");
                     String[] parts = range.split("-");
                     start = Long.parseLong(parts[0]);
-                    if (parts.length > 1 && !parts[1].isEmpty()) {
-                        end = Long.parseLong(parts[1]);
-                    }
+                    if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
                 }
             }
             
             long fileSize = videoFile.length();
             if (end >= fileSize) end = fileSize - 1;
             
-            int chunkSize = Math.min((int)(end - start + 1), 2097152); // 2MB
+            int chunkSize = Math.min((int)(end - start + 1), 2097152);
             
-            // Lê dados do arquivo
             byte[] data = new byte[chunkSize];
             RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
             raf.seek(start);
@@ -71,59 +54,31 @@ public class HttpHandler {
             raf.close();
             
             if (bytesRead < 4096) {
-                sendResponse(out, 503, "Service Unavailable", "text/plain", "Buffering...".getBytes());
+                out.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes());
+                out.flush();
                 client.close();
                 return;
             }
             
-            // Prepara resposta
-            byte[] responseData = new byte[bytesRead];
-            System.arraycopy(data, 0, responseData, 0, bytesRead);
+            String mime = "video/mp4";
+            String name = videoFile.getName().toLowerCase();
+            if (name.endsWith(".mkv")) mime = "video/x-matroska";
+            else if (name.endsWith(".webm")) mime = "video/webm";
             
-            String mimeType = getMimeType(videoFile.getName());
-            String contentRange = "bytes " + start + "-" + (start + bytesRead - 1) + "/" + fileSize;
+            String resp = "HTTP/1.1 206\r\n" +
+                "Content-Type: " + mime + "\r\n" +
+                "Content-Range: bytes " + start + "-" + (start + bytesRead - 1) + "/" + fileSize + "\r\n" +
+                "Content-Length: " + bytesRead + "\r\n" +
+                "Accept-Ranges: bytes\r\n" +
+                "Access-Control-Allow-Origin: *\r\n\r\n";
             
-            StringBuilder headers = new StringBuilder();
-            headers.append("HTTP/1.1 206 Partial Content\r\n");
-            headers.append("Content-Type: ").append(mimeType).append("\r\n");
-            headers.append("Content-Range: ").append(contentRange).append("\r\n");
-            headers.append("Content-Length: ").append(bytesRead).append("\r\n");
-            headers.append("Accept-Ranges: bytes\r\n");
-            headers.append("Cache-Control: no-cache\r\n");
-            headers.append(cors);
-            headers.append("\r\n");
-            
-            out.write(headers.toString().getBytes());
-            out.write(responseData);
+            out.write(resp.getBytes());
+            out.write(data, 0, bytesRead);
             out.flush();
             client.close();
             
-            LogUtils.d(TAG, "✅ Servido: " + bytesRead + " bytes");
-            
         } catch (Exception e) {
-            LogUtils.e(TAG, "Erro ao processar requisição", e);
             try { client.close(); } catch (IOException ex) {}
         }
-    }
-    
-    private void sendResponse(OutputStream out, int code, String status, String contentType, byte[] body) throws IOException {
-        String response = "HTTP/1.1 " + code + " " + status + "\r\n" +
-                         "Content-Type: " + contentType + "\r\n" +
-                         "Content-Length: " + (body != null ? body.length : 0) + "\r\n" +
-                         "Access-Control-Allow-Origin: *\r\n\r\n";
-        out.write(response.getBytes());
-        if (body != null) {
-            out.write(body);
-        }
-        out.flush();
-    }
-    
-    private String getMimeType(String fileName) {
-        String name = fileName.toLowerCase();
-        if (name.endsWith(".mkv")) return "video/x-matroska";
-        if (name.endsWith(".webm")) return "video/webm";
-        if (name.endsWith(".avi")) return "video/x-msvideo";
-        if (name.endsWith(".mov")) return "video/quicktime";
-        return "video/mp4";
     }
 }
