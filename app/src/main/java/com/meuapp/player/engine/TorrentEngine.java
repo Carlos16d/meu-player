@@ -25,9 +25,6 @@ public class TorrentEngine {
     private Handler handler;
     private EngineCallback callback;
     
-    private int pieceLength = 0;
-    private long fileSize = 0;
-    
     private static final long MIN_STREAMING_BYTES = 30 * 1024 * 1024;
     
     public interface EngineCallback {
@@ -50,16 +47,15 @@ public class TorrentEngine {
                 
                 session = new SessionManager();
                 
-                // Configura via SettingsPack
+                // Usa a API real do SettingsPack
                 SettingsPack sp = new SettingsPack();
-                sp.setConnectionsLimit(50);
-                sp.setActiveDownloads(3);
-                sp.setActiveSeeds(5);
-                sp.setDownloadRateLimit(0);
-                sp.setUploadRateLimit(0);
+                sp.connectionsLimit(50);
+                sp.activeDownloads(3);
+                sp.activeSeeds(5);
+                sp.downloadRateLimit(0);
+                sp.uploadRateLimit(0);
                 
-                SessionParams params = new SessionParams(sp);
-                session.start(params);
+                session.start(new SessionParams(sp));
                 
                 ready = true;
                 notifyReady();
@@ -103,21 +99,16 @@ public class TorrentEngine {
                         }
                         
                         if (torrentHandle.status().hasMetadata()) {
-                            fileSize = torrentHandle.status().total();
-                            int numPieces = torrentHandle.status().numPieces();
-                            pieceLength = (int)(fileSize / Math.max(numPieces, 1));
-                            
+                            long fileSize = torrentHandle.status().total();
                             notifyStatus("Metadados recebidos! " + (fileSize/1048576) + "MB");
                             
-                            // Prioridade nas primeiras peças (usa valores de byte)
+                            // Usa Priority real: TOP_PRIORITY e LOW
+                            int numPieces = torrentHandle.status().numPieces();
                             int priorityPieces = Math.min(300, numPieces);
+                            
                             Priority[] priorities = new Priority[numPieces];
                             for (int i = 0; i < numPieces; i++) {
-                                if (i < priorityPieces) {
-                                    priorities[i] = Priority.SEVEN; // Máxima prioridade
-                                } else {
-                                    priorities[i] = Priority.ONE; // Baixa prioridade
-                                }
+                                priorities[i] = (i < priorityPieces) ? Priority.TOP_PRIORITY : Priority.LOW;
                             }
                             torrentHandle.prioritizePieces(priorities);
                             
@@ -174,16 +165,6 @@ public class TorrentEngine {
                                 notifyStatus("Streaming liberado! " + mb + "MB iniciais");
                                 handler.post(() -> callback.onStreamReady(f));
                             }
-                        }
-                    }
-                    
-                    // Atualiza deadlines
-                    if (streamReady && pieceLength > 0) {
-                        long downloadedBytes = status.totalDone();
-                        int currentPiece = (int)(downloadedBytes / pieceLength);
-                        int totalPieces = status.numPieces();
-                        for (int i = currentPiece; i < Math.min(currentPiece + 50, totalPieces); i++) {
-                            torrentHandle.setPieceDeadline(i, 5000);
                         }
                     }
                 }
