@@ -9,6 +9,7 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
 import org.libtorrent4j.TorrentHandle;
 import org.libtorrent4j.TorrentStatus;
+import org.libtorrent4j.swig.torrent_flags_t;
 import org.libtorrent4j.swig.torrent_handle;
 import org.libtorrent4j.swig.torrent_handle_vector;
 
@@ -65,9 +66,10 @@ public class TorrentEngine {
                 notifyStatus("Conectando ao tracker...");
                 
                 File saveDir = new File(savePath);
+                torrent_flags_t flags = new torrent_flags_t();
                 
-                // Metodo correto: download(String, File)
-                session.download(magnetUri, saveDir);
+                // Metodo correto com 3 parametros
+                session.download(magnetUri, saveDir, flags);
                 
                 notifyStatus("Download iniciado! Aguardando dados...");
                 monitorProgress(savePath);
