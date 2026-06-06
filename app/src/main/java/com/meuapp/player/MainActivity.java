@@ -1,5 +1,6 @@
 package com.meuapp.player;
 
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -9,11 +10,16 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
 import android.view.animation.Animation;
-import android.webkit.WebChromeClient;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+
+import com.google.android.exoplayer2.*;
+import com.google.android.exoplayer2.source.*;
+import com.google.android.exoplayer2.source.hls.*;
+import com.google.android.exoplayer2.trackselection.*;
+import com.google.android.exoplayer2.ui.*;
+import com.google.android.exoplayer2.upstream.*;
+import com.google.android.exoplayer2.util.*;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.swig.*;
@@ -25,7 +31,8 @@ import java.util.*;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "TorrentStream";
     
-    private WebView webView;
+    private PlayerView playerView;
+    private SimpleExoPlayer player;
     private TextView statusText, progressText, titleText;
     private ProgressBar bufferBar, spinnerBar;
     private FrameLayout loadingOverlay;
@@ -41,14 +48,20 @@ public class MainActivity extends AppCompatActivity {
     private Handler handler;
     private Thread serverThread;
     private volatile boolean sessionReady = false;
+    
+    // Estatísticas
+    private long lastDownloaded = 0;
+    private long downloadSpeed = 0;
+    private long uploadSpeed = 0;
+    private int helpingPeers = 0;
+    private int totalPeers = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        Log.d(TAG, "🚀 onCreate iniciado");
         setContentView(R.layout.activity_main);
         
-        webView = findViewById(R.id.webview);
+        playerView = findViewById(R.id.player_view);
         statusText = findViewById(R.id.status_text);
         progressText = findViewById(R.id.progress_text);
         titleText = findViewById(R.id.title_text);
@@ -61,28 +74,11 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
-        Log.d(TAG, "✅ Views inicializadas");
-        
-        webView.post(() -> {
-            int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
-            int h = (int)(w * 9.0 / 16.0);
-            ViewGroup.LayoutParams p = webView.getLayoutParams();
-            p.width = w; p.height = h;
-            webView.setLayoutParams(p);
-        });
-        
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
-        Log.d(TAG, "📁 Save path: " + savePath);
-        
         handler = new Handler(Looper.getMainLooper());
         
-        webView.getSettings().setJavaScriptEnabled(true);
-        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-        webView.getSettings().setAllowFileAccess(true);
-        webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
-        webView.setVisibility(View.GONE);
+        initializePlayer();
         
         AlphaAnimation glow = new AlphaAnimation(0.6f, 1.0f);
         glow.setDuration(2000);
@@ -90,109 +86,169 @@ public class MainActivity extends AppCompatActivity {
         glow.setRepeatCount(Animation.INFINITE);
         titleText.startAnimation(glow);
         
-        Log.d(TAG, "🔄 Chamando initializeSession()");
         initializeSession();
-        
         startServer();
+        startStatsUpdater();
         
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         
         log("Pronto para streaming");
-        Log.d(TAG, "✅ onCreate finalizado");
+    }
+    
+    private void initializePlayer() {
+        player = new SimpleExoPlayer.Builder(this)
+            .setTrackSelector(new DefaultTrackSelector(this))
+            .build();
+        playerView.setPlayer(player);
+        playerView.setUseController(true);
+        playerView.setControllerShowTimeoutMs(3000);
+        playerView.setKeepScreenOn(true);
+        
+        // Listener para tracks
+        player.addListener(new Player.Listener() {
+            @Override
+            public void onTracksChanged(Tracks tracks) {
+                boolean hasAudioTracks = false;
+                boolean hasSubtitleTracks = false;
+                
+                for (Tracks.Group group : tracks.getGroups()) {
+                    if (group.getMediaTrackGroup().type == C.TRACK_TYPE_AUDIO) {
+                        hasAudioTracks = true;
+                    }
+                    if (group.getMediaTrackGroup().type == C.TRACK_TYPE_TEXT) {
+                        hasSubtitleTracks = true;
+                    }
+                }
+                
+                String msg = "▶️ Reproduzindo";
+                if (hasAudioTracks) msg += " [🎵 Multi-áudio]";
+                if (hasSubtitleTracks) msg += " [📝 Legendas]";
+                
+                final String finalMsg = msg;
+                handler.post(() -> log(finalMsg));
+            }
+            
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                switch (state) {
+                    case Player.STATE_BUFFERING:
+                        handler.post(() -> {
+                            spinnerBar.setVisibility(View.VISIBLE);
+                            loadingOverlay.setVisibility(View.VISIBLE);
+                        });
+                        break;
+                    case Player.STATE_READY:
+                        handler.post(() -> {
+                            spinnerBar.setVisibility(View.GONE);
+                            loadingOverlay.setVisibility(View.GONE);
+                        });
+                        break;
+                }
+            }
+        });
     }
     
     private void initializeSession() {
-        Log.d(TAG, "📡 initializeSession() iniciado");
-        
         new Thread(() -> {
             try {
-                log("🔄 Inicializando sessão P2P...");
-                Log.d(TAG, "📡 Thread de inicialização iniciada");
+                log("🔄 Inicializando rede P2P...");
                 
-                // Verifica se libtorrent está disponível
-                try {
-                    Log.d(TAG, "📡 Testando libtorrent...");
-                    String version = libtorrent.version();
-                    Log.d(TAG, "📡 libtorrent version: " + version);
-                } catch (Exception e) {
-                    Log.e(TAG, "❌ libtorrent não disponível", e);
-                    log("❌ Erro: libtorrent não disponível");
-                    return;
-                }
+                String version = libtorrent.version();
+                Log.d(TAG, "libtorrent version: " + version);
                 
-                // Tenta criar SessionManager
-                Log.d(TAG, "📡 Criando SessionManager...");
-                try {
-                    session = new SessionManager();
-                    Log.d(TAG, "📡 SessionManager criado: " + session);
-                } catch (Exception e) {
-                    Log.e(TAG, "❌ Erro ao criar SessionManager", e);
-                    log("❌ Erro ao criar sessão: " + e.getMessage());
-                    return;
-                }
-                
-                // Aguarda inicialização
-                Log.d(TAG, "📡 Aguardando 2 segundos...");
+                session = new SessionManager();
                 Thread.sleep(2000);
                 
-                // Verifica se session.swig() funciona
-                Log.d(TAG, "📡 Verificando session.swig()...");
+                session_handle swigSession = session.swig();
+                if (swigSession != null) {
+                    settings_pack sp = new settings_pack();
+                    
+                    // ===== CONFIGURAÇÕES DO ACE STREAM =====
+                    
+                    // Conexões (igual Ace Stream: 50)
+                    sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 50);
+                    sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 10);
+                    sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
+                    sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 5);
+                    sp.set_int(settings_pack.int_types.active_limit.swigValue(), 20);
+                    
+                    // Cache de 1GB (igual Ace Stream)
+                    sp.set_int(settings_pack.int_types.cache_size.swigValue(), 1048576000);
+                    sp.set_int(settings_pack.int_types.cache_expiry.swigValue(), 600);
+                    sp.set_bool(settings_pack.bool_types.use_read_cache.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.use_write_cache.swigValue(), true);
+                    
+                    // Desabilitado (igual Ace Stream: false)
+                    sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), false);  // DisableDHT: false
+                    sp.set_bool(settings_pack.bool_types.enable_lsd.swigValue(), false);  // DisablePEX: false
+                    sp.set_bool(settings_pack.bool_types.enable_upnp.swigValue(), false);  // DisableUPNP: false
+                    sp.set_bool(settings_pack.bool_types.enable_natpmp.swigValue(), false);
+                    
+                    // Upload ativo (DisableUpload: false)
+                    sp.set_bool(settings_pack.bool_types.rate_limit_utp.swigValue(), false);
+                    
+                    // Otimizações de streaming
+                    sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true);
+                    
+                    // Timeouts otimizados
+                    sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
+                    sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 30);  // TorrentDisconnectTimeout: 30
+                    sp.set_int(settings_pack.int_types.inactivity_timeout.swigValue(), 60);
+                    sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 5000);
+                    
+                    // Sem limites de velocidade
+                    sp.set_int(settings_pack.int_types.download_rate_limit.swigValue(), 0);
+                    sp.set_int(settings_pack.int_types.upload_rate_limit.swigValue(), 0);
+                    
+                    swigSession.apply_settings(sp);
+                    
+                    sessionReady = true;
+                    log("✅ Rede P2P pronta!");
+                }
+            } catch (Exception e) { 
+                Log.e(TAG, "Erro sessão", e);
+                log("❌ Erro: " + e.getMessage());
+            }
+        }).start();
+    }
+    
+    private void startStatsUpdater() {
+        new Thread(() -> {
+            while (!Thread.interrupted()) {
                 try {
-                    session_handle swigSession = session.swig();
-                    Log.d(TAG, "📡 session.swig() retornou: " + swigSession);
-                    
-                    if (swigSession == null) {
-                        Log.e(TAG, "❌ session.swig() retornou null");
-                        log("❌ Sessão nula - reiniciando...");
-                        // Tenta novamente
-                        Thread.sleep(1000);
-                        swigSession = session.swig();
-                        Log.d(TAG, "📡 Segunda tentativa: " + swigSession);
-                    }
-                    
-                    if (swigSession != null) {
-                        Log.d(TAG, "✅ Sessão SWIG válida, configurando...");
+                    Thread.sleep(1000);
+                    if (downloading && torrentHandle != null && torrentHandle.is_valid()) {
+                        torrent_status status = torrentHandle.status();
                         
-                        // Configurações otimizadas
-                        settings_pack sp = new settings_pack();
-                        sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
-                        sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20);
-                        sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
-                        sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 3);
-                        sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
-                        sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
-                        sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
+                        long totalDone = status.get_total_done();
+                        downloadSpeed = totalDone - lastDownloaded;
+                        lastDownloaded = totalDone;
+                        uploadSpeed = status.get_total_upload();
+                        helpingPeers = status.get_num_seeds();
+                        totalPeers = status.get_num_peers();
                         
-                        Log.d(TAG, "📡 Aplicando configurações...");
-                        swigSession.apply_settings(sp);
-                        Log.d(TAG, "📡 Iniciando sessão...");
-                        swigSession.start();
-                        
-                        sessionReady = true;
-                        Log.d(TAG, "✅ Sessão P2P pronta!");
-                        log("✅ Conectado à rede P2P");
-                    } else {
-                        Log.e(TAG, "❌ session.swig() continua null após tentativas");
-                        log("❌ Falha ao inicializar sessão P2P");
+                        handler.post(() -> {
+                            String stats = String.format("⚡ DL: %d KB/s | UL: %d KB/s | 👥 %d/%d peers",
+                                downloadSpeed / 1024,
+                                uploadSpeed / 1024,
+                                helpingPeers,
+                                totalPeers);
+                            progressText.setText(stats);
+                        });
                     }
                 } catch (Exception e) {
-                    Log.e(TAG, "❌ Erro ao configurar sessão", e);
-                    log("❌ Erro: " + e.getMessage());
-                    e.printStackTrace();
+                    // Ignora
                 }
-                
-            } catch (Exception e) { 
-                Log.e(TAG, "❌ Erro geral na inicialização", e);
-                log("❌ Erro: " + e.getMessage());
-                e.printStackTrace();
             }
         }).start();
     }
     
     private void log(String msg) {
-        Log.d(TAG, "📱 UI: " + msg);
         handler.post(() -> statusText.setText(msg));
     }
     
@@ -209,24 +265,22 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void startServer() {
-        Log.d(TAG, "🌐 Iniciando servidor HTTP...");
         serverThread = new Thread(() -> {
             try {
-                ServerSocket server = new ServerSocket(8080, 10);
+                ServerSocket server = new ServerSocket(8080, 50);
                 server.setReuseAddress(true);
-                Log.d(TAG, "🌐 Servidor HTTP rodando na porta 8080");
+                Log.d(TAG, "Servidor HTTP na porta 8080");
+                
                 while (!Thread.interrupted()) {
                     try { 
-                        Socket c = server.accept(); 
-                        Log.d(TAG, "🌐 Nova conexão: " + c.getInetAddress());
+                        Socket c = server.accept();
+                        c.setSoTimeout(5000);
                         new Thread(() -> handleHttp(c)).start(); 
-                    } catch (IOException e) {
-                        Log.d(TAG, "🌐 Servidor interrompido");
-                    }
+                    } catch (IOException e) {}
                 }
                 server.close();
             } catch (IOException e) {
-                Log.e(TAG, "❌ Erro no servidor HTTP", e);
+                Log.e(TAG, "Erro servidor", e);
             }
         });
         serverThread.setDaemon(true);
@@ -235,16 +289,28 @@ public class MainActivity extends AppCompatActivity {
     
     private void handleHttp(Socket c) {
         try {
+            c.setSoTimeout(3000);
             OutputStream o = c.getOutputStream();
             BufferedReader i = new BufferedReader(new InputStreamReader(c.getInputStream()));
             String r = i.readLine();
-            Log.d(TAG, "🌐 Request: " + r);
             
             if (r == null || !r.contains("/video")) { 
                 o.write("HTTP/1.1 404\r\n\r\n".getBytes()); 
                 o.flush(); 
                 c.close(); 
                 return; 
+            }
+            
+            String corsHeaders = "Access-Control-Allow-Origin: *\r\n" +
+                "Access-Control-Allow-Methods: GET, OPTIONS\r\n" +
+                "Access-Control-Allow-Headers: Range\r\n" +
+                "Access-Control-Max-Age: 3600\r\n";
+            
+            if (r.startsWith("OPTIONS")) {
+                o.write(("HTTP/1.1 200 OK\r\n" + corsHeaders + "\r\n").getBytes());
+                o.flush();
+                c.close();
+                return;
             }
             
             long s = 0, e = -1;
@@ -255,14 +321,13 @@ public class MainActivity extends AppCompatActivity {
                     String[] p = x.split("-");
                     s = Long.parseLong(p[0]);
                     if (p.length > 1 && !p[1].isEmpty()) e = Long.parseLong(p[1]);
-                    Log.d(TAG, "🌐 Range: " + s + "-" + e);
                 }
             }
             
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
-                Log.d(TAG, "🌐 Arquivo não disponível: " + (vf != null ? vf.length() : "null"));
-                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); 
+                o.write(("HTTP/1.1 503 Service Unavailable\r\n" + corsHeaders + 
+                    "Retry-After: 1\r\n\r\n").getBytes()); 
                 o.flush(); 
                 c.close(); 
                 return;
@@ -271,59 +336,66 @@ public class MainActivity extends AppCompatActivity {
             long len = vf.length();
             if (e == -1 || e >= len) e = len - 1;
             
-            String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-            int sz = Math.min((int)(e - s + 1), 1048576);
+            // Detecta MIME
+            String mime = "video/mp4";
+            String name = vf.getName().toLowerCase();
+            if (name.endsWith(".mkv")) mime = "video/x-matroska";
+            else if (name.endsWith(".webm")) mime = "video/webm";
+            else if (name.endsWith(".avi")) mime = "video/x-msvideo";
             
-            byte[] b = new byte[sz];
+            // Chunks de 2MB para streaming suave
+            int chunkSize = Math.min((int)(e - s + 1), 2097152);
+            
+            byte[] b = new byte[chunkSize];
             RandomAccessFile raf = new RandomAccessFile(vf, "r");
             raf.seek(s);
             int t = raf.read(b);
             raf.close();
             
-            Log.d(TAG, "🌐 Servindo " + t + " bytes de " + vf.getName());
+            // Espera dados (máximo 5 segundos)
+            int retries = 0;
+            while (t < 8192 && retries < 15 && downloading) {
+                Thread.sleep(300);
+                if (!vf.exists() || vf.length() <= s + t) continue;
+                raf = new RandomAccessFile(vf, "r");
+                raf.seek(s);
+                t = raf.read(b);
+                raf.close();
+                retries++;
+            }
             
-            String resp = "HTTP/1.1 206\r\nContent-Type: " + mime + "\r\n" +
+            if (t <= 1024) { 
+                o.write(("HTTP/1.1 503 Service Unavailable\r\n" + corsHeaders + 
+                    "Retry-After: 1\r\n\r\n").getBytes()); 
+                o.flush(); 
+                c.close(); 
+                return; 
+            }
+            
+            String resp = "HTTP/1.1 206 Partial Content\r\n" +
+                "Content-Type: " + mime + "\r\n" +
                 "Content-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\n" +
                 "Content-Length: " + t + "\r\n" +
                 "Accept-Ranges: bytes\r\n" +
-                "Access-Control-Allow-Origin: *\r\n\r\n";
+                "Cache-Control: no-cache\r\n" +
+                corsHeaders + "\r\n";
+            
             o.write(resp.getBytes()); 
             o.write(b, 0, t); 
             o.flush(); 
             c.close();
             
         } catch (Exception ex) { 
-            Log.e(TAG, "❌ Erro no handleHttp", ex);
             try { c.close(); } catch (IOException ex2) {}
         }
     }
     
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
-        Log.d(TAG, "▶️ Botão Play pressionado. Magnet: " + magnet.substring(0, Math.min(60, magnet.length())));
         
-        if (!magnet.startsWith("magnet:") || downloading) {
-            Log.d(TAG, "❌ Magnet inválido ou já baixando");
-            return;
-        }
-        
-        // Verifica se a sessão está pronta
-        Log.d(TAG, "📡 Verificando sessão - ready: " + sessionReady + ", session: " + session);
+        if (!magnet.startsWith("magnet:") || downloading) return;
         if (!sessionReady || session == null) {
-            Log.e(TAG, "❌ Sessão não está pronta!");
-            log("❌ Aguarde a inicialização da rede P2P...");
-            if (!sessionReady) {
-                Log.d(TAG, "🔄 Tentando reinicializar sessão...");
-                initializeSession();
-            }
-            return;
-        }
-        
-        try {
-            Log.d(TAG, "📡 Verificando session.swig(): " + session.swig());
-        } catch (Exception e) {
-            Log.e(TAG, "❌ session.swig() falhou", e);
-            log("❌ Erro na sessão P2P");
+            log("❌ Aguardando rede P2P...");
             return;
         }
         
@@ -331,9 +403,7 @@ public class MainActivity extends AppCompatActivity {
         if (dir.exists()) {
             File[] files = dir.listFiles();
             if (files != null) {
-                for (File f : files) {
-                    deleteRecursive(f);
-                }
+                for (File f : files) deleteRecursive(f);
             }
         }
         new File(savePath).mkdirs();
@@ -341,6 +411,7 @@ public class MainActivity extends AppCompatActivity {
         downloading = true;
         videoFile = null;
         torrentHandle = null;
+        lastDownloaded = 0;
         
         handler.post(() -> {
             glassPanel.setVisibility(View.VISIBLE);
@@ -349,13 +420,12 @@ public class MainActivity extends AppCompatActivity {
             loadingOverlay.setVisibility(View.VISIBLE);
             btnStop.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
-            titleText.setText("⬇️ Conectando...");
+            playerView.setVisibility(View.GONE);
+            titleText.setText("⬇️ Prebuffering...");
             bufferBar.setProgress(0);
-            progressText.setText("Preparando...");
         });
         
         log("🔍 Buscando peers...");
-        Log.d(TAG, "📡 Iniciando download do torrent");
         
         new Thread(() -> {
             try {
@@ -364,37 +434,40 @@ public class MainActivity extends AppCompatActivity {
                 p.setDownload_limit(0);
                 p.setUpload_limit(0);
                 
+                // PreloadCache: 50 peças (igual Ace Stream)
                 byte_vector pr = new byte_vector();
-                pr.add((byte)7);
+                for (int i = 0; i < 50; i++) {
+                    pr.add((byte)7);
+                }
                 p.set_file_priorities(pr);
                 
-                Log.d(TAG, "📡 Adicionando torrent...");
                 session.swig().async_add_torrent(p);
                 Thread.sleep(3000);
                 
-                Log.d(TAG, "📡 Obtendo handles...");
                 torrent_handle_vector h = session.swig().get_torrents();
-                Log.d(TAG, "📡 Torrents ativos: " + h.size());
-                
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
-                    log("✅ Torrent adicionado");
-                    Log.d(TAG, "📡 Torrent handle obtido: " + torrentHandle.is_valid());
                     
-                    while (downloading) {
-                        File f = findVideoFile(new File(savePath));
-                        Log.d(TAG, "📁 Procurando vídeo: " + (f != null ? f.getName() + " (" + f.length() + " bytes)" : "não encontrado"));
+                    // Aguarda metadados
+                    int waitCount = 0;
+                    while (!torrentHandle.status().has_metadata() && waitCount < 30 && downloading) {
+                        Thread.sleep(1000);
+                        waitCount++;
+                        final int count = waitCount;
+                        handler.post(() -> log("⏳ Obtendo metadados... " + count + "s"));
+                    }
+                    
+                    if (torrentHandle.status().has_metadata()) {
+                        log("✅ Torrent pronto!");
                         
-                        if (f != null && f.length() > 5242880) {
-                            Log.d(TAG, "📁 Arquivo grande encontrado: " + f.length() + " bytes");
-                            
-                            if (isValidVideoFile(f)) {
+                        // Aguarda prebuffer (10MB mínimo)
+                        while (downloading) {
+                            File f = findVideoFile(new File(savePath));
+                            if (f != null && f.length() > 10485760 && isValidVideoFile(f)) { // 10MB
                                 videoFile = f;
                                 long downloadedMB = f.length() / 1048576;
-                                Log.d(TAG, "✅ Vídeo válido: " + downloadedMB + "MB");
                                 
                                 handler.post(() -> {
-                                    progressText.setText(String.format("%d MB baixados", downloadedMB));
                                     bufferBar.setProgress(Math.min((int)((f.length() * 100) / 276134947L), 100));
                                     
                                     if (btnWatch.getVisibility() != View.VISIBLE) {
@@ -404,22 +477,18 @@ public class MainActivity extends AppCompatActivity {
                                         btnWatch.setAlpha(0f);
                                         btnWatch.animate().alpha(1f).setDuration(500);
                                         titleText.setText("🎬 Pronto para streaming!");
-                                        log("✅ " + downloadedMB + "MB - Streaming disponível!");
+                                        log("✅ " + downloadedMB + "MB - Áudio e legendas disponíveis!");
                                     }
                                 });
-                            } else {
-                                Log.d(TAG, "❌ Arquivo não é vídeo válido");
+                                break;
                             }
+                            Thread.sleep(1000);
                         }
-                        Thread.sleep(1000);
                     }
-                } else {
-                    Log.e(TAG, "❌ Nenhum torrent handle encontrado");
-                    log("❌ Erro: Torrent não iniciou");
                 }
             } catch (Exception e2) {
-                Log.e(TAG, "❌ Erro no download", e2);
-                log("❌ " + e2.getMessage()); 
+                Log.e(TAG, "Erro download", e2);
+                log("❌ " + e2.getMessage());
                 downloading = false;
             }
         }).start();
@@ -459,49 +528,58 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void watch() {
-        Log.d(TAG, "▶️ Assistir pressionado");
         if (videoFile == null || !videoFile.exists()) { 
             log("❌ Arquivo não encontrado"); 
             return; 
         }
         
         handler.post(() -> { 
-            webView.setVisibility(View.VISIBLE);
-            webView.setAlpha(0f);
-            webView.animate().alpha(1f).setDuration(600);
             glassPanel.setVisibility(View.GONE);
             btnWatch.setVisibility(View.GONE);
-            titleText.setText("▶️ Reproduzindo");
+            playerView.setVisibility(View.VISIBLE);
+            titleText.setText("▶️ Reproduzindo...");
         });
         
-        String html = "<!DOCTYPE html><html><head>" +
-            "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1'>" +
-            "<style>" +
-            "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden;}" +
-            "video{width:100%;max-height:100vh;outline:none;border-radius:8px;}" +
-            "</style></head><body>" +
-            "<video controls autoplay playsinline style='width:100%' preload='auto'>" +
-            "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
-            "</video></body></html>";
+        Uri videoUri = Uri.parse("http://127.0.0.1:8080/video");
         
-        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        DataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(5000)
+            .setReadTimeoutMs(10000);
+        
+        ProgressiveMediaSource.Factory mediaSourceFactory = 
+            new ProgressiveMediaSource.Factory(dataSourceFactory);
+        
+        MediaSource mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(videoUri));
+        
+        player.setMediaSource(mediaSource);
+        player.prepare();
+        player.setPlayWhenReady(true);
+        
+        log("🎬 Reproduzindo com suporte a múltiplas faixas");
     }
     
     private void stop() {
-        Log.d(TAG, "⏹️ Parando...");
         downloading = false;
         handler.removeCallbacksAndMessages(null);
-        webView.loadUrl("about:blank");
-        webView.setVisibility(View.GONE); 
+        
+        if (player != null) {
+            player.stop();
+            player.clearMediaItems();
+        }
+        
+        playerView.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE); 
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); 
         spinnerBar.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
         glassPanel.setVisibility(View.GONE);
+        
         titleText.setText("🎬 Torrent Streaming");
         progressText.setText("Pronto para começar");
         log("⏹️ Parado");
+        
         if (torrentHandle != null && session != null && session.swig() != null) {
             try { 
                 session.swig().remove_torrent(torrentHandle); 
@@ -512,13 +590,14 @@ public class MainActivity extends AppCompatActivity {
     
     @Override 
     protected void onDestroy() {
-        Log.d(TAG, "💀 onDestroy");
         stop();
+        if (player != null) {
+            player.release();
+            player = null;
+        }
         if (serverThread != null) serverThread.interrupt();
         if (session != null) {
-            try {
-                session.stop();
-            } catch (Exception e) {}
+            try { session.stop(); } catch (Exception e) {}
         }
         super.onDestroy();
     }
