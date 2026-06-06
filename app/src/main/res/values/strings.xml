@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Torrent Stream</string>
+    <string name="app_title">🎬 Torrent Streaming</string>
+    <string name="ready">Pronto para começar</string>
+    <string name="magnet_hint">Colar magnet link...</string>
+    <string name="btn_download">⬇️ BAIXAR</string>
+    <string name="btn_torrent">📁 .TORRENT</string>
+    <string name="btn_watch">▶️ ASSISTIR</string>
+    <string name="btn_stop">⏹️ PARAR</string>
+    <string name="status_ready">Pronto</string>
+</resources>
