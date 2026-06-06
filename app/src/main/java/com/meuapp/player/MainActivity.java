@@ -5,6 +5,7 @@ import android.content.pm.PackageManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
 import android.view.View;
 import android.widget.*;
@@ -21,6 +22,8 @@ import com.meuapp.player.player.ExoPlayerManager;
 import com.meuapp.player.model.TorrentInfo;
 
 import java.io.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
@@ -39,6 +42,8 @@ public class MainActivity extends AppCompatActivity {
     
     private File videoFile;
     private String savePath;
+    private StringBuilder logBuilder = new StringBuilder();
+    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -60,47 +65,59 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
+        // Configura Scroll nos logs
+        statusText.setMovementMethod(new ScrollingMovementMethod());
+        
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
+        
+        addLog("App iniciado");
+        addLog("Save path: " + savePath);
         
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerManager = new ExoPlayerManager(playerView, exoPlayer);
         
         playerManager.setPlayerListener(new ExoPlayerManager.PlayerListener() {
             public void onTracksAvailable(int audio, int subs) {
+                addLog("TRACKS: " + audio + " áudios, " + subs + " legendas");
                 String msg = "▶️ Reproduzindo";
                 if (audio > 1) msg += " | 🎵 " + audio + " áudios";
                 if (subs > 0) msg += " | 📝 " + subs + " legendas";
-                setStatus(msg);
+                titleText.setText(msg);
             }
             public void onBuffering(boolean b) {
+                addLog("Player buffering: " + b);
                 spinnerBar.setVisibility(b ? View.VISIBLE : View.GONE);
                 loadingOverlay.setVisibility(b ? View.VISIBLE : View.GONE);
             }
-            public void onError(String e) { setStatus("Erro: " + e); }
+            public void onError(String e) {
+                addLog("ERRO PLAYER: " + e);
+            }
         });
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { setStatus("Pronto!"); }
-            public void onError(String e) { setStatus("Erro: " + e); }
+            public void onReady() { addLog("Engine pronto"); }
+            public void onError(String e) { addLog("ERRO Engine: " + e); }
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% | " + info.peers + " peers | " + (info.speed/1024) + "KB/s");
+                    progressText.setText(info.progress + "% | " + info.peers + " peers | " + (info.speed/1024) + "KB/s | " + (info.downloaded/1048576) + "MB");
                 });
             }
             public void onStreamReady(File f) {
                 videoFile = f;
                 streamServer.setVideoFile(f);
+                addLog("STREAM READY: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
                 runOnUiThread(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     loadingOverlay.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
                     titleText.setText("🎬 Clique ASSISTIR");
-                    setStatus("Streaming pronto!");
                 });
             }
-            public void onStatus(String s) { setStatus(s); }
+            public void onStatus(String s) { 
+                addLog("Status: " + s);
+            }
         });
         
         streamServer = new StreamServer();
@@ -108,16 +125,37 @@ public class MainActivity extends AppCompatActivity {
         try {
             streamServer.start();
             torrentEngine.start();
+            addLog("Servidor e engine iniciados");
         } catch (Exception e) {
-            setStatus("Erro: " + e.getMessage());
+            addLog("ERRO ao iniciar: " + e.getMessage());
         }
         
         btnStream.setOnClickListener(v -> {
             String m = magnetInput.getText().toString().trim();
-            if (m.startsWith("magnet:")) startStream(m);
+            if (m.startsWith("magnet:")) {
+                addLog("Iniciando stream: " + m.substring(0, Math.min(50, m.length())));
+                startStream(m);
+            }
         });
-        btnStop.setOnClickListener(v -> stop());
-        btnWatch.setOnClickListener(v -> watch());
+        btnStop.setOnClickListener(v -> {
+            addLog("Parando...");
+            stop();
+        });
+        btnWatch.setOnClickListener(v -> {
+            addLog("Assistindo: " + (videoFile != null ? videoFile.getName() : "null"));
+            watch();
+        });
+    }
+    
+    private void addLog(String msg) {
+        String time = sdf.format(new Date());
+        String line = time + " " + msg + "\n";
+        Log.d(TAG, msg);
+        logBuilder.insert(0, line);
+        if (logBuilder.length() > 5000) {
+            logBuilder.setLength(5000);
+        }
+        runOnUiThread(() -> statusText.setText(logBuilder.toString()));
     }
     
     private void requestPermissions() {
@@ -145,6 +183,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void watch() {
+        addLog("Iniciando player...");
         glassPanel.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
@@ -156,7 +195,7 @@ public class MainActivity extends AppCompatActivity {
         torrentEngine.stop();
         playerManager.stop();
         playerView.setVisibility(View.GONE);
-        glassPanel.setVisibility(View.GONE);
+        glassPanel.setVisibility(View.VISIBLE);
         btnStop.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
@@ -164,10 +203,6 @@ public class MainActivity extends AppCompatActivity {
         loadingOverlay.setVisibility(View.GONE);
         titleText.setText("🎬 Torrent Stream");
         progressText.setText("Pronto");
-    }
-    
-    private void setStatus(String s) {
-        runOnUiThread(() -> statusText.setText(s));
     }
     
     @Override
