@@ -2,7 +2,6 @@ package com.meuapp.player.engine;
 
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import com.meuapp.player.model.TorrentInfo;
 
@@ -12,8 +11,6 @@ import org.libtorrent4j.swig.*;
 import java.io.*;
 
 public class TorrentEngine {
-    private static final String TAG = "TorrentEngine";
-    
     private SessionManager session;
     private torrent_handle torrentHandle;
     private boolean ready = false;
@@ -55,7 +52,6 @@ public class TorrentEngine {
                     notifyError("Sessao P2P falhou");
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Erro", e);
                 notifyError(e.getMessage());
             }
         }).start();
@@ -72,7 +68,6 @@ public class TorrentEngine {
                 if (source.startsWith("magnet:")) {
                     params = libtorrent.parse_magnet_uri(source, new error_code());
                 } else {
-                    // Le arquivo .torrent como bytes
                     File torrentFile = new File(source);
                     byte[] fileData = new byte[(int) torrentFile.length()];
                     FileInputStream fis = new FileInputStream(torrentFile);
@@ -100,7 +95,6 @@ public class TorrentEngine {
                     monitorProgress(savePath);
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Erro download", e);
                 notifyError(e.getMessage());
             }
         }).start();
@@ -117,7 +111,6 @@ public class TorrentEngine {
                 torrent_status st = torrentHandle.status();
                 
                 TorrentInfo info = new TorrentInfo();
-                // Usa metodos que existem
                 info.downloaded = st.total_done();
                 info.total = st.total_wanted();
                 info.progress = (int)(st.progress() * 100);
@@ -135,9 +128,7 @@ public class TorrentEngine {
                     handler.post(() -> callback.onStreamReady(f));
                 }
                 
-            } catch (Exception e) {
-                Log.e(TAG, "Erro monitor", e);
-            }
+            } catch (Exception e) {}
         }
     }
     
