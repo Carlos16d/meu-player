@@ -35,47 +35,66 @@ public class TorrentEngine {
         new Thread(() -> {
             try {
                 notifyStatus("Iniciando engine...");
-                session = new SessionManager();
-                Thread.sleep(2000);
                 
-                if (session != null && session.swig() != null) {
+                session = new SessionManager();
+                Thread.sleep(3000);
+                
+                session_handle sh = session.swig();
+                
+                if (sh != null && sh.is_valid()) {
+                    settings_pack sp = new settings_pack();
+                    sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 50);
+                    sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
+                    sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), true);
+                    sh.apply_settings(sp);
+                    
                     ready = true;
                     notifyReady();
+                    notifyStatus("Engine pronto!");
                 } else {
-                    notifyError("Sessao P2P falhou");
+                    notifyError("Sessao invalida");
                 }
             } catch (Exception e) {
-                notifyError(e.getMessage());
+                notifyError("Erro: " + e.getMessage());
             }
         }).start();
     }
     
     public void startDownload(String magnetUri, String savePath) {
-        if (!ready) { notifyError("Engine nao pronta"); return; }
+        if (!ready) { 
+            notifyError("Engine nao pronta. Aguarde..."); 
+            return; 
+        }
         
         downloading = true;
         
         new Thread(() -> {
             try {
-                add_torrent_params params = libtorrent.parse_magnet_uri(magnetUri, new error_code());
+                notifyStatus("Conectando ao tracker...");
                 
+                add_torrent_params params = libtorrent.parse_magnet_uri(magnetUri, new error_code());
                 params.setSave_path(savePath);
                 params.setDownload_limit(0);
                 params.setUpload_limit(0);
                 
                 session.swig().async_add_torrent(params);
-                Thread.sleep(3000);
+                Thread.sleep(5000);
                 
                 torrent_handle_vector handles = session.swig().get_torrents();
-                if (handles.size() > 0) {
+                
+                if (handles != null && handles.size() > 0) {
                     torrentHandle = handles.get(0);
-                    notifyStatus("Conectado!");
+                    notifyStatus("Conectado! Buscando peers...");
                     monitorProgress(savePath);
                 } else {
                     notifyError("Nenhum peer encontrado");
+                    downloading = false;
                 }
             } catch (Exception e) {
-                notifyError(e.getMessage());
+                notifyError("Erro: " + e.getMessage());
+                downloading = false;
             }
         }).start();
     }
@@ -92,7 +111,6 @@ public class TorrentEngine {
                 
                 TorrentInfo info = new TorrentInfo();
                 info.progress = progress;
-                info.peers = 0;
                 
                 handler.post(() -> callback.onProgress(info));
                 
@@ -102,10 +120,22 @@ public class TorrentEngine {
                 
                 if (videoFile != null && videoFile.length() > 5242880) {
                     File f = videoFile;
-                    handler.post(() -> callback.onStreamReady(f));
+                    handler.post(() -> {
+                        callback.onStreamReady(f);
+                        callback.onStatus("Video pronto! Clique ASSISTIR");
+                    });
+                    break;
                 }
                 
-            } catch (Exception e) {}
+                if (progress > 300) {
+                    notifyError("Timeout: video nao encontrado");
+                    break;
+                }
+                
+            } catch (Exception e) {
+                notifyError("Erro: " + e.getMessage());
+                break;
+            }
         }
     }
     
@@ -117,7 +147,7 @@ public class TorrentEngine {
                 if (f.isDirectory()) {
                     File found = findVideoFile(f);
                     if (found != null) return found;
-                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$")) {
+                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
                     return f;
                 }
             }
