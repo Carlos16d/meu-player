@@ -36,16 +36,10 @@ android {
 dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'com.google.android.material:material:1.11.0'
-    
-    // libtorrent4j
     implementation 'org.libtorrent4j:libtorrent4j:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm64:2.1.0-38'
     implementation 'org.libtorrent4j:libtorrent4j-android-arm:2.1.0-38'
-    
-    // NanoHTTPD (igual Ace Stream)
     implementation 'org.nanohttpd:nanohttpd:2.3.1'
-    
-    // ExoPlayer
     implementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
     implementation 'com.google.android.exoplayer:exoplayer-ui:2.19.1'
 }
