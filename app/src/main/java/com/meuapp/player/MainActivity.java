@@ -37,6 +37,7 @@ public class MainActivity extends AppCompatActivity {
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
+    private volatile boolean sessionReady = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -81,17 +82,33 @@ public class MainActivity extends AppCompatActivity {
         glow.setRepeatCount(Animation.INFINITE);
         titleText.startAnimation(glow);
         
-        // Inicializa a sessão corretamente
+        // Inicializa a sessão na thread principal primeiro
+        initializeSession();
+        
+        startServer();
+        
+        btnPlay.setOnClickListener(v -> start());
+        btnStop.setOnClickListener(v -> stop());
+        btnWatch.setOnClickListener(v -> watch());
+        
+        log("Pronto para streaming");
+    }
+    
+    private void initializeSession() {
         new Thread(() -> {
             try {
-                // Cria a sessão primeiro
+                log("🔄 Inicializando sessão P2P...");
+                
+                // Cria a sessão com o caminho correto
+                File sessionDir = new File(getExternalFilesDir(null), "session");
+                sessionDir.mkdirs();
+                
                 session = new SessionManager();
                 
-                // Aguarda a sessão ser inicializada
-                Thread.sleep(1000);
+                // Aguarda a inicialização
+                Thread.sleep(2000);
                 
-                // Verifica se a sessão foi criada
-                if (session.swig() != null) {
+                if (session != null && session.swig() != null) {
                     // Configurações otimizadas
                     settings_pack sp = new settings_pack();
                     sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
@@ -107,22 +124,16 @@ public class MainActivity extends AppCompatActivity {
                     
                     session.swig().apply_settings(sp);
                     session.start();
+                    sessionReady = true;
                     log("✅ Conectado à rede P2P");
                 } else {
-                    log("❌ Erro: Sessão não inicializada");
+                    log("❌ Falha ao inicializar sessão");
                 }
             } catch (Exception e) { 
-                log("❌ Erro: " + e.getMessage()); 
+                log("❌ Erro: " + e.getMessage());
+                e.printStackTrace();
             }
         }).start();
-        
-        startServer();
-        
-        btnPlay.setOnClickListener(v -> start());
-        btnStop.setOnClickListener(v -> stop());
-        btnWatch.setOnClickListener(v -> watch());
-        
-        log("Pronto para streaming");
     }
     
     private void log(String msg) {
@@ -240,8 +251,12 @@ public class MainActivity extends AppCompatActivity {
         if (!magnet.startsWith("magnet:") || downloading) return;
         
         // Verifica se a sessão está pronta
-        if (session == null || session.swig() == null) {
-            log("❌ Sessão não inicializada. Aguarde...");
+        if (!sessionReady || session == null || session.swig() == null) {
+            log("❌ Aguarde a inicialização da rede P2P...");
+            // Tenta reinicializar se necessário
+            if (!sessionReady) {
+                initializeSession();
+            }
             return;
         }
         
@@ -414,7 +429,11 @@ public class MainActivity extends AppCompatActivity {
     protected void onDestroy() {
         stop();
         if (serverThread != null) serverThread.interrupt();
-        if (session != null) session.stop();
+        if (session != null) {
+            try {
+                session.stop();
+            } catch (Exception e) {}
+        }
         super.onDestroy();
     }
 }
