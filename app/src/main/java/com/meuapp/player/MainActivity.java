@@ -4,6 +4,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.animation.AlphaAnimation;
@@ -22,6 +23,8 @@ import java.net.*;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "TorrentStream";
+    
     private WebView webView;
     private TextView statusText, progressText, titleText;
     private ProgressBar bufferBar, spinnerBar;
@@ -42,6 +45,7 @@ public class MainActivity extends AppCompatActivity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        Log.d(TAG, "🚀 onCreate iniciado");
         setContentView(R.layout.activity_main);
         
         webView = findViewById(R.id.webview);
@@ -57,6 +61,8 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
+        Log.d(TAG, "✅ Views inicializadas");
+        
         webView.post(() -> {
             int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
             int h = (int)(w * 9.0 / 16.0);
@@ -67,6 +73,8 @@ public class MainActivity extends AppCompatActivity {
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
+        Log.d(TAG, "📁 Save path: " + savePath);
+        
         handler = new Handler(Looper.getMainLooper());
         
         webView.getSettings().setJavaScriptEnabled(true);
@@ -82,7 +90,7 @@ public class MainActivity extends AppCompatActivity {
         glow.setRepeatCount(Animation.INFINITE);
         titleText.startAnimation(glow);
         
-        // Inicializa a sessão na thread principal primeiro
+        Log.d(TAG, "🔄 Chamando initializeSession()");
         initializeSession();
         
         startServer();
@@ -92,44 +100,91 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
         
         log("Pronto para streaming");
+        Log.d(TAG, "✅ onCreate finalizado");
     }
     
     private void initializeSession() {
+        Log.d(TAG, "📡 initializeSession() iniciado");
+        
         new Thread(() -> {
             try {
                 log("🔄 Inicializando sessão P2P...");
+                Log.d(TAG, "📡 Thread de inicialização iniciada");
                 
-                // Cria a sessão com o caminho correto
-                File sessionDir = new File(getExternalFilesDir(null), "session");
-                sessionDir.mkdirs();
+                // Verifica se libtorrent está disponível
+                try {
+                    Log.d(TAG, "📡 Testando libtorrent...");
+                    String version = libtorrent.version();
+                    Log.d(TAG, "📡 libtorrent version: " + version);
+                } catch (Exception e) {
+                    Log.e(TAG, "❌ libtorrent não disponível", e);
+                    log("❌ Erro: libtorrent não disponível");
+                    return;
+                }
                 
-                session = new SessionManager();
+                // Tenta criar SessionManager
+                Log.d(TAG, "📡 Criando SessionManager...");
+                try {
+                    session = new SessionManager();
+                    Log.d(TAG, "📡 SessionManager criado: " + session);
+                } catch (Exception e) {
+                    Log.e(TAG, "❌ Erro ao criar SessionManager", e);
+                    log("❌ Erro ao criar sessão: " + e.getMessage());
+                    return;
+                }
                 
-                // Aguarda a inicialização
+                // Aguarda inicialização
+                Log.d(TAG, "📡 Aguardando 2 segundos...");
                 Thread.sleep(2000);
                 
-                if (session != null && session.swig() != null) {
-                    // Configurações otimizadas
-                    settings_pack sp = new settings_pack();
-                    sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
-                    sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20);
-                    sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
-                    sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 3);
-                    sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
-                    sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
-                    sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
-                    sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
-                    sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 20);
-                    sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 5000);
+                // Verifica se session.swig() funciona
+                Log.d(TAG, "📡 Verificando session.swig()...");
+                try {
+                    session_handle swigSession = session.swig();
+                    Log.d(TAG, "📡 session.swig() retornou: " + swigSession);
                     
-                    session.swig().apply_settings(sp);
-                    session.start();
-                    sessionReady = true;
-                    log("✅ Conectado à rede P2P");
-                } else {
-                    log("❌ Falha ao inicializar sessão");
+                    if (swigSession == null) {
+                        Log.e(TAG, "❌ session.swig() retornou null");
+                        log("❌ Sessão nula - reiniciando...");
+                        // Tenta novamente
+                        Thread.sleep(1000);
+                        swigSession = session.swig();
+                        Log.d(TAG, "📡 Segunda tentativa: " + swigSession);
+                    }
+                    
+                    if (swigSession != null) {
+                        Log.d(TAG, "✅ Sessão SWIG válida, configurando...");
+                        
+                        // Configurações otimizadas
+                        settings_pack sp = new settings_pack();
+                        sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
+                        sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20);
+                        sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
+                        sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 3);
+                        sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
+                        sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
+                        sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
+                        
+                        Log.d(TAG, "📡 Aplicando configurações...");
+                        swigSession.apply_settings(sp);
+                        Log.d(TAG, "📡 Iniciando sessão...");
+                        swigSession.start();
+                        
+                        sessionReady = true;
+                        Log.d(TAG, "✅ Sessão P2P pronta!");
+                        log("✅ Conectado à rede P2P");
+                    } else {
+                        Log.e(TAG, "❌ session.swig() continua null após tentativas");
+                        log("❌ Falha ao inicializar sessão P2P");
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "❌ Erro ao configurar sessão", e);
+                    log("❌ Erro: " + e.getMessage());
+                    e.printStackTrace();
                 }
+                
             } catch (Exception e) { 
+                Log.e(TAG, "❌ Erro geral na inicialização", e);
                 log("❌ Erro: " + e.getMessage());
                 e.printStackTrace();
             }
@@ -137,6 +192,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void log(String msg) {
+        Log.d(TAG, "📱 UI: " + msg);
         handler.post(() -> statusText.setText(msg));
     }
     
@@ -153,18 +209,25 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void startServer() {
+        Log.d(TAG, "🌐 Iniciando servidor HTTP...");
         serverThread = new Thread(() -> {
             try {
                 ServerSocket server = new ServerSocket(8080, 10);
                 server.setReuseAddress(true);
+                Log.d(TAG, "🌐 Servidor HTTP rodando na porta 8080");
                 while (!Thread.interrupted()) {
                     try { 
                         Socket c = server.accept(); 
+                        Log.d(TAG, "🌐 Nova conexão: " + c.getInetAddress());
                         new Thread(() -> handleHttp(c)).start(); 
-                    } catch (IOException e) {}
+                    } catch (IOException e) {
+                        Log.d(TAG, "🌐 Servidor interrompido");
+                    }
                 }
                 server.close();
-            } catch (IOException e) {}
+            } catch (IOException e) {
+                Log.e(TAG, "❌ Erro no servidor HTTP", e);
+            }
         });
         serverThread.setDaemon(true);
         serverThread.start();
@@ -175,6 +238,8 @@ public class MainActivity extends AppCompatActivity {
             OutputStream o = c.getOutputStream();
             BufferedReader i = new BufferedReader(new InputStreamReader(c.getInputStream()));
             String r = i.readLine();
+            Log.d(TAG, "🌐 Request: " + r);
+            
             if (r == null || !r.contains("/video")) { 
                 o.write("HTTP/1.1 404\r\n\r\n".getBytes()); 
                 o.flush(); 
@@ -190,11 +255,13 @@ public class MainActivity extends AppCompatActivity {
                     String[] p = x.split("-");
                     s = Long.parseLong(p[0]);
                     if (p.length > 1 && !p[1].isEmpty()) e = Long.parseLong(p[1]);
+                    Log.d(TAG, "🌐 Range: " + s + "-" + e);
                 }
             }
             
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
+                Log.d(TAG, "🌐 Arquivo não disponível: " + (vf != null ? vf.length() : "null"));
                 o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); 
                 o.flush(); 
                 c.close(); 
@@ -213,23 +280,7 @@ public class MainActivity extends AppCompatActivity {
             int t = raf.read(b);
             raf.close();
             
-            int retries = 0;
-            while (t < 4096 && retries < 20 && downloading) {
-                Thread.sleep(150);
-                if (!vf.exists() || vf.length() <= s) continue;
-                raf = new RandomAccessFile(vf, "r");
-                raf.seek(s);
-                t = raf.read(b);
-                raf.close();
-                retries++;
-            }
-            
-            if (t <= 1024) { 
-                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); 
-                o.flush(); 
-                c.close(); 
-                return; 
-            }
+            Log.d(TAG, "🌐 Servindo " + t + " bytes de " + vf.getName());
             
             String resp = "HTTP/1.1 206\r\nContent-Type: " + mime + "\r\n" +
                 "Content-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\n" +
@@ -242,21 +293,37 @@ public class MainActivity extends AppCompatActivity {
             c.close();
             
         } catch (Exception ex) { 
+            Log.e(TAG, "❌ Erro no handleHttp", ex);
             try { c.close(); } catch (IOException ex2) {}
         }
     }
     
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
-        if (!magnet.startsWith("magnet:") || downloading) return;
+        Log.d(TAG, "▶️ Botão Play pressionado. Magnet: " + magnet.substring(0, Math.min(60, magnet.length())));
+        
+        if (!magnet.startsWith("magnet:") || downloading) {
+            Log.d(TAG, "❌ Magnet inválido ou já baixando");
+            return;
+        }
         
         // Verifica se a sessão está pronta
-        if (!sessionReady || session == null || session.swig() == null) {
+        Log.d(TAG, "📡 Verificando sessão - ready: " + sessionReady + ", session: " + session);
+        if (!sessionReady || session == null) {
+            Log.e(TAG, "❌ Sessão não está pronta!");
             log("❌ Aguarde a inicialização da rede P2P...");
-            // Tenta reinicializar se necessário
             if (!sessionReady) {
+                Log.d(TAG, "🔄 Tentando reinicializar sessão...");
                 initializeSession();
             }
+            return;
+        }
+        
+        try {
+            Log.d(TAG, "📡 Verificando session.swig(): " + session.swig());
+        } catch (Exception e) {
+            Log.e(TAG, "❌ session.swig() falhou", e);
+            log("❌ Erro na sessão P2P");
             return;
         }
         
@@ -288,6 +355,7 @@ public class MainActivity extends AppCompatActivity {
         });
         
         log("🔍 Buscando peers...");
+        Log.d(TAG, "📡 Iniciando download do torrent");
         
         new Thread(() -> {
             try {
@@ -300,21 +368,30 @@ public class MainActivity extends AppCompatActivity {
                 pr.add((byte)7);
                 p.set_file_priorities(pr);
                 
+                Log.d(TAG, "📡 Adicionando torrent...");
                 session.swig().async_add_torrent(p);
                 Thread.sleep(3000);
                 
+                Log.d(TAG, "📡 Obtendo handles...");
                 torrent_handle_vector h = session.swig().get_torrents();
+                Log.d(TAG, "📡 Torrents ativos: " + h.size());
+                
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
                     log("✅ Torrent adicionado");
+                    Log.d(TAG, "📡 Torrent handle obtido: " + torrentHandle.is_valid());
                     
                     while (downloading) {
                         File f = findVideoFile(new File(savePath));
+                        Log.d(TAG, "📁 Procurando vídeo: " + (f != null ? f.getName() + " (" + f.length() + " bytes)" : "não encontrado"));
+                        
                         if (f != null && f.length() > 5242880) {
+                            Log.d(TAG, "📁 Arquivo grande encontrado: " + f.length() + " bytes");
                             
                             if (isValidVideoFile(f)) {
                                 videoFile = f;
                                 long downloadedMB = f.length() / 1048576;
+                                Log.d(TAG, "✅ Vídeo válido: " + downloadedMB + "MB");
                                 
                                 handler.post(() -> {
                                     progressText.setText(String.format("%d MB baixados", downloadedMB));
@@ -330,12 +407,18 @@ public class MainActivity extends AppCompatActivity {
                                         log("✅ " + downloadedMB + "MB - Streaming disponível!");
                                     }
                                 });
+                            } else {
+                                Log.d(TAG, "❌ Arquivo não é vídeo válido");
                             }
                         }
                         Thread.sleep(1000);
                     }
+                } else {
+                    Log.e(TAG, "❌ Nenhum torrent handle encontrado");
+                    log("❌ Erro: Torrent não iniciou");
                 }
-            } catch (Exception e2) { 
+            } catch (Exception e2) {
+                Log.e(TAG, "❌ Erro no download", e2);
                 log("❌ " + e2.getMessage()); 
                 downloading = false;
             }
@@ -376,6 +459,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void watch() {
+        Log.d(TAG, "▶️ Assistir pressionado");
         if (videoFile == null || !videoFile.exists()) { 
             log("❌ Arquivo não encontrado"); 
             return; 
@@ -404,6 +488,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void stop() {
+        Log.d(TAG, "⏹️ Parando...");
         downloading = false;
         handler.removeCallbacksAndMessages(null);
         webView.loadUrl("about:blank");
@@ -427,6 +512,7 @@ public class MainActivity extends AppCompatActivity {
     
     @Override 
     protected void onDestroy() {
+        Log.d(TAG, "💀 onDestroy");
         stop();
         if (serverThread != null) serverThread.interrupt();
         if (session != null) {
