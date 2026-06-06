@@ -1,14 +1,11 @@
 package com.meuapp.player.server;
 
-import android.util.Log;
-
 import java.io.*;
 import java.util.Map;
 
 import fi.iki.elonen.NanoHTTPD;
 
 public class StreamServer extends NanoHTTPD {
-    private static final String TAG = "StreamServer";
     private File videoFile;
     
     public StreamServer() {
@@ -58,7 +55,9 @@ public class StreamServer extends NanoHTTPD {
             
             String mime = videoFile.getName().toLowerCase().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
             
-            Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, data, 0, bytesRead);
+            // NanoHTTPD: usa InputStream
+            ByteArrayInputStream bais = new ByteArrayInputStream(data, 0, bytesRead);
+            Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, bais, bytesRead);
             response.addHeader("Content-Range", "bytes " + start + "-" + (start + bytesRead - 1) + "/" + fileSize);
             response.addHeader("Accept-Ranges", "bytes");
             response.addHeader("Access-Control-Allow-Origin", "*");
@@ -66,7 +65,6 @@ public class StreamServer extends NanoHTTPD {
             return response;
             
         } catch (Exception e) {
-            Log.e(TAG, "Erro ao servir video", e);
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error");
         }
     }
