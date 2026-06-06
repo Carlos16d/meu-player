@@ -81,25 +81,36 @@ public class MainActivity extends AppCompatActivity {
         glow.setRepeatCount(Animation.INFINITE);
         titleText.startAnimation(glow);
         
+        // Inicializa a sessão corretamente
         new Thread(() -> {
-            try { 
+            try {
+                // Cria a sessão primeiro
                 session = new SessionManager();
-                // Configurações ultra rápidas
-                settings_pack sp = new settings_pack();
-                sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
-                sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20);
-                sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
-                sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 3);
-                sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
-                sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
-                sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 20);
-                sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 5000);
-                sp.set_bool(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true);
-                session.swig().apply_settings(sp);
-                session.start(); 
-                log("✅ Conectado à rede P2P"); 
+                
+                // Aguarda a sessão ser inicializada
+                Thread.sleep(1000);
+                
+                // Verifica se a sessão foi criada
+                if (session.swig() != null) {
+                    // Configurações otimizadas
+                    settings_pack sp = new settings_pack();
+                    sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
+                    sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20);
+                    sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
+                    sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 3);
+                    sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
+                    sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
+                    sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
+                    sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 20);
+                    sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 5000);
+                    
+                    session.swig().apply_settings(sp);
+                    session.start();
+                    log("✅ Conectado à rede P2P");
+                } else {
+                    log("❌ Erro: Sessão não inicializada");
+                }
             } catch (Exception e) { 
                 log("❌ Erro: " + e.getMessage()); 
             }
@@ -191,7 +202,6 @@ public class MainActivity extends AppCompatActivity {
             int t = raf.read(b);
             raf.close();
             
-            // Tenta novamente se dados insuficientes
             int retries = 0;
             while (t < 4096 && retries < 20 && downloading) {
                 Thread.sleep(150);
@@ -228,6 +238,12 @@ public class MainActivity extends AppCompatActivity {
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
+        
+        // Verifica se a sessão está pronta
+        if (session == null || session.swig() == null) {
+            log("❌ Sessão não inicializada. Aguarde...");
+            return;
+        }
         
         File dir = new File(savePath);
         if (dir.exists()) {
@@ -277,10 +293,9 @@ public class MainActivity extends AppCompatActivity {
                     torrentHandle = h.get(0);
                     log("✅ Torrent adicionado");
                     
-                    // SIMPLES: apenas espera o arquivo aparecer e ser grande o suficiente
                     while (downloading) {
                         File f = findVideoFile(new File(savePath));
-                        if (f != null && f.length() > 5242880) { // 5MB mínimo
+                        if (f != null && f.length() > 5242880) {
                             
                             if (isValidVideoFile(f)) {
                                 videoFile = f;
@@ -336,10 +351,10 @@ public class MainActivity extends AppCompatActivity {
             raf.read(header);
             raf.close();
             
-            return (header[4]=='f' && header[5]=='t' && header[6]=='y' && header[7]=='p') || // MP4
-                   ((header[0]&0xFF)==0x1A && header[1]==0x45 && header[2]==(byte)0xDF && header[3]==(byte)0xA3) || // MKV/WebM
-                   (header[0]=='R' && header[1]=='I' && header[2]=='F' && header[3]=='F') || // AVI
-                   (header[0]==0x00 && header[1]==0x00 && header[2]==0x00 && header[3]=='m'); // MOV
+            return (header[4]=='f' && header[5]=='t' && header[6]=='y' && header[7]=='p') ||
+                   ((header[0]&0xFF)==0x1A && header[1]==0x45 && header[2]==(byte)0xDF && header[3]==(byte)0xA3) ||
+                   (header[0]=='R' && header[1]=='I' && header[2]=='F' && header[3]=='F') ||
+                   (header[0]==0x00 && header[1]==0x00 && header[2]==0x00 && header[3]=='m');
         } catch (Exception e) {
             return false;
         }
@@ -387,7 +402,7 @@ public class MainActivity extends AppCompatActivity {
         titleText.setText("🎬 Torrent Streaming");
         progressText.setText("Pronto para começar");
         log("⏹️ Parado");
-        if (torrentHandle != null && session != null) {
+        if (torrentHandle != null && session != null && session.swig() != null) {
             try { 
                 session.swig().remove_torrent(torrentHandle); 
             } catch (Exception e) {}
