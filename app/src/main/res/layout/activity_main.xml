@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="#0a0a0f">
@@ -10,13 +11,17 @@
         android:layout_height="match_parent"
         android:background="@drawable/bg_gradient" />
     
-    <!-- Player -->
-    <WebView
-        android:id="@+id/webview"
+    <!-- ExoPlayer View -->
+    <com.google.android.exoplayer2.ui.PlayerView
+        android:id="@+id/player_view"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:visibility="gone" />
+        android:layout_height="match_parent"
+        android:visibility="gone"
+        app:show_buffering="when_playing"
+        app:use_controller="true"
+        app:controller_layout_id="@layout/exo_player_control_view"
+        app:surface_type="texture_view"
+        app:resize_mode="fit" />
     
     <!-- Painel Glass -->
     <LinearLayout
@@ -50,7 +55,6 @@
             android:textSize="13sp"
             android:layout_marginBottom="16dp" />
         
-        <!-- Barra de progresso glass -->
         <ProgressBar
             android:id="@+id/buffer_bar"
             style="?android:attr/progressBarStyleHorizontal"
@@ -60,7 +64,6 @@
             android:progressBackgroundTint="#33ffffff"
             android:visibility="gone" />
         
-        <!-- Campo de entrada glass -->
         <EditText
             android:id="@+id/magnet_input"
             android:layout_width="match_parent"
@@ -74,7 +77,6 @@
             android:textColor="#fff"
             android:textSize="13sp" />
         
-        <!-- Botões -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -90,8 +92,7 @@
                 android:text="⬇️ BAIXAR"
                 android:textColor="#fff"
                 android:textStyle="bold"
-                android:textSize="12sp"
-                android:letterSpacing="0.05" />
+                android:textSize="12sp" />
             
             <Button
                 android:id="@+id/btn_watch"
@@ -104,7 +105,6 @@
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp"
-                android:letterSpacing="0.05"
                 android:visibility="gone" />
             
             <Button
@@ -118,7 +118,6 @@
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp"
-                android:letterSpacing="0.05"
                 android:visibility="gone" />
         </LinearLayout>
         
