@@ -26,7 +26,8 @@ public class MainActivity extends AppCompatActivity {
     private WebView webView;
     private TextView statusText, progressText, titleText;
     private ProgressBar bufferBar, spinnerBar;
-    private FrameLayout loadingOverlay, glassPanel;
+    private FrameLayout loadingOverlay;
+    private LinearLayout glassPanel;  // ✅ CORRIGIDO: LinearLayout em vez de FrameLayout
     private EditText magnetInput;
     private Button btnPlay, btnStop, btnWatch;
     
@@ -51,7 +52,7 @@ public class MainActivity extends AppCompatActivity {
         bufferBar = findViewById(R.id.buffer_bar);
         spinnerBar = findViewById(R.id.spinner_bar);
         loadingOverlay = findViewById(R.id.loading_overlay);
-        glassPanel = findViewById(R.id.glass_panel);
+        glassPanel = findViewById(R.id.glass_panel);  // ✅ Agora compatível com LinearLayout
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
@@ -84,8 +85,13 @@ public class MainActivity extends AppCompatActivity {
         titleText.startAnimation(glow);
         
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); log("✅ Conectado à rede P2P"); } 
-            catch (Exception e) { log("❌ Erro: " + e.getMessage()); }
+            try { 
+                session = new SessionManager(); 
+                session.start(); 
+                log("✅ Conectado à rede P2P"); 
+            } catch (Exception e) { 
+                log("❌ Erro: " + e.getMessage()); 
+            }
         }).start();
         
         startServer();
@@ -102,7 +108,14 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void deleteRecursive(File f) {
-        if (f.isDirectory()) for (File child : f.listFiles()) deleteRecursive(child);
+        if (f.isDirectory()) {
+            File[] children = f.listFiles();
+            if (children != null) {
+                for (File child : children) {
+                    deleteRecursive(child);
+                }
+            }
+        }
         f.delete();
     }
     
@@ -112,10 +125,17 @@ public class MainActivity extends AppCompatActivity {
                 ServerSocket server = new ServerSocket(8080, 10);
                 server.setReuseAddress(true);
                 while (!Thread.interrupted()) {
-                    try { Socket c = server.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {}
+                    try { 
+                        Socket c = server.accept(); 
+                        new Thread(() -> handleHttp(c)).start(); 
+                    } catch (IOException e) {
+                        // Servidor parando
+                    }
                 }
                 server.close();
-            } catch (IOException e) {}
+            } catch (IOException e) {
+                // Erro ao iniciar servidor
+            }
         });
         serverThread.setDaemon(true);
         serverThread.start();
@@ -126,7 +146,12 @@ public class MainActivity extends AppCompatActivity {
             OutputStream o = c.getOutputStream();
             BufferedReader i = new BufferedReader(new InputStreamReader(c.getInputStream()));
             String r = i.readLine();
-            if (r == null || !r.contains("/video")) { o.write("HTTP/1.1 404\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
+            if (r == null || !r.contains("/video")) { 
+                o.write("HTTP/1.1 404\r\n\r\n".getBytes()); 
+                o.flush(); 
+                c.close(); 
+                return; 
+            }
             
             long s = 0, e = -1;
             String l;
@@ -145,13 +170,20 @@ public class MainActivity extends AppCompatActivity {
                 int startP = (int)(s / pieceLen);
                 int endP = Math.min(startP + 80, 9999);
                 for (int j = startP; j <= endP; j++) {
-                    try { torrentHandle.set_piece_deadline(j, 5); } catch (Exception ex) {}
+                    try { 
+                        torrentHandle.set_piece_deadline(j, 5); 
+                    } catch (Exception ex) {
+                        // Ignora erros de deadline
+                    }
                 }
             }
             
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
-                o.write("HTTP/1.1 503\r\nRetry-After: 2\r\n\r\n".getBytes()); o.flush(); c.close(); return;
+                o.write("HTTP/1.1 503\r\nRetry-After: 2\r\n\r\n".getBytes()); 
+                o.flush(); 
+                c.close(); 
+                return;
             }
             
             long len = vf.length();
@@ -176,14 +208,28 @@ public class MainActivity extends AppCompatActivity {
             }
             raf.close();
             
-            if (t <= 1024) { o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); o.flush(); c.close(); return; }
+            if (t <= 1024) { 
+                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); 
+                o.flush(); 
+                c.close(); 
+                return; 
+            }
             
             String resp = "HTTP/1.1 206\r\nContent-Type: " + m + "\r\n" +
                 "Content-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\n" +
                 "Content-Length: " + t + "\r\nAccept-Ranges: bytes\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
-            o.write(resp.getBytes()); o.write(b, 0, t); o.flush(); c.close();
+            o.write(resp.getBytes()); 
+            o.write(b, 0, t); 
+            o.flush(); 
+            c.close();
             
-        } catch (Exception ex) { try { c.close(); } catch (IOException ex2) {} }
+        } catch (Exception ex) { 
+            try { 
+                c.close(); 
+            } catch (IOException ex2) {
+                // Conexão já fechada
+            }
+        }
     }
     
     private void start() {
@@ -191,7 +237,14 @@ public class MainActivity extends AppCompatActivity {
         if (!magnet.startsWith("magnet:") || downloading) return;
         
         File dir = new File(savePath);
-        if (dir.exists()) for (File f : dir.listFiles()) deleteRecursive(f);
+        if (dir.exists()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    deleteRecursive(f);
+                }
+            }
+        }
         new File(savePath).mkdirs();
         
         downloading = true;
@@ -215,7 +268,8 @@ public class MainActivity extends AppCompatActivity {
                 p.setFlags(torrent_flags_t.from_int(0));
                 p.setDownload_limit(2 * 1024 * 1024);
                 
-                byte_vector pr = new byte_vector(); pr.add((byte)7);
+                byte_vector pr = new byte_vector(); 
+                pr.add((byte)7);
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
@@ -228,7 +282,11 @@ public class MainActivity extends AppCompatActivity {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 5242880) {
                         byte[] hdr = new byte[8];
-                        try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; }
+                        try { 
+                            new RandomAccessFile(f, "r").read(hdr); 
+                        } catch (Exception e2) { 
+                            continue; 
+                        }
                         
                         boolean valid = (hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
                                        ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3);
@@ -236,7 +294,7 @@ public class MainActivity extends AppCompatActivity {
                         if (valid) {
                             videoFile = f;
                             long mb = f.length()/1048576;
-                            int pct = (int)((f.length() * 100) / 276134947L);
+                            int pct = Math.min((int)((f.length() * 100) / 276134947L), 100);
                             
                             handler.post(() -> {
                                 progressText.setText(mb + " MB de 263 MB");
@@ -252,12 +310,18 @@ public class MainActivity extends AppCompatActivity {
                     }
                     Thread.sleep(2000);
                 }
-            } catch (Exception e2) { log("❌ " + e2.getMessage()); }
+            } catch (Exception e2) { 
+                log("❌ " + e2.getMessage()); 
+                downloading = false;
+            }
         }).start();
     }
     
     private void watch() {
-        if (videoFile == null || !videoFile.exists()) { log("❌ Arquivo não encontrado"); return; }
+        if (videoFile == null || !videoFile.exists()) { 
+            log("❌ Arquivo não encontrado"); 
+            return; 
+        }
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE);
@@ -285,28 +349,43 @@ public class MainActivity extends AppCompatActivity {
         downloading = false;
         handler.removeCallbacksAndMessages(null);
         webView.loadUrl("about:blank");
-        webView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
-        bufferBar.setVisibility(View.GONE); glassPanel.setVisibility(View.GONE);
+        webView.setVisibility(View.GONE); 
+        btnStop.setVisibility(View.GONE); 
+        btnWatch.setVisibility(View.GONE);
+        bufferBar.setVisibility(View.GONE); 
+        glassPanel.setVisibility(View.GONE);
         titleText.setText("🎬 Torrent Streaming");
         progressText.setText("Pronto para começar");
         log("⏹️ Parado");
         if (torrentHandle != null && session != null) {
-            try { session.swig().remove_torrent(torrentHandle); } catch (Exception e) {}
+            try { 
+                session.swig().remove_torrent(torrentHandle); 
+            } catch (Exception e) {
+                // Erro ao remover torrent
+            }
             torrentHandle = null;
         }
     }
     
     private File find(File dir) {
         File[] files = dir.listFiles();
-        if (files != null) for (File f : files) {
-            if (f.isDirectory()) { File found = find(f); if (found != null) return found; }
-            else if (f.getName().endsWith(".mp4") || f.getName().endsWith(".mkv") || 
-                      f.getName().endsWith(".avi") || f.getName().endsWith(".webm")) return f;
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) { 
+                    File found = find(f); 
+                    if (found != null) return found; 
+                }
+                else if (f.getName().endsWith(".mp4") || f.getName().endsWith(".mkv") || 
+                          f.getName().endsWith(".avi") || f.getName().endsWith(".webm")) {
+                    return f;
+                }
+            }
         }
         return null;
     }
     
-    @Override protected void onDestroy() {
+    @Override 
+    protected void onDestroy() {
         stop();
         if (serverThread != null) serverThread.interrupt();
         if (session != null) session.stop();
