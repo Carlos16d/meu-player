@@ -9,6 +9,8 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
 import org.libtorrent4j.TorrentHandle;
 import org.libtorrent4j.TorrentStatus;
+import org.libtorrent4j.swig.torrent_handle;
+import org.libtorrent4j.swig.torrent_handle_vector;
 
 import java.io.*;
 
@@ -64,7 +66,7 @@ public class TorrentEngine {
                 
                 File saveDir = new File(savePath);
                 
-                // Metodo oficial: SessionManager.download(String, File)
+                // Metodo correto: download(String, File)
                 session.download(magnetUri, saveDir);
                 
                 notifyStatus("Download iniciado! Aguardando dados...");
@@ -86,13 +88,11 @@ public class TorrentEngine {
                 
                 TorrentInfo info = new TorrentInfo();
                 
-                // Usa a API real: SessionManager.swig().get_torrents()
                 if (session != null && session.swig() != null) {
-                    var handles = session.swig().get_torrents();
+                    torrent_handle_vector handles = session.swig().get_torrents();
                     if (handles.size() > 0) {
-                        var th = handles.get(0);
+                        torrent_handle th = handles.get(0);
                         if (th.is_valid()) {
-                            // Usa TorrentHandle e TorrentStatus reais
                             TorrentHandle torrentHandle = new TorrentHandle(th);
                             TorrentStatus status = torrentHandle.status();
                             
