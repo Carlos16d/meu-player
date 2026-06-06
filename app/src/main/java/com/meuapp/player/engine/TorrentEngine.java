@@ -64,35 +64,31 @@ public class TorrentEngine {
         
         new Thread(() -> {
             try {
-                add_torrent_params params;
+                add_torrent_params params = null;
+                
                 if (source.startsWith("magnet:")) {
+                    // Magnet link - funciona
                     params = libtorrent.parse_magnet_uri(source, new error_code());
                 } else {
-                    File torrentFile = new File(source);
-                    byte[] fileData = new byte[(int) torrentFile.length()];
-                    FileInputStream fis = new FileInputStream(torrentFile);
-                    fis.read(fileData);
-                    fis.close();
-                    
-                    byte_vector bv = new byte_vector();
-                    for (byte b : fileData) bv.add(b);
-                    
-                    error_code ec = new error_code();
-                    params = libtorrent.read_resume_data(bv, ec);
+                    // Arquivo .torrent - usa add_torrent_params simples
+                    params = new add_torrent_params();
+                    params.set_url("file://" + source);
                 }
                 
-                params.setSave_path(savePath);
-                params.setDownload_limit(0);
-                params.setUpload_limit(0);
-                
-                session.swig().async_add_torrent(params);
-                Thread.sleep(3000);
-                
-                torrent_handle_vector handles = session.swig().get_torrents();
-                if (handles.size() > 0) {
-                    torrentHandle = handles.get(0);
-                    notifyStatus("Conectado!");
-                    monitorProgress(savePath);
+                if (params != null) {
+                    params.setSave_path(savePath);
+                    params.setDownload_limit(0);
+                    params.setUpload_limit(0);
+                    
+                    session.swig().async_add_torrent(params);
+                    Thread.sleep(3000);
+                    
+                    torrent_handle_vector handles = session.swig().get_torrents();
+                    if (handles.size() > 0) {
+                        torrentHandle = handles.get(0);
+                        notifyStatus("Conectado!");
+                        monitorProgress(savePath);
+                    }
                 }
             } catch (Exception e) {
                 notifyError(e.getMessage());
@@ -111,11 +107,12 @@ public class TorrentEngine {
                 torrent_status st = torrentHandle.status();
                 
                 TorrentInfo info = new TorrentInfo();
-                info.downloaded = st.total_done();
-                info.total = st.total_wanted();
-                info.progress = (int)(st.progress() * 100);
-                info.peers = st.num_peers();
-                info.seeds = st.num_seeds();
+                // Metodos que existem: get_total_done, get_total_wanted, etc
+                info.downloaded = st.get_total_done();
+                info.total = st.get_total_wanted();
+                info.progress = (int)(st.get_progress() * 100);
+                info.peers = st.get_num_peers();
+                info.seeds = st.get_num_seeds();
                 
                 handler.post(() -> callback.onProgress(info));
                 
