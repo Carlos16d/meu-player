@@ -7,6 +7,7 @@ import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
+import org.libtorrent4j.SettingsPack;
 import org.libtorrent4j.Priority;
 import org.libtorrent4j.TorrentHandle;
 import org.libtorrent4j.TorrentStatus;
@@ -27,7 +28,6 @@ public class TorrentEngine {
     private int pieceLength = 0;
     private long fileSize = 0;
     
-    // Aguarda pelo menos 30MB antes de liberar streaming
     private static final long MIN_STREAMING_BYTES = 30 * 1024 * 1024;
     
     public interface EngineCallback {
@@ -49,12 +49,16 @@ public class TorrentEngine {
                 notifyStatus("Iniciando motor P2P...");
                 
                 session = new SessionManager();
-                SessionParams params = new SessionParams();
-                params.settings().setConnectionsLimit(50);
-                params.settings().setActiveDownloads(3);
-                params.settings().setDownloadRateLimit(0);
-                params.settings().setUploadRateLimit(1024 * 1024); // 1MB upload
                 
+                // Configura via SettingsPack
+                SettingsPack sp = new SettingsPack();
+                sp.setConnectionsLimit(50);
+                sp.setActiveDownloads(3);
+                sp.setActiveSeeds(5);
+                sp.setDownloadRateLimit(0);
+                sp.setUploadRateLimit(0);
+                
+                SessionParams params = new SessionParams(sp);
                 session.start(params);
                 
                 ready = true;
@@ -81,7 +85,6 @@ public class TorrentEngine {
                 
                 File saveDir = new File(savePath);
                 torrent_flags_t flags = new torrent_flags_t();
-                flags = flags.or_(torrent_flags_t.sequential_download);
                 
                 session.download(magnetUri, saveDir, flags);
                 Thread.sleep(5000);
@@ -92,7 +95,6 @@ public class TorrentEngine {
                     if (th.is_valid()) {
                         torrentHandle = new TorrentHandle(th);
                         
-                        // Aguarda metadados
                         int waitCount = 0;
                         while (!torrentHandle.status().hasMetadata() && waitCount < 60 && downloading) {
                             Thread.sleep(1000);
@@ -102,25 +104,24 @@ public class TorrentEngine {
                         
                         if (torrentHandle.status().hasMetadata()) {
                             fileSize = torrentHandle.status().total();
-                            pieceLength = fileSize / Math.max(torrentHandle.status().numPieces(), 1);
+                            int numPieces = torrentHandle.status().numPieces();
+                            pieceLength = (int)(fileSize / Math.max(numPieces, 1));
                             
                             notifyStatus("Metadados recebidos! " + (fileSize/1048576) + "MB");
                             
-                            // Prioridade máxima nas primeiras peças
-                            int numPieces = torrentHandle.status().numPieces();
+                            // Prioridade nas primeiras peças (usa valores de byte)
                             int priorityPieces = Math.min(300, numPieces);
-                            
                             Priority[] priorities = new Priority[numPieces];
                             for (int i = 0; i < numPieces; i++) {
                                 if (i < priorityPieces) {
-                                    priorities[i] = Priority.MAX;
+                                    priorities[i] = Priority.SEVEN; // Máxima prioridade
                                 } else {
-                                    priorities[i] = Priority.LOW;
+                                    priorities[i] = Priority.ONE; // Baixa prioridade
                                 }
                             }
                             torrentHandle.prioritizePieces(priorities);
                             
-                            // Deadlines agressivos nas primeiras peças
+                            // Deadlines nas primeiras peças
                             for (int i = 0; i < Math.min(100, numPieces); i++) {
                                 torrentHandle.setPieceDeadline(i, 3000);
                             }
@@ -157,16 +158,13 @@ public class TorrentEngine {
                     info.peers = status.numPeers();
                     info.seeds = status.numSeeds();
                     
-                    // Verifica se já pode fazer streaming
                     if (!streamReady && status.totalDone() >= MIN_STREAMING_BYTES) {
-                        // Verifica primeiras peças
                         int firstPieces = 0;
                         int totalFirstPieces = Math.min(100, status.numPieces());
                         for (int i = 0; i < totalFirstPieces; i++) {
                             if (torrentHandle.havePiece(i)) firstPieces++;
                         }
                         
-                        // Precisa ter pelo menos 80% das primeiras peças
                         if (firstPieces >= totalFirstPieces * 0.8) {
                             streamReady = true;
                             videoFile = findVideoFile(new File(savePath));
@@ -179,12 +177,12 @@ public class TorrentEngine {
                         }
                     }
                     
-                    // Atualiza deadlines conforme o download avança
+                    // Atualiza deadlines
                     if (streamReady && pieceLength > 0) {
                         long downloadedBytes = status.totalDone();
                         int currentPiece = (int)(downloadedBytes / pieceLength);
-                        // Mantém deadline nas próximas peças
-                        for (int i = currentPiece; i < Math.min(currentPiece + 50, status.numPieces()); i++) {
+                        int totalPieces = status.numPieces();
+                        for (int i = currentPiece; i < Math.min(currentPiece + 50, totalPieces); i++) {
                             torrentHandle.setPieceDeadline(i, 5000);
                         }
                     }
