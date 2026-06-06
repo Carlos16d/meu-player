@@ -24,6 +24,13 @@ android {
         sourceCompatibility JavaVersion.VERSION_1_8
         targetCompatibility JavaVersion.VERSION_1_8
     }
+    
+    packagingOptions {
+        pickFirst 'lib/arm64-v8a/libtorrent4j.so'
+        pickFirst 'lib/armeabi-v7a/libtorrent4j.so'
+        pickFirst 'lib/x86/libtorrent4j.so'
+        pickFirst 'lib/x86_64/libtorrent4j.so'
+    }
 }
 
 dependencies {
@@ -38,6 +45,4 @@ dependencies {
     // ExoPlayer
     implementation 'com.google.android.exoplayer:exoplayer-core:2.19.1'
     implementation 'com.google.android.exoplayer:exoplayer-ui:2.19.1'
-    implementation 'com.google.android.exoplayer:exoplayer-hls:2.19.1'
-    implementation 'com.google.android.exoplayer:exoplayer-dash:2.19.1'
 }
