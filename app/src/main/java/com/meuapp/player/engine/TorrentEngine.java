@@ -50,36 +50,29 @@ public class TorrentEngine {
         }).start();
     }
     
-    public void startDownload(String source, String savePath) {
+    public void startDownload(String magnetUri, String savePath) {
         if (!ready) { notifyError("Engine nao pronta"); return; }
         
         downloading = true;
         
         new Thread(() -> {
             try {
-                add_torrent_params params = null;
+                add_torrent_params params = libtorrent.parse_magnet_uri(magnetUri, new error_code());
                 
-                if (source.startsWith("magnet:")) {
-                    params = libtorrent.parse_magnet_uri(source, new error_code());
+                params.setSave_path(savePath);
+                params.setDownload_limit(0);
+                params.setUpload_limit(0);
+                
+                session.swig().async_add_torrent(params);
+                Thread.sleep(3000);
+                
+                torrent_handle_vector handles = session.swig().get_torrents();
+                if (handles.size() > 0) {
+                    torrentHandle = handles.get(0);
+                    notifyStatus("Conectado!");
+                    monitorProgress(savePath);
                 } else {
-                    // Arquivo .torrent - usa file
-                    params = add_torrent_params.create_from_file(source);
-                }
-                
-                if (params != null) {
-                    params.setSave_path(savePath);
-                    params.setDownload_limit(0);
-                    params.setUpload_limit(0);
-                    
-                    session.swig().async_add_torrent(params);
-                    Thread.sleep(3000);
-                    
-                    torrent_handle_vector handles = session.swig().get_torrents();
-                    if (handles.size() > 0) {
-                        torrentHandle = handles.get(0);
-                        notifyStatus("Conectado!");
-                        monitorProgress(savePath);
-                    }
+                    notifyError("Nenhum peer encontrado");
                 }
             } catch (Exception e) {
                 notifyError(e.getMessage());
@@ -94,15 +87,12 @@ public class TorrentEngine {
         while (downloading) {
             try {
                 Thread.sleep(1000);
-                if (torrentHandle == null || !torrentHandle.is_valid()) continue;
                 
-                // Apenas atualiza progresso simples
                 progress = Math.min(progress + 1, 99);
                 
                 TorrentInfo info = new TorrentInfo();
                 info.progress = progress;
                 info.peers = 0;
-                info.seeds = 0;
                 
                 handler.post(() -> callback.onProgress(info));
                 
