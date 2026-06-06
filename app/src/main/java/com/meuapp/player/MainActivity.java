@@ -5,6 +5,8 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.view.View;
+import android.view.animation.AlphaAnimation;
+import android.view.animation.Animation;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -14,24 +16,33 @@ import com.google.android.exoplayer2.ui.PlayerView;
 import com.meuapp.player.engine.TorrentEngine;
 import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.player.ExoPlayerManager;
+import com.meuapp.player.cache.CacheManager;
+import com.meuapp.player.model.TorrentInfo;
+import com.meuapp.player.utils.FileUtils;
+import com.meuapp.player.utils.LogUtils;
 
 import java.io.*;
 import java.text.DecimalFormat;
 
 public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
     
+    // Views
     private PlayerView playerView;
-    private SimpleExoPlayer exoPlayer;
-    private ExoPlayerManager playerManager;
-    private TorrentEngine torrentEngine;
-    private StreamServer streamServer;
-    
     private TextView statusText, progressText, titleText;
     private ProgressBar bufferBar, spinnerBar;
     private View loadingOverlay, glassPanel;
     private EditText magnetInput;
     private Button btnPlay, btnStop, btnWatch, btnTorrentFile;
     
+    // Managers
+    private SimpleExoPlayer exoPlayer;
+    private ExoPlayerManager playerManager;
+    private TorrentEngine torrentEngine;
+    private StreamServer streamServer;
+    private CacheManager cacheManager;
+    
+    // Estado
     private File videoFile;
     private String savePath;
     private DecimalFormat df = new DecimalFormat("#.##");
@@ -41,7 +52,32 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
+        LogUtils.d(TAG, "onCreate iniciado");
+        
         // Inicializa views
+        initViews();
+        
+        // Configura paths
+        savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
+        new File(savePath).mkdirs();
+        
+        // Inicializa managers
+        initManagers();
+        
+        // Configura listeners
+        setupListeners();
+        
+        // Animação do título
+        AlphaAnimation glow = new AlphaAnimation(0.6f, 1.0f);
+        glow.setDuration(2000);
+        glow.setRepeatMode(Animation.REVERSE);
+        glow.setRepeatCount(Animation.INFINITE);
+        titleText.startAnimation(glow);
+        
+        LogUtils.d(TAG, "onCreate finalizado");
+    }
+    
+    private void initViews() {
         playerView = findViewById(R.id.player_view);
         statusText = findViewById(R.id.status_text);
         progressText = findViewById(R.id.progress_text);
@@ -55,121 +91,156 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         btnTorrentFile = findViewById(R.id.btn_torrent_file);
-        
-        savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
-        
+    }
+    
+    private void initManagers() {
         // ExoPlayer
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerManager = new ExoPlayerManager(playerView, exoPlayer);
         
+        // Cache
+        cacheManager = new CacheManager(this);
+        
         // Torrent Engine
-        torrentEngine = new TorrentEngine(new TorrentEngine.EngineListener() {
-            @Override public void onEngineReady() { setStatus("✅ Pronto!"); }
-            @Override public void onEngineError(String error) { setStatus("❌ " + error); }
-            @Override public void onMetadata(String name, long size) {}
+        torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
+            @Override
+            public void onReady() {
+                setStatus("✅ Pronto para streaming!");
+                LogUtils.d(TAG, "Engine pronta");
+            }
             
             @Override
-            public void onProgress(long downloaded, long total, int speed, int peers) {
-                int pct = total > 0 ? (int)(downloaded * 100 / total) : 0;
-                bufferBar.setProgress(pct);
-                progressText.setText(df.format(downloaded / 1048576.0) + " MB | " + 
-                    (speed / 1024) + " KB/s | " + peers + " peers");
+            public void onError(String error) {
+                setStatus("❌ " + error);
+                LogUtils.e(TAG, "Engine error: " + error);
+            }
+            
+            @Override
+            public void onProgress(TorrentInfo info) {
+                runOnUiThread(() -> {
+                    bufferBar.setProgress(info.progress);
+                    progressText.setText(
+                        info.getDownloadedMB() + " | " + 
+                        info.getSpeedKB() + " | " + 
+                        info.getPeersInfo()
+                    );
+                });
             }
             
             @Override
             public void onStreamReady(File videoFile) {
                 MainActivity.this.videoFile = videoFile;
-                spinnerBar.setVisibility(View.GONE);
-                loadingOverlay.setVisibility(View.GONE);
-                btnWatch.setVisibility(View.VISIBLE);
-                btnWatch.setAlpha(0f);
-                btnWatch.animate().alpha(1f).setDuration(500);
-                titleText.setText("🎬 Pronto para streaming!");
+                streamServer.setVideoFile(videoFile);
+                
+                runOnUiThread(() -> {
+                    spinnerBar.setVisibility(View.GONE);
+                    loadingOverlay.setVisibility(View.GONE);
+                    btnWatch.setVisibility(View.VISIBLE);
+                    btnWatch.setAlpha(0f);
+                    btnWatch.animate().alpha(1f).setDuration(500);
+                    titleText.setText("🎬 Pronto para assistir!");
+                    setStatus("✅ " + FileUtils.formatFileSize(videoFile.length()) + " baixados");
+                });
             }
             
-            @Override public void onStatus(String status) { setStatus(status); }
+            @Override
+            public void onStatus(String status) {
+                setStatus(status);
+            }
         });
         
         // Stream Server
         streamServer = new StreamServer();
-        streamServer.setVideoProvider(new StreamServer.VideoProvider() {
-            @Override public File getVideoFile() { return videoFile; }
-            
-            @Override
-            public byte[] readChunk(long offset, int size) throws IOException {
-                byte[] data = new byte[size];
-                try (RandomAccessFile raf = new RandomAccessFile(videoFile, "r")) {
-                    raf.seek(offset);
-                    int read = raf.read(data);
-                    if (read > 0) {
-                        byte[] result = new byte[read];
-                        System.arraycopy(data, 0, result, 0, read);
-                        return result;
-                    }
-                }
-                return new byte[0];
-            }
-            
-            @Override public long getFileSize() { return videoFile != null ? videoFile.length() : 0; }
-            
-            @Override
-            public String getMimeType() {
-                if (videoFile == null) return "video/mp4";
-                String name = videoFile.getName().toLowerCase();
-                if (name.endsWith(".mkv")) return "video/x-matroska";
-                if (name.endsWith(".webm")) return "video/webm";
-                return "video/mp4";
-            }
-        });
-        
-        // Inicia
-        torrentEngine.init(savePath);
-        streamServer.start();
-        
-        // Botões
+    }
+    
+    private void setupListeners() {
         btnPlay.setOnClickListener(v -> startMagnet());
         btnTorrentFile.setOnClickListener(v -> openTorrentFile());
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         
-        setStatus("Aguardando magnet ou .torrent...");
+        // Player listener
+        playerManager.setPlayerListener(new ExoPlayerManager.PlayerListener() {
+            @Override
+            public void onPlayerReady() {
+                spinnerBar.setVisibility(View.GONE);
+                loadingOverlay.setVisibility(View.GONE);
+                setStatus("▶️ Reproduzindo...");
+            }
+            
+            @Override
+            public void onPlayerBuffering() {
+                spinnerBar.setVisibility(View.VISIBLE);
+                loadingOverlay.setVisibility(View.VISIBLE);
+                setStatus("🔄 Buffering...");
+            }
+            
+            @Override
+            public void onPlayerError(String error) {
+                setStatus("❌ Erro no player: " + error);
+            }
+            
+            @Override
+            public void onTracksAvailable(int audioTracks, int subtitleTracks) {
+                String msg = "▶️ Reproduzindo";
+                if (audioTracks > 1) msg += " [🎵 " + audioTracks + " áudios]";
+                if (subtitleTracks > 0) msg += " [📝 " + subtitleTracks + " legendas]";
+                setStatus(msg);
+            }
+        });
     }
     
     private void startMagnet() {
         String magnet = magnetInput.getText().toString().trim();
         if (magnet.startsWith("magnet:")) {
             startDownload(magnet);
+        } else {
+            Toast.makeText(this, "Cole um magnet link válido", Toast.LENGTH_SHORT).show();
         }
     }
     
     private void openTorrentFile() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        intent.setType("*/*");
+        intent.setType("application/x-bittorrent");
         startActivityForResult(intent, 100);
     }
     
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        
         if (requestCode == 100 && resultCode == RESULT_OK && data != null) {
             try {
-                InputStream is = getContentResolver().openInputStream(data.getData());
+                Uri uri = data.getData();
+                InputStream is = getContentResolver().openInputStream(uri);
                 File torrentFile = new File(savePath, "temp.torrent");
                 FileOutputStream fos = new FileOutputStream(torrentFile);
                 byte[] buf = new byte[8192];
                 int len;
-                while ((len = is.read(buf)) > 0) fos.write(buf, 0, len);
+                while ((len = is.read(buf)) > 0) {
+                    fos.write(buf, 0, len);
+                }
                 fos.close();
                 is.close();
+                
+                setStatus("📁 Arquivo .torrent carregado!");
                 startDownload(torrentFile.getAbsolutePath());
             } catch (Exception e) {
                 setStatus("❌ Erro ao ler arquivo");
+                LogUtils.e(TAG, "Erro ao abrir torrent", e);
             }
         }
     }
     
     private void startDownload(String source) {
+        // Inicia engine se necessário
+        if (!torrentEngine.isReady()) {
+            torrentEngine.start(savePath);
+            streamServer.start();
+        }
+        
+        // Mostra UI de download
         glassPanel.setVisibility(View.VISIBLE);
         bufferBar.setVisibility(View.VISIBLE);
         spinnerBar.setVisibility(View.VISIBLE);
@@ -177,26 +248,42 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
-        titleText.setText("⬇️ Baixando...");
         
-        torrentEngine.startDownload(source);
+        titleText.setText("⬇️ Baixando...");
+        bufferBar.setProgress(0);
+        progressText.setText("Conectando...");
+        
+        // Inicia download
+        torrentEngine.startDownload(source, savePath);
+        setStatus("🔍 Buscando peers...");
     }
     
     private void watch() {
-        if (videoFile == null) return;
+        if (videoFile == null || !videoFile.exists()) {
+            setStatus("❌ Arquivo não encontrado");
+            return;
+        }
         
+        // Esconde UI de download
         glassPanel.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
+        
+        // Mostra player
         playerView.setVisibility(View.VISIBLE);
         titleText.setText("▶️ Reproduzindo");
         
+        // Inicia reprodução
         playerManager.play("http://127.0.0.1:8080/video");
     }
     
     private void stop() {
+        // Para engine
         torrentEngine.stop();
+        
+        // Para player
         playerManager.stop();
         
+        // Reseta UI
         playerView.setVisibility(View.GONE);
         glassPanel.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
@@ -206,8 +293,10 @@ public class MainActivity extends AppCompatActivity {
         loadingOverlay.setVisibility(View.GONE);
         
         titleText.setText("🎬 Torrent Streaming");
-        progressText.setText("Pronto");
+        progressText.setText("Pronto para começar");
         setStatus("⏹️ Parado");
+        
+        videoFile = null;
     }
     
     private void setStatus(String msg) {
@@ -216,9 +305,13 @@ public class MainActivity extends AppCompatActivity {
     
     @Override
     protected void onDestroy() {
-        torrentEngine.destroy();
-        streamServer.stop();
-        playerManager.release();
+        LogUtils.d(TAG, "onDestroy");
+        
+        if (torrentEngine != null) torrentEngine.destroy();
+        if (streamServer != null) streamServer.stop();
+        if (playerManager != null) playerManager.release();
+        if (cacheManager != null) cacheManager.saveCacheIndex();
+        
         super.onDestroy();
     }
 }
