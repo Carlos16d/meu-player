@@ -19,7 +19,6 @@ import org.libtorrent4j.swig.*;
 
 import java.io.*;
 import java.net.*;
-import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
@@ -38,14 +37,6 @@ public class MainActivity extends AppCompatActivity {
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
-    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
-    
-    // Configurações de streaming
-    private static final int MIN_PIECES_TO_START = 20; // Peças iniciais para começar
-    private static final int PIECE_DEADLINE_MS = 2000; // 2 segundos por peça
-    private long fileSize = 0;
-    private int pieceLength = 0;
-    private int totalPieces = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -90,12 +81,23 @@ public class MainActivity extends AppCompatActivity {
         glow.setRepeatCount(Animation.INFINITE);
         titleText.startAnimation(glow);
         
-        // Inicia a sessão imediatamente
         new Thread(() -> {
             try { 
                 session = new SessionManager();
-                // Configura para alta velocidade
-                session.swig().apply_settings(createFastSettings());
+                // Configurações ultra rápidas
+                settings_pack sp = new settings_pack();
+                sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
+                sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20);
+                sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
+                sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 3);
+                sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
+                sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
+                sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
+                sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
+                sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 20);
+                sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 5000);
+                sp.set_bool(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true);
+                session.swig().apply_settings(sp);
                 session.start(); 
                 log("✅ Conectado à rede P2P"); 
             } catch (Exception e) { 
@@ -110,23 +112,6 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
         
         log("Pronto para streaming");
-    }
-    
-    private settings_pack createFastSettings() {
-        settings_pack sp = new settings_pack();
-        sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 500);
-        sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 20);
-        sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 5);
-        sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 5);
-        sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
-        sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
-        sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
-        sp.set_int(settings_pack.int_types.download_queue_size.swigValue(), 30);
-        sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 5);
-        sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 30);
-        sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 3000);
-        sp.set_bool(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true);
-        return sp;
     }
     
     private void log(String msg) {
@@ -186,29 +171,8 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            // 🎯 Prioriza as peças necessárias IMEDIATAMENTE
-            if (torrentHandle != null && torrentHandle.is_valid() && pieceLength > 0) {
-                int startPiece = (int)(s / pieceLength);
-                int endPiece = (e > 0) ? (int)(e / pieceLength) : (startPiece + 30);
-                
-                // Prioridade máxima para as peças que o player precisa agora
-                for (int j = startPiece; j <= Math.min(endPiece, totalPieces - 1); j++) {
-                    try {
-                        torrentHandle.set_piece_deadline(j, PIECE_DEADLINE_MS, torrent_handle.deadline_flags.alert_when_available.swigValue());
-                        torrentHandle.piece_priority(j, 7); // Prioridade máxima
-                    } catch (Exception ex) {}
-                }
-                
-                // Prioridade normal para as próximas peças
-                for (int j = endPiece + 1; j <= Math.min(endPiece + 50, totalPieces - 1); j++) {
-                    try {
-                        torrentHandle.piece_priority(j, 6);
-                    } catch (Exception ex) {}
-                }
-            }
-            
             File vf = videoFile;
-            if (vf == null || !vf.exists()) {
+            if (vf == null || !vf.exists() || vf.length() < 4096) {
                 o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); 
                 o.flush(); 
                 c.close(); 
@@ -216,17 +180,10 @@ public class MainActivity extends AppCompatActivity {
             }
             
             long len = vf.length();
-            if (len < 4096) {
-                o.write("HTTP/1.1 503\r\nRetry-After: 1\r\n\r\n".getBytes()); 
-                o.flush(); 
-                c.close(); 
-                return;
-            }
-            
             if (e == -1 || e >= len) e = len - 1;
             
-            String m = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
-            int sz = Math.min((int)(e - s + 1), 1048576); // Aumentado para 1MB
+            String mime = vf.getName().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            int sz = Math.min((int)(e - s + 1), 1048576);
             
             byte[] b = new byte[sz];
             RandomAccessFile raf = new RandomAccessFile(vf, "r");
@@ -234,10 +191,10 @@ public class MainActivity extends AppCompatActivity {
             int t = raf.read(b);
             raf.close();
             
-            // Se não conseguiu ler dados suficientes, tenta novamente rapidamente
+            // Tenta novamente se dados insuficientes
             int retries = 0;
             while (t < 4096 && retries < 20 && downloading) {
-                Thread.sleep(150); // Espera mais curta
+                Thread.sleep(150);
                 if (!vf.exists() || vf.length() <= s) continue;
                 raf = new RandomAccessFile(vf, "r");
                 raf.seek(s);
@@ -253,12 +210,11 @@ public class MainActivity extends AppCompatActivity {
                 return; 
             }
             
-            String resp = "HTTP/1.1 206\r\nContent-Type: " + m + "\r\n" +
+            String resp = "HTTP/1.1 206\r\nContent-Type: " + mime + "\r\n" +
                 "Content-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\n" +
                 "Content-Length: " + t + "\r\n" +
                 "Accept-Ranges: bytes\r\n" +
-                "Access-Control-Allow-Origin: *\r\n" +
-                "Connection: keep-alive\r\n\r\n";
+                "Access-Control-Allow-Origin: *\r\n\r\n";
             o.write(resp.getBytes()); 
             o.write(b, 0, t); 
             o.flush(); 
@@ -287,9 +243,6 @@ public class MainActivity extends AppCompatActivity {
         downloading = true;
         videoFile = null;
         torrentHandle = null;
-        fileSize = 0;
-        pieceLength = 0;
-        totalPieces = 0;
         
         handler.post(() -> {
             glassPanel.setVisibility(View.VISIBLE);
@@ -303,99 +256,53 @@ public class MainActivity extends AppCompatActivity {
             progressText.setText("Preparando...");
         });
         
-        log("Conectando a peers...");
+        log("🔍 Buscando peers...");
         
         new Thread(() -> {
             try {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
+                p.setDownload_limit(0);
+                p.setUpload_limit(0);
                 
-                // Configurações cruciais para streaming rápido
-                torrent_flags_t flags = new torrent_flags_t();
-                flags = flags.or_(torrent_flags_t.sequential_download);
-                flags = flags.or_(torrent_flags_t.auto_managed);
-                flags = flags.or_(torrent_flags_t.duplicate_is_error);
-                p.setFlags(flags);
-                
-                p.setDownload_limit(0); // Sem limite de download
-                p.setUpload_limit(0); // Sem limite de upload
-                
-                // Prioridade máxima para o primeiro arquivo de vídeo
                 byte_vector pr = new byte_vector();
-                pr.add((byte)7); // Prioridade máxima
+                pr.add((byte)7);
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
-                
-                // Aguarda o torrent ser adicionado
-                Thread.sleep(2000);
+                Thread.sleep(3000);
                 
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
+                    log("✅ Torrent adicionado");
                     
-                    // Aguarda metadados
-                    int waitCount = 0;
-                    while (!torrentHandle.status().get_has_metadata() && waitCount < 30 && downloading) {
-                        Thread.sleep(1000);
-                        waitCount++;
-                    }
-                    
-                    if (torrentHandle.status().get_has_metadata()) {
-                        torrent_info info = torrentHandle.torrent_file();
-                        fileSize = info.total_size();
-                        pieceLength = info.piece_length();
-                        totalPieces = info.num_pieces();
-                        
-                        log("📊 " + (fileSize/1048576) + "MB, " + totalPieces + " peças");
-                        
-                        // Configura download sequencial para streaming
-                        torrentHandle.set_sequential_download(true);
-                        
-                        // Prioriza as primeiras peças para começar rápido
-                        for (int j = 0; j < Math.min(MIN_PIECES_TO_START, totalPieces); j++) {
-                            torrentHandle.set_piece_deadline(j, PIECE_DEADLINE_MS);
-                            torrentHandle.piece_priority(j, 7);
-                        }
-                        
-                        // Define prioridade média para o resto
-                        for (int j = MIN_PIECES_TO_START; j < Math.min(200, totalPieces); j++) {
-                            torrentHandle.piece_priority(j, 4);
-                        }
-                        
-                        log("⚡ Baixando primeiras peças...");
-                        
-                        // Monitora o progresso
-                        while (downloading) {
-                            File f = findVideoFile(new File(savePath));
-                            if (f != null && f.length() > pieceLength * 2) { // Precisa de pelo menos 2 peças
+                    // SIMPLES: apenas espera o arquivo aparecer e ser grande o suficiente
+                    while (downloading) {
+                        File f = findVideoFile(new File(savePath));
+                        if (f != null && f.length() > 5242880) { // 5MB mínimo
+                            
+                            if (isValidVideoFile(f)) {
+                                videoFile = f;
+                                long downloadedMB = f.length() / 1048576;
                                 
-                                if (isValidVideoFile(f)) {
-                                    videoFile = f;
-                                    long downloadedMB = f.length() / 1048576;
-                                    long totalMB = fileSize / 1048576;
-                                    int pct = (int)((f.length() * 100) / fileSize);
+                                handler.post(() -> {
+                                    progressText.setText(String.format("%d MB baixados", downloadedMB));
+                                    bufferBar.setProgress(Math.min((int)((f.length() * 100) / 276134947L), 100));
                                     
-                                    handler.post(() -> {
-                                        bufferBar.setProgress(Math.min(pct, 100));
-                                        progressText.setText(String.format("%d MB de %d MB (%.1f%%)", 
-                                            downloadedMB, totalMB, (f.length() * 100.0 / fileSize)));
-                                        
-                                        // Libera para assistir assim que tiver as primeiras peças
-                                        if (btnWatch.getVisibility() != View.VISIBLE && downloadedMB > 5) {
-                                            spinnerBar.setVisibility(View.GONE);
-                                            loadingOverlay.setVisibility(View.GONE);
-                                            btnWatch.setVisibility(View.VISIBLE);
-                                            btnWatch.setAlpha(0f);
-                                            btnWatch.animate().alpha(1f).setDuration(500);
-                                            titleText.setText("🎬 Pronto para streaming!");
-                                            log("✅ Streaming disponível - " + downloadedMB + "MB baixados");
-                                        }
-                                    });
-                                }
+                                    if (btnWatch.getVisibility() != View.VISIBLE) {
+                                        spinnerBar.setVisibility(View.GONE);
+                                        loadingOverlay.setVisibility(View.GONE);
+                                        btnWatch.setVisibility(View.VISIBLE);
+                                        btnWatch.setAlpha(0f);
+                                        btnWatch.animate().alpha(1f).setDuration(500);
+                                        titleText.setText("🎬 Pronto para streaming!");
+                                        log("✅ " + downloadedMB + "MB - Streaming disponível!");
+                                    }
+                                });
                             }
-                            Thread.sleep(500); // Verificação mais frequente
                         }
+                        Thread.sleep(1000);
                     }
                 }
             } catch (Exception e2) { 
@@ -429,11 +336,10 @@ public class MainActivity extends AppCompatActivity {
             raf.read(header);
             raf.close();
             
-            // Verifica assinaturas de arquivos de vídeo comuns
             return (header[4]=='f' && header[5]=='t' && header[6]=='y' && header[7]=='p') || // MP4
                    ((header[0]&0xFF)==0x1A && header[1]==0x45 && header[2]==(byte)0xDF && header[3]==(byte)0xA3) || // MKV/WebM
                    (header[0]=='R' && header[1]=='I' && header[2]=='F' && header[3]=='F') || // AVI
-                   (header[0]==0x00 && header[1]==0x00 && header[2]==0x00 && header[3]=='m' && header[4]=='o' && header[5]=='o' && header[6]=='v'); // MOV
+                   (header[0]==0x00 && header[1]==0x00 && header[2]==0x00 && header[3]=='m'); // MOV
         } catch (Exception e) {
             return false;
         }
