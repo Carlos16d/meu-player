@@ -7,6 +7,7 @@ import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
+import org.libtorrent4j.Priority;
 import org.libtorrent4j.TorrentHandle;
 import org.libtorrent4j.TorrentStatus;
 import org.libtorrent4j.swig.torrent_flags_t;
@@ -17,10 +18,17 @@ import java.io.*;
 
 public class TorrentEngine {
     private SessionManager session;
+    private TorrentHandle torrentHandle;
     private boolean ready = false;
     private boolean downloading = false;
     private Handler handler;
     private EngineCallback callback;
+    
+    private int pieceLength = 0;
+    private long fileSize = 0;
+    
+    // Aguarda pelo menos 30MB antes de liberar streaming
+    private static final long MIN_STREAMING_BYTES = 30 * 1024 * 1024;
     
     public interface EngineCallback {
         void onReady();
@@ -41,7 +49,13 @@ public class TorrentEngine {
                 notifyStatus("Iniciando motor P2P...");
                 
                 session = new SessionManager();
-                session.start(new SessionParams());
+                SessionParams params = new SessionParams();
+                params.settings().setConnectionsLimit(50);
+                params.settings().setActiveDownloads(3);
+                params.settings().setDownloadRateLimit(0);
+                params.settings().setUploadRateLimit(1024 * 1024); // 1MB upload
+                
+                session.start(params);
                 
                 ready = true;
                 notifyReady();
@@ -63,17 +77,59 @@ public class TorrentEngine {
         
         new Thread(() -> {
             try {
-                notifyStatus("Conectando ao tracker...");
+                notifyStatus("Obtendo metadados...");
                 
                 File saveDir = new File(savePath);
                 torrent_flags_t flags = new torrent_flags_t();
+                flags = flags.or_(torrent_flags_t.sequential_download);
                 
-                // Metodo correto com 3 parametros
                 session.download(magnetUri, saveDir, flags);
+                Thread.sleep(5000);
                 
-                notifyStatus("Download iniciado! Aguardando dados...");
-                monitorProgress(savePath);
-                
+                torrent_handle_vector handles = session.swig().get_torrents();
+                if (handles.size() > 0) {
+                    torrent_handle th = handles.get(0);
+                    if (th.is_valid()) {
+                        torrentHandle = new TorrentHandle(th);
+                        
+                        // Aguarda metadados
+                        int waitCount = 0;
+                        while (!torrentHandle.status().hasMetadata() && waitCount < 60 && downloading) {
+                            Thread.sleep(1000);
+                            waitCount++;
+                            notifyStatus("Metadados... " + waitCount + "s");
+                        }
+                        
+                        if (torrentHandle.status().hasMetadata()) {
+                            fileSize = torrentHandle.status().total();
+                            pieceLength = fileSize / Math.max(torrentHandle.status().numPieces(), 1);
+                            
+                            notifyStatus("Metadados recebidos! " + (fileSize/1048576) + "MB");
+                            
+                            // Prioridade máxima nas primeiras peças
+                            int numPieces = torrentHandle.status().numPieces();
+                            int priorityPieces = Math.min(300, numPieces);
+                            
+                            Priority[] priorities = new Priority[numPieces];
+                            for (int i = 0; i < numPieces; i++) {
+                                if (i < priorityPieces) {
+                                    priorities[i] = Priority.MAX;
+                                } else {
+                                    priorities[i] = Priority.LOW;
+                                }
+                            }
+                            torrentHandle.prioritizePieces(priorities);
+                            
+                            // Deadlines agressivos nas primeiras peças
+                            for (int i = 0; i < Math.min(100, numPieces); i++) {
+                                torrentHandle.setPieceDeadline(i, 3000);
+                            }
+                            
+                            notifyStatus("Baixando para streaming...");
+                            monitorProgress(savePath);
+                        }
+                    }
+                }
             } catch (Exception e) {
                 notifyError("Erro: " + e.getMessage());
                 downloading = false;
@@ -83,6 +139,7 @@ public class TorrentEngine {
     
     private void monitorProgress(String savePath) {
         File videoFile = null;
+        boolean streamReady = false;
         
         while (downloading) {
             try {
@@ -90,42 +147,55 @@ public class TorrentEngine {
                 
                 TorrentInfo info = new TorrentInfo();
                 
-                if (session != null && session.swig() != null) {
-                    torrent_handle_vector handles = session.swig().get_torrents();
-                    if (handles.size() > 0) {
-                        torrent_handle th = handles.get(0);
-                        if (th.is_valid()) {
-                            TorrentHandle torrentHandle = new TorrentHandle(th);
-                            TorrentStatus status = torrentHandle.status();
-                            
-                            info.progress = (int)(status.progress() * 100);
-                            info.downloaded = status.totalDone();
-                            info.total = status.total();
-                            info.speed = status.downloadRate();
-                            info.peers = status.numPeers();
-                            info.seeds = status.numSeeds();
+                if (torrentHandle != null && torrentHandle.isValid()) {
+                    TorrentStatus status = torrentHandle.status();
+                    
+                    info.progress = (int)(status.progress() * 100);
+                    info.downloaded = status.totalDone();
+                    info.total = status.total();
+                    info.speed = status.downloadRate();
+                    info.peers = status.numPeers();
+                    info.seeds = status.numSeeds();
+                    
+                    // Verifica se já pode fazer streaming
+                    if (!streamReady && status.totalDone() >= MIN_STREAMING_BYTES) {
+                        // Verifica primeiras peças
+                        int firstPieces = 0;
+                        int totalFirstPieces = Math.min(100, status.numPieces());
+                        for (int i = 0; i < totalFirstPieces; i++) {
+                            if (torrentHandle.havePiece(i)) firstPieces++;
+                        }
+                        
+                        // Precisa ter pelo menos 80% das primeiras peças
+                        if (firstPieces >= totalFirstPieces * 0.8) {
+                            streamReady = true;
+                            videoFile = findVideoFile(new File(savePath));
+                            if (videoFile != null && videoFile.length() >= MIN_STREAMING_BYTES) {
+                                File f = videoFile;
+                                long mb = status.totalDone() / 1048576;
+                                notifyStatus("Streaming liberado! " + mb + "MB iniciais");
+                                handler.post(() -> callback.onStreamReady(f));
+                            }
+                        }
+                    }
+                    
+                    // Atualiza deadlines conforme o download avança
+                    if (streamReady && pieceLength > 0) {
+                        long downloadedBytes = status.totalDone();
+                        int currentPiece = (int)(downloadedBytes / pieceLength);
+                        // Mantém deadline nas próximas peças
+                        for (int i = currentPiece; i < Math.min(currentPiece + 50, status.numPieces()); i++) {
+                            torrentHandle.setPieceDeadline(i, 5000);
                         }
                     }
                 }
                 
-                if (info.progress == 0) {
-                    info.progress = 5;
-                }
+                if (info.progress == 0) info.progress = 2;
                 
                 handler.post(() -> callback.onProgress(info));
                 
-                if (videoFile == null) {
-                    videoFile = findVideoFile(new File(savePath));
-                }
-                
-                if (videoFile != null && videoFile.length() > 5242880) {
-                    File f = videoFile;
-                    handler.post(() -> callback.onStreamReady(f));
-                    break;
-                }
-                
             } catch (Exception e) {
-                // continua tentando
+                // continua
             }
         }
     }
