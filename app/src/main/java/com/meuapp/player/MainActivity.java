@@ -15,7 +15,6 @@ import androidx.appcompat.app.AppCompatActivity;
 
 import com.google.android.exoplayer2.*;
 import com.google.android.exoplayer2.source.*;
-import com.google.android.exoplayer2.source.hls.*;
 import com.google.android.exoplayer2.trackselection.*;
 import com.google.android.exoplayer2.ui.*;
 import com.google.android.exoplayer2.upstream.*;
@@ -49,12 +48,7 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private volatile boolean sessionReady = false;
     
-    // Estatísticas
     private long lastDownloaded = 0;
-    private long downloadSpeed = 0;
-    private long uploadSpeed = 0;
-    private int helpingPeers = 0;
-    private int totalPeers = 0;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -88,7 +82,6 @@ public class MainActivity extends AppCompatActivity {
         
         initializeSession();
         startServer();
-        startStatsUpdater();
         
         btnPlay.setOnClickListener(v -> start());
         btnStop.setOnClickListener(v -> stop());
@@ -106,7 +99,6 @@ public class MainActivity extends AppCompatActivity {
         playerView.setControllerShowTimeoutMs(3000);
         playerView.setKeepScreenOn(true);
         
-        // Listener para tracks
         player.addListener(new Player.Listener() {
             @Override
             public void onTracksChanged(Tracks tracks) {
@@ -161,51 +153,25 @@ public class MainActivity extends AppCompatActivity {
                 session = new SessionManager();
                 Thread.sleep(2000);
                 
-                session_handle swigSession = session.swig();
-                if (swigSession != null) {
+                session_handle sh = session.swig();
+                if (sh != null) {
                     settings_pack sp = new settings_pack();
                     
-                    // ===== CONFIGURAÇÕES DO ACE STREAM =====
-                    
-                    // Conexões (igual Ace Stream: 50)
+                    // Configurações que FUNCIONAM nesta versão
                     sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 50);
                     sp.set_int(settings_pack.int_types.unchoke_slots_limit.swigValue(), 10);
                     sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 3);
                     sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 5);
                     sp.set_int(settings_pack.int_types.active_limit.swigValue(), 20);
+                    sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
+                    sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 30);
+                    sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 5000);
                     
-                    // Cache de 1GB (igual Ace Stream)
-                    sp.set_int(settings_pack.int_types.cache_size.swigValue(), 1048576000);
-                    sp.set_int(settings_pack.int_types.cache_expiry.swigValue(), 600);
-                    sp.set_bool(settings_pack.bool_types.use_read_cache.swigValue(), true);
-                    sp.set_bool(settings_pack.bool_types.use_write_cache.swigValue(), true);
-                    
-                    // Desabilitado (igual Ace Stream: false)
-                    sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), false);  // DisableDHT: false
-                    sp.set_bool(settings_pack.bool_types.enable_lsd.swigValue(), false);  // DisablePEX: false
-                    sp.set_bool(settings_pack.bool_types.enable_upnp.swigValue(), false);  // DisableUPNP: false
-                    sp.set_bool(settings_pack.bool_types.enable_natpmp.swigValue(), false);
-                    
-                    // Upload ativo (DisableUpload: false)
-                    sp.set_bool(settings_pack.bool_types.rate_limit_utp.swigValue(), false);
-                    
-                    // Otimizações de streaming
                     sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
                     sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
                     sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
-                    sp.set_bool(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true);
                     
-                    // Timeouts otimizados
-                    sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
-                    sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 30);  // TorrentDisconnectTimeout: 30
-                    sp.set_int(settings_pack.int_types.inactivity_timeout.swigValue(), 60);
-                    sp.set_int(settings_pack.int_types.max_out_request_queue.swigValue(), 5000);
-                    
-                    // Sem limites de velocidade
-                    sp.set_int(settings_pack.int_types.download_rate_limit.swigValue(), 0);
-                    sp.set_int(settings_pack.int_types.upload_rate_limit.swigValue(), 0);
-                    
-                    swigSession.apply_settings(sp);
+                    sh.apply_settings(sp);
                     
                     sessionReady = true;
                     log("✅ Rede P2P pronta!");
@@ -213,37 +179,6 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e) { 
                 Log.e(TAG, "Erro sessão", e);
                 log("❌ Erro: " + e.getMessage());
-            }
-        }).start();
-    }
-    
-    private void startStatsUpdater() {
-        new Thread(() -> {
-            while (!Thread.interrupted()) {
-                try {
-                    Thread.sleep(1000);
-                    if (downloading && torrentHandle != null && torrentHandle.is_valid()) {
-                        torrent_status status = torrentHandle.status();
-                        
-                        long totalDone = status.get_total_done();
-                        downloadSpeed = totalDone - lastDownloaded;
-                        lastDownloaded = totalDone;
-                        uploadSpeed = status.get_total_upload();
-                        helpingPeers = status.get_num_seeds();
-                        totalPeers = status.get_num_peers();
-                        
-                        handler.post(() -> {
-                            String stats = String.format("⚡ DL: %d KB/s | UL: %d KB/s | 👥 %d/%d peers",
-                                downloadSpeed / 1024,
-                                uploadSpeed / 1024,
-                                helpingPeers,
-                                totalPeers);
-                            progressText.setText(stats);
-                        });
-                    }
-                } catch (Exception e) {
-                    // Ignora
-                }
             }
         }).start();
     }
@@ -265,7 +200,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void startServer() {
-        serverThread = new Thread(() -> {
+        new Thread(() -> {
             try {
                 ServerSocket server = new ServerSocket(8080, 50);
                 server.setReuseAddress(true);
@@ -282,9 +217,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (IOException e) {
                 Log.e(TAG, "Erro servidor", e);
             }
-        });
-        serverThread.setDaemon(true);
-        serverThread.start();
+        }).start();
     }
     
     private void handleHttp(Socket c) {
@@ -303,8 +236,7 @@ public class MainActivity extends AppCompatActivity {
             
             String corsHeaders = "Access-Control-Allow-Origin: *\r\n" +
                 "Access-Control-Allow-Methods: GET, OPTIONS\r\n" +
-                "Access-Control-Allow-Headers: Range\r\n" +
-                "Access-Control-Max-Age: 3600\r\n";
+                "Access-Control-Allow-Headers: Range\r\n\r\n";
             
             if (r.startsWith("OPTIONS")) {
                 o.write(("HTTP/1.1 200 OK\r\n" + corsHeaders + "\r\n").getBytes());
@@ -313,60 +245,54 @@ public class MainActivity extends AppCompatActivity {
                 return;
             }
             
-            long s = 0, e = -1;
+            long start = 0, end = -1;
             String l;
             while ((l = i.readLine()) != null && !l.isEmpty()) {
                 if (l.toLowerCase().startsWith("range:")) {
                     String x = l.substring(6).trim().replace("bytes=", "");
                     String[] p = x.split("-");
-                    s = Long.parseLong(p[0]);
-                    if (p.length > 1 && !p[1].isEmpty()) e = Long.parseLong(p[1]);
+                    start = Long.parseLong(p[0]);
+                    if (p.length > 1 && !p[1].isEmpty()) end = Long.parseLong(p[1]);
                 }
             }
             
             File vf = videoFile;
             if (vf == null || !vf.exists() || vf.length() < 4096) {
-                o.write(("HTTP/1.1 503 Service Unavailable\r\n" + corsHeaders + 
-                    "Retry-After: 1\r\n\r\n").getBytes()); 
+                o.write(("HTTP/1.1 503\r\n" + corsHeaders + "Retry-After: 1\r\n\r\n").getBytes()); 
                 o.flush(); 
                 c.close(); 
                 return;
             }
             
             long len = vf.length();
-            if (e == -1 || e >= len) e = len - 1;
+            if (end == -1 || end >= len) end = len - 1;
             
-            // Detecta MIME
             String mime = "video/mp4";
             String name = vf.getName().toLowerCase();
             if (name.endsWith(".mkv")) mime = "video/x-matroska";
             else if (name.endsWith(".webm")) mime = "video/webm";
-            else if (name.endsWith(".avi")) mime = "video/x-msvideo";
             
-            // Chunks de 2MB para streaming suave
-            int chunkSize = Math.min((int)(e - s + 1), 2097152);
+            int chunkSize = Math.min((int)(end - start + 1), 2097152);
             
             byte[] b = new byte[chunkSize];
             RandomAccessFile raf = new RandomAccessFile(vf, "r");
-            raf.seek(s);
+            raf.seek(start);
             int t = raf.read(b);
             raf.close();
             
-            // Espera dados (máximo 5 segundos)
             int retries = 0;
             while (t < 8192 && retries < 15 && downloading) {
                 Thread.sleep(300);
-                if (!vf.exists() || vf.length() <= s + t) continue;
+                if (!vf.exists() || vf.length() <= start + t) continue;
                 raf = new RandomAccessFile(vf, "r");
-                raf.seek(s);
+                raf.seek(start);
                 t = raf.read(b);
                 raf.close();
                 retries++;
             }
             
             if (t <= 1024) { 
-                o.write(("HTTP/1.1 503 Service Unavailable\r\n" + corsHeaders + 
-                    "Retry-After: 1\r\n\r\n").getBytes()); 
+                o.write(("HTTP/1.1 503\r\n" + corsHeaders + "Retry-After: 1\r\n\r\n").getBytes()); 
                 o.flush(); 
                 c.close(); 
                 return; 
@@ -374,10 +300,9 @@ public class MainActivity extends AppCompatActivity {
             
             String resp = "HTTP/1.1 206 Partial Content\r\n" +
                 "Content-Type: " + mime + "\r\n" +
-                "Content-Range: bytes " + s + "-" + (s+t-1) + "/" + len + "\r\n" +
+                "Content-Range: bytes " + start + "-" + (start+t-1) + "/" + len + "\r\n" +
                 "Content-Length: " + t + "\r\n" +
                 "Accept-Ranges: bytes\r\n" +
-                "Cache-Control: no-cache\r\n" +
                 corsHeaders + "\r\n";
             
             o.write(resp.getBytes()); 
@@ -421,7 +346,7 @@ public class MainActivity extends AppCompatActivity {
             btnStop.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
             playerView.setVisibility(View.GONE);
-            titleText.setText("⬇️ Prebuffering...");
+            titleText.setText("⬇️ Conectando...");
             bufferBar.setProgress(0);
         });
         
@@ -434,11 +359,8 @@ public class MainActivity extends AppCompatActivity {
                 p.setDownload_limit(0);
                 p.setUpload_limit(0);
                 
-                // PreloadCache: 50 peças (igual Ace Stream)
                 byte_vector pr = new byte_vector();
-                for (int i = 0; i < 50; i++) {
-                    pr.add((byte)7);
-                }
+                pr.add((byte)7);
                 p.set_file_priorities(pr);
                 
                 session.swig().async_add_torrent(p);
@@ -447,43 +369,33 @@ public class MainActivity extends AppCompatActivity {
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) {
                     torrentHandle = h.get(0);
+                    log("✅ Torrent adicionado");
                     
-                    // Aguarda metadados
-                    int waitCount = 0;
-                    while (!torrentHandle.status().has_metadata() && waitCount < 30 && downloading) {
-                        Thread.sleep(1000);
-                        waitCount++;
-                        final int count = waitCount;
-                        handler.post(() -> log("⏳ Obtendo metadados... " + count + "s"));
-                    }
-                    
-                    if (torrentHandle.status().has_metadata()) {
-                        log("✅ Torrent pronto!");
+                    // Aguarda arquivo aparecer
+                    while (downloading) {
+                        File f = findVideoFile(new File(savePath));
                         
-                        // Aguarda prebuffer (10MB mínimo)
-                        while (downloading) {
-                            File f = findVideoFile(new File(savePath));
-                            if (f != null && f.length() > 10485760 && isValidVideoFile(f)) { // 10MB
-                                videoFile = f;
-                                long downloadedMB = f.length() / 1048576;
+                        if (f != null && f.length() > 10485760 && isValidVideoFile(f)) {
+                            videoFile = f;
+                            long downloadedMB = f.length() / 1048576;
+                            
+                            handler.post(() -> {
+                                bufferBar.setProgress(Math.min((int)((f.length() * 100) / 276134947L), 100));
+                                progressText.setText(downloadedMB + " MB baixados");
                                 
-                                handler.post(() -> {
-                                    bufferBar.setProgress(Math.min((int)((f.length() * 100) / 276134947L), 100));
-                                    
-                                    if (btnWatch.getVisibility() != View.VISIBLE) {
-                                        spinnerBar.setVisibility(View.GONE);
-                                        loadingOverlay.setVisibility(View.GONE);
-                                        btnWatch.setVisibility(View.VISIBLE);
-                                        btnWatch.setAlpha(0f);
-                                        btnWatch.animate().alpha(1f).setDuration(500);
-                                        titleText.setText("🎬 Pronto para streaming!");
-                                        log("✅ " + downloadedMB + "MB - Áudio e legendas disponíveis!");
-                                    }
-                                });
-                                break;
-                            }
-                            Thread.sleep(1000);
+                                if (btnWatch.getVisibility() != View.VISIBLE) {
+                                    spinnerBar.setVisibility(View.GONE);
+                                    loadingOverlay.setVisibility(View.GONE);
+                                    btnWatch.setVisibility(View.VISIBLE);
+                                    btnWatch.setAlpha(0f);
+                                    btnWatch.animate().alpha(1f).setDuration(500);
+                                    titleText.setText("🎬 Pronto para streaming!");
+                                    log("✅ " + downloadedMB + "MB disponível!");
+                                }
+                            });
+                            break;
                         }
+                        Thread.sleep(1000);
                     }
                 }
             } catch (Exception e2) {
@@ -555,8 +467,6 @@ public class MainActivity extends AppCompatActivity {
         player.setMediaSource(mediaSource);
         player.prepare();
         player.setPlayWhenReady(true);
-        
-        log("🎬 Reproduzindo com suporte a múltiplas faixas");
     }
     
     private void stop() {
@@ -595,7 +505,6 @@ public class MainActivity extends AppCompatActivity {
             player.release();
             player = null;
         }
-        if (serverThread != null) serverThread.interrupt();
         if (session != null) {
             try { session.stop(); } catch (Exception e) {}
         }
