@@ -6,7 +6,9 @@ import android.os.Looper;
 import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.swig.*;
+import org.libtorrent4j.SessionParams;
+import org.libtorrent4j.TorrentHandle;
+import org.libtorrent4j.TorrentStatus;
 
 import java.io.*;
 
@@ -36,15 +38,11 @@ public class TorrentEngine {
                 notifyStatus("Iniciando motor P2P...");
                 
                 session = new SessionManager();
-                Thread.sleep(4000);
+                session.start(new SessionParams());
                 
-                if (session != null) {
-                    ready = true;
-                    notifyReady();
-                    notifyStatus("Motor P2P pronto!");
-                } else {
-                    notifyError("Falha ao criar sessao");
-                }
+                ready = true;
+                notifyReady();
+                notifyStatus("Motor P2P pronto!");
                 
             } catch (Exception e) {
                 notifyError("Erro: " + e.getMessage());
@@ -64,23 +62,12 @@ public class TorrentEngine {
             try {
                 notifyStatus("Conectando ao tracker...");
                 
-                // Usa a API correta: add_torrent_params
-                add_torrent_params params = libtorrent.parse_magnet_uri(magnetUri, new error_code());
-                params.setSave_path(savePath);
-                params.setDownload_limit(0);
-                params.setUpload_limit(0);
+                File saveDir = new File(savePath);
                 
-                // Tenta acessar a sessão nativa
-                session_handle sh = session.swig();
-                if (sh != null) {
-                    sh.async_add_torrent(params);
-                    notifyStatus("Download iniciado! Aguardando dados...");
-                } else {
-                    // Fallback: tenta método alternativo
-                    session.start();
-                    notifyStatus("Sessao iniciada. Aguardando...");
-                }
+                // Metodo oficial: SessionManager.download(String, File)
+                session.download(magnetUri, saveDir);
                 
+                notifyStatus("Download iniciado! Aguardando dados...");
                 monitorProgress(savePath);
                 
             } catch (Exception e) {
@@ -92,15 +79,36 @@ public class TorrentEngine {
     
     private void monitorProgress(String savePath) {
         File videoFile = null;
-        int seconds = 0;
         
         while (downloading) {
             try {
                 Thread.sleep(1000);
-                seconds++;
                 
                 TorrentInfo info = new TorrentInfo();
-                info.progress = Math.min(seconds, 99);
+                
+                // Usa a API real: SessionManager.swig().get_torrents()
+                if (session != null && session.swig() != null) {
+                    var handles = session.swig().get_torrents();
+                    if (handles.size() > 0) {
+                        var th = handles.get(0);
+                        if (th.is_valid()) {
+                            // Usa TorrentHandle e TorrentStatus reais
+                            TorrentHandle torrentHandle = new TorrentHandle(th);
+                            TorrentStatus status = torrentHandle.status();
+                            
+                            info.progress = (int)(status.progress() * 100);
+                            info.downloaded = status.totalDone();
+                            info.total = status.total();
+                            info.speed = status.downloadRate();
+                            info.peers = status.numPeers();
+                            info.seeds = status.numSeeds();
+                        }
+                    }
+                }
+                
+                if (info.progress == 0) {
+                    info.progress = 5;
+                }
                 
                 handler.post(() -> callback.onProgress(info));
                 
@@ -114,13 +122,8 @@ public class TorrentEngine {
                     break;
                 }
                 
-                if (seconds > 300) {
-                    notifyError("Timeout - arquivo nao encontrado");
-                    break;
-                }
-                
             } catch (Exception e) {
-                break;
+                // continua tentando
             }
         }
     }
