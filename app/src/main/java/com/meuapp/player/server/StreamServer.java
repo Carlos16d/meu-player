@@ -11,54 +11,24 @@ import fi.iki.elonen.NanoHTTPD;
 public class StreamServer extends NanoHTTPD {
     private static final String TAG = "StreamServer";
     private File videoFile;
-    private int actualPort;
     
     public StreamServer() {
         super(8080);
-        this.actualPort = 8080;
-    }
-    
-    public int getPort() {
-        return actualPort;
     }
     
     public void setVideoFile(File f) {
         this.videoFile = f;
-        Log.d(TAG, "Video: " + (f != null ? f.getName() + " " + f.length() : "null"));
-    }
-    
-    @Override
-    public void start() throws IOException {
-        try {
-            super.start();
-            Log.d(TAG, "Servidor iniciado na porta " + actualPort);
-        } catch (IOException e) {
-            if (e.getMessage().contains("EADDRINUSE") || e.getMessage().contains("Address already in use")) {
-                // Tenta porta alternativa
-                Log.w(TAG, "Porta 8080 ocupada, tentando 8081...");
-                // Fecha e recria na nova porta
-                try {
-                    stop();
-                } catch (Exception ex) {}
-                
-                // Não tem como mudar a porta no NanoHTTPD depois de criado
-                // Então vamos usar a porta 0 para auto-assign
-                Log.w(TAG, "Use porta 8080 - mate o processo anterior");
-                throw e;
-            }
-            throw e;
-        }
+        Log.d(TAG, "Video set: " + (f != null ? f.getName() + " " + f.length() : "null"));
     }
     
     @Override
     public Response serve(IHTTPSession session) {
         String uri = session.getUri();
         String rangeHeader = session.getHeaders().get("range");
-        
-        Log.d(TAG, "REQ: " + uri + " Range:" + rangeHeader);
+        String method = session.getMethod().name();
         
         if (!uri.contains("/video") || videoFile == null || !videoFile.exists()) {
-            Log.w(TAG, "404 - videoFile=" + (videoFile != null ? videoFile.exists() : "null"));
+            Log.w(TAG, "404");
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not Found");
         }
         
@@ -75,46 +45,40 @@ public class StreamServer extends NanoHTTPD {
                 }
             }
             
-            // Ajusta para não pedir além do disponível
-            if (start >= fileSize) {
-                start = fileSize - 262144;
-                if (start < 0) start = 0;
-            }
+            // Não pede além do disponível
+            if (start >= fileSize) start = Math.max(0, fileSize - 1048576);
             if (end >= fileSize) end = fileSize - 1;
             
-            int chunkSize = Math.min((int)(end - start + 1), 524288); // 512KB
+            // Chunk maior: até 1MB
+            int maxChunk = 1048576;
+            int chunkSize = Math.min((int)(end - start + 1), maxChunk);
             
             byte[] data = new byte[chunkSize];
             int bytesRead = 0;
-            int retries = 0;
             
-            // Aguarda dados (máximo 15 segundos)
-            while (bytesRead < 4096 && retries < 30) {
-                long currentSize = videoFile.length();
-                
-                if (currentSize > start) {
+            // Tenta ler - se não conseguir, espera um pouco
+            int retries = 0;
+            while (bytesRead < 8192 && retries < 20) {
+                if (videoFile.length() > start) {
                     RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
                     raf.seek(start);
                     bytesRead = raf.read(data);
                     raf.close();
                 }
-                
-                if (bytesRead < 4096) {
-                    Thread.sleep(500);
+                if (bytesRead < 8192) {
+                    Thread.sleep(300);
                     retries++;
                 }
             }
             
-            Log.d(TAG, "Serve: " + start + "+" + bytesRead + " (file:" + fileSize + " retries:" + retries + ")");
-            
-            // SEMPRE retorna o que tem, mesmo que pouco
-            if (bytesRead <= 0) {
-                bytesRead = 0;
-            }
+            // Se ainda não tem dados, retorna 206 com o que tem
+            if (bytesRead <= 0) bytesRead = 0;
             
             String mime = "video/mp4";
-            if (videoFile.getName().toLowerCase().endsWith(".mkv")) mime = "video/x-matroska";
-            else if (videoFile.getName().toLowerCase().endsWith(".webm")) mime = "video/webm";
+            String name = videoFile.getName().toLowerCase();
+            if (name.endsWith(".mkv")) mime = "video/x-matroska";
+            else if (name.endsWith(".webm")) mime = "video/webm";
+            else if (name.endsWith(".avi")) mime = "video/x-msvideo";
             
             byte[] respData = new byte[bytesRead];
             if (bytesRead > 0) {
@@ -123,24 +87,24 @@ public class StreamServer extends NanoHTTPD {
             
             ByteArrayInputStream bais = new ByteArrayInputStream(respData);
             Response response = newFixedLengthResponse(
-                bytesRead > 0 ? Response.Status.PARTIAL_CONTENT : Response.Status.NO_CONTENT, 
-                mime, 
-                bais, 
-                bytesRead
+                Response.Status.PARTIAL_CONTENT, mime, bais, bytesRead
             );
             
-            if (bytesRead > 0) {
-                response.addHeader("Content-Range", "bytes " + start + "-" + (start + bytesRead - 1) + "/" + fileSize);
-                response.addHeader("Content-Length", String.valueOf(bytesRead));
-            }
+            response.addHeader("Content-Range", "bytes " + start + "-" + (start + Math.max(0, bytesRead - 1)) + "/" + fileSize);
+            response.addHeader("Content-Length", String.valueOf(bytesRead));
             response.addHeader("Accept-Ranges", "bytes");
             response.addHeader("Access-Control-Allow-Origin", "*");
-            response.addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+            response.addHeader("Connection", "keep-alive");
+            
+            // Log a cada 10 requisições
+            if (start % 10485760 < 1048576) {
+                Log.d(TAG, "Served: " + start + "+" + bytesRead + " file:" + fileSize);
+            }
             
             return response;
             
         } catch (Exception e) {
-            Log.e(TAG, "Erro serve", e);
+            Log.e(TAG, "Error", e);
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error");
         }
     }
