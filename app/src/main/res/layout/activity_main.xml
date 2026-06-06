@@ -19,7 +19,6 @@
         android:visibility="gone"
         app:show_buffering="when_playing"
         app:use_controller="true"
-        app:controller_layout_id="@layout/exo_player_control_view"
         app:surface_type="texture_view"
         app:resize_mode="fit" />
     
@@ -77,6 +76,7 @@
             android:textColor="#fff"
             android:textSize="13sp" />
         
+        <!-- ⭐ AQUI ESTÃO OS BOTÕES - PRIMEIRA LINHA -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -93,6 +93,18 @@
                 android:textColor="#fff"
                 android:textStyle="bold"
                 android:textSize="12sp" />
+            
+            <Button
+                android:id="@+id/btn_torrent_file"
+                android:layout_width="0dp"
+                android:layout_height="44dp"
+                android:layout_weight="1"
+                android:layout_marginStart="8dp"
+                android:background="@drawable/btn_primary"
+                android:text="📁 .TORRENT"
+                android:textColor="#fff"
+                android:textStyle="bold"
+                android:textSize="11sp" />
             
             <Button
                 android:id="@+id/btn_watch"
