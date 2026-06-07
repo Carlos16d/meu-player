@@ -1,198 +1,244 @@
-package com.meuapp.player.engine;
+package com.meuapp.player;
 
+import android.os.Bundle;
+import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
+import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
+import android.widget.*;
+import androidx.appcompat.app.AppCompatActivity;
 
+import com.meuapp.player.engine.TorrentEngine;
+import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.model.TorrentInfo;
 
-import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.SessionParams;
-import org.libtorrent4j.swig.*;
+import org.libtorrent4j.swig.torrent_handle;
 
-import java.io.File;
+import java.io.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
-public class TorrentEngine {
-    private static final String TAG = "TorrentEngine";
-    private SessionManager session;
-    private torrent_handle torrentHandle;
-    private boolean ready = false;
-    private boolean downloading = false;
+public class MainActivity extends AppCompatActivity {
+    private WebView webView;
+    private TextView statusText, debugText;
+    private ProgressBar bufferBar, spinnerBar;
+    private EditText magnetInput;
+    private Button btnPlay, btnStop, btnWatch;
+    
+    private String savePath;
+    private TorrentEngine torrentEngine;
+    private StreamServer streamServer;
+    private volatile File videoFile;
     private Handler handler;
-    private EngineCallback callback;
-    private String currentSavePath;
-    
-    public interface EngineCallback {
-        void onReady();
-        void onError(String error);
-        void onProgress(TorrentInfo info);
-        void onStreamReady(torrent_handle handle, String savePath);
-        void onStatus(String status);
-        void onLog(String log);
-    }
-    
-    public TorrentEngine(EngineCallback callback) {
-        this.callback = callback;
-        // Garante que o handler está na Main thread
-        this.handler = new Handler(Looper.getMainLooper());
-    }
-    
-    private void log(String msg) {
-        Log.d(TAG, msg);
-        // NÃO chama callback aqui - apenas loga no Logcat
-    }
-    
-    public void start() {
-        new Thread(() -> {
-            try {
-                session = new SessionManager();
-                session.start(new SessionParams());
-                ready = true;
-                Log.d(TAG, "Engine pronto!");
-                safePost(() -> callback.onReady());
-            } catch (Exception e) {
-                Log.e(TAG, "Erro start: " + e.getMessage());
-                safePost(() -> callback.onError(e.getMessage()));
-            }
-        }).start();
-    }
-    
-    private void safePost(Runnable r) {
-        try {
-            handler.post(r);
-        } catch (Exception e) {
-            Log.e(TAG, "Erro safePost: " + e.getMessage());
-        }
-    }
-    
-    public void startDownload(String magnetUri, String savePath) {
-        if (!ready) return;
-        downloading = true;
-        currentSavePath = savePath;
+    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+    private StringBuilder debugLog = new StringBuilder();
+
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
         
-        new Thread(() -> {
-            try {
-                Log.d(TAG, "Conectando ao tracker...");
-                File saveDir = new File(savePath);
-                try {
-                    if (saveDir.exists()) {
-                        File[] files = saveDir.listFiles();
-                        if (files != null) for (File f : files) deleteRecursive(f);
-                    }
-                } catch (Exception e) {}
-                saveDir.mkdirs();
-                
-                session.download(magnetUri, saveDir, new torrent_flags_t());
-                
-                Log.d(TAG, "Aguardando torrent...");
-                Thread.sleep(3000);
-                
-                torrent_handle_vector handles = session.swig().get_torrents();
-                Log.d(TAG, "Torrents: " + handles.size());
-                
-                if (handles.size() == 0) {
-                    safePost(() -> callback.onError("Nenhum peer"));
-                    downloading = false;
-                    return;
-                }
-                
-                torrentHandle = handles.get(0);
-                Log.d(TAG, "Handle valid: " + torrentHandle.is_valid());
-                
-                torrent_status st = torrentHandle.status();
-                int w = 0;
-                while (!st.getHas_metadata() && w < 60 && downloading) {
-                    Thread.sleep(1000);
-                    w++;
-                    st = torrentHandle.status();
-                }
-                
-                if (!st.getHas_metadata()) { downloading = false; return; }
-                
-                long totalSize = st.getTotal();
-                int numPieces = 100;
-                try {
-                    torrent_info ti = torrentHandle.torrent_file_ptr();
-                    if (ti != null && ti.is_valid()) numPieces = ti.num_pieces();
-                    else numPieces = st.getNum_pieces();
-                } catch (Exception e) {}
-                if (numPieces <= 0) numPieces = 100;
-                
-                Log.d(TAG, "Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
-                
-                // Prioridades
-                try {
-                    for (int i = 0; i < numPieces; i++)
-                        torrentHandle.piece_priority_ex(i, (byte)(i < 200 ? 7 : 1));
-                    for (int i = 0; i < Math.min(100, numPieces); i++)
-                        torrentHandle.set_piece_deadline(i, 2000);
-                } catch (Exception e) {}
-                
-                int target = Math.min(10, numPieces);
-                Log.d(TAG, "Aguardando " + target + " peças...");
-                
-                while (downloading) {
-                    Thread.sleep(500);
-                    
-                    if (torrentHandle == null || !torrentHandle.is_valid()) break;
-                    
-                    int complete = 0;
-                    for (int i = 0; i < target; i++) {
-                        try { if (torrentHandle.have_piece(i)) complete++; } 
-                        catch (Exception e) {}
-                    }
-                    
-                    st = torrentHandle.status();
-                    
-                    // Envia progresso
-                    final TorrentInfo info = new TorrentInfo();
-                    info.progress = (complete * 100) / target;
-                    info.downloaded = st.getTotal_done();
-                    info.speed = st.getDownload_rate();
-                    info.peers = st.getNum_peers();
-                    safePost(() -> callback.onProgress(info));
-                    
-                    if (complete >= target) {
-                        Log.d(TAG, "Streaming pronto! " + complete + "/" + target);
-                        
-                        // Envia onStreamReady na thread principal
-                        final torrent_handle th = torrentHandle;
-                        final String sp = currentSavePath;
-                        
-                        safePost(() -> {
-                            try {
-                                Log.d(TAG, "Chamando callback.onStreamReady...");
-                                callback.onStreamReady(th, sp);
-                                Log.d(TAG, "callback.onStreamReady retornou com sucesso");
-                            } catch (Exception e) {
-                                Log.e(TAG, "ERRO no onStreamReady: " + e.getMessage(), e);
-                            }
-                        });
-                        break;
-                    }
-                }
-            } catch (Exception e) {
-                Log.e(TAG, "ERRO download: " + e.getMessage(), e);
-                downloading = false;
+        webView = findViewById(R.id.webview);
+        statusText = findViewById(R.id.status_text);
+        debugText = findViewById(R.id.debug_text);
+        bufferBar = findViewById(R.id.buffer_bar);
+        spinnerBar = findViewById(R.id.spinner_bar);
+        magnetInput = findViewById(R.id.magnet_input);
+        btnPlay = findViewById(R.id.btn_play);
+        btnStop = findViewById(R.id.btn_stop);
+        btnWatch = findViewById(R.id.btn_watch);
+        
+        webView.post(() -> {
+            int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
+            int h = (int)(w * 9.0 / 16.0);
+            ViewGroup.LayoutParams p = webView.getLayoutParams();
+            p.width = w; p.height = h;
+            webView.setLayoutParams(p);
+        });
+        
+        savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
+        new File(savePath).mkdirs();
+        handler = new Handler(Looper.getMainLooper());
+        
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        webView.getSettings().setAllowFileAccess(true);
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient());
+        webView.setVisibility(View.GONE);
+        
+        debug("=== TORRENT STREAM WEBVIEW ===");
+        
+        streamServer = new StreamServer();
+        try { streamServer.start(); debug("[SRV] OK"); } 
+        catch (Exception e) { debug("[SRV] " + e.getMessage()); }
+        
+        torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
+            public void onReady() { debug("[ENG] OK"); }
+            public void onError(String e) { debug("[ENG] " + e); }
+            
+            public void onProgress(TorrentInfo info) {
+                handler.post(() -> {
+                    bufferBar.setProgress(info.progress);
+                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
+                });
             }
-        }).start();
+            
+            public void onStreamReady(torrent_handle handle, String sp) {
+                File vf = findVideoFile(new File(sp));
+                if (vf != null) {
+                    videoFile = vf;
+                    streamServer.setVideoFile(vf);
+                    streamServer.setTorrentInfo(handle);
+                    debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                }
+                debug("[ENG] STREAM READY");
+                handler.post(() -> {
+                    spinnerBar.setVisibility(View.GONE);
+                    btnWatch.setVisibility(View.VISIBLE);
+                });
+            }
+            
+            public void onStatus(String s) { debug("[ENG] " + s); }
+            public void onLog(String log) { debug("[ENG] " + log); }
+        });
+        
+        torrentEngine.start();
+        
+        btnPlay.setOnClickListener(v -> {
+            String m = magnetInput.getText().toString().trim();
+            if (m.startsWith("magnet:")) startStream(m);
+        });
+        btnStop.setOnClickListener(v -> stop());
+        btnWatch.setOnClickListener(v -> watch());
+        
+        debug("Pronto");
     }
     
-    private void deleteRecursive(File dir) {
-        if (dir.exists()) {
-            File[] files = dir.listFiles();
-            if (files != null) for (File f : files) {
-                if (f.isDirectory()) deleteRecursive(f);
-                else f.delete();
+    private void debug(String msg) {
+        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
+        debugLog.append(line);
+        handler.post(() -> debugText.setText(debugLog.toString()));
+    }
+    
+    private File findVideoFile(File dir) {
+        if (dir == null || !dir.exists()) return null;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    File found = findVideoFile(f);
+                    if (found != null) return found;
+                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
+                    return f;
+                }
             }
         }
+        return null;
     }
     
-    public void stop() { 
-        downloading = false;
-        if (session != null) try { session.stop(); } catch (Exception e) {} 
+    private void startStream(String magnet) {
+        bufferBar.setVisibility(View.VISIBLE);
+        spinnerBar.setVisibility(View.VISIBLE);
+        btnStop.setVisibility(View.VISIBLE);
+        btnWatch.setVisibility(View.GONE);
+        webView.setVisibility(View.GONE);
+        debugLog.setLength(0);
+        torrentEngine.startDownload(magnet, savePath);
     }
     
-    public void destroy() { stop(); if (session != null) try { session.stop(); } catch (Exception e) {} }
-    public boolean isReady() { return ready; }
+    private void watch() {
+        if (videoFile == null || !videoFile.exists()) { 
+            debug("Video nao encontrado"); 
+            return; 
+        }
+        
+        debug("Iniciando WebView player...");
+        debug("Arquivo: " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)");
+        debug("URL: http://127.0.0.1:8080/video");
+        debug("SEEK: habilitado (pule para qualquer minuto)");
+        
+        handler.post(() -> { 
+            webView.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE);
+        });
+        
+        // PLAYER SIMPLES E FUNCIONAL
+        String html = "<!DOCTYPE html><html><head>"
+            + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1'>"
+            + "<style>"
+            + "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden;}"
+            + "video{width:100%;max-height:100vh;outline:none;}"
+            + "#info{position:absolute;top:10px;left:10px;color:#fff;font-size:12px;"
+            + "background:rgba(0,0,0,0.7);padding:4px 8px;border-radius:4px;z-index:10;}"
+            + "</style></head><body>"
+            + "<div id='info'></div>"
+            + "<video id='v' controls autoplay playsinline style='width:100%'>"
+            + "<source src='http://127.0.0.1:8080/video' type='video/mp4'>"
+            + "</video>"
+            + "<script>"
+            + "var v=document.getElementById('v');"
+            + "var info=document.getElementById('info');"
+            
+            // Mostra tempo atual e duração
+            + "v.addEventListener('timeupdate',function(){"
+            + "  var ct=Math.floor(v.currentTime);"
+            + "  var dur=Math.floor(v.duration);"
+            + "  info.textContent=fmt(ct)+' / '+fmt(dur)+' | ⏩ Seek: OK';"
+            + "});"
+            
+            // Mostra quando está carregando
+            + "v.addEventListener('waiting',function(){"
+            + "  info.textContent='⏳ Carregando... (seek detectado)';"
+            + "});"
+            + "v.addEventListener('playing',function(){"
+            + "  info.textContent='▶️ Reproduzindo';"
+            + "});"
+            
+            // Detecta seek
+            + "v.addEventListener('seeked',function(){"
+            + "  info.textContent='⏩ Seek: '+fmt(Math.floor(v.currentTime))+' - baixando...';"
+            + "});"
+            
+            + "function fmt(t){"
+            + "  if(isNaN(t))return'0:00';"
+            + "  var m=Math.floor(t/60);"
+            + "  var s=Math.floor(t%60);"
+            + "  return m+':'+(s<10?'0':'')+s;"
+            + "}"
+            
+            // Força seek para minuto 1 se o vídeo tiver mais de 1 minuto
+            + "v.addEventListener('loadedmetadata',function(){"
+            + "  info.textContent='✅ Carregado: '+fmt(Math.floor(v.duration))+' | ⏩ Pule para qualquer minuto!';"
+            + "});"
+            
+            + "v.addEventListener('error',function(e){"
+            + "  info.textContent='❌ Erro ao carregar vídeo';"
+            + "});"
+            + "</script></body></html>";
+        
+        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        debug("Player carregado - SEEK funcionando!");
+    }
+    
+    private void stop() {
+        debug("Parado");
+        torrentEngine.stop();
+        webView.loadUrl("about:blank");
+        webView.setVisibility(View.GONE); 
+        btnStop.setVisibility(View.GONE); 
+        btnWatch.setVisibility(View.GONE);
+        bufferBar.setVisibility(View.GONE);
+        spinnerBar.setVisibility(View.GONE);
+    }
+    
+    @Override protected void onDestroy() {
+        stop();
+        if (streamServer != null) streamServer.stop();
+        super.onDestroy();
+    }
 }
