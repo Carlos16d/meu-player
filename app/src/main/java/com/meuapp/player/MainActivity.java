@@ -71,13 +71,13 @@ public class MainActivity extends AppCompatActivity {
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
-        addLog("=== TORRENT STREAM VLC FINAL ===");
-        addLog("Limite: 2MB/s | Buffer: desligado");
+        addLog("=== TORRENT STREAM VLC DASH ===");
+        addLog("Limite: 2MB/s | Buffer: OFF | DASH: ON");
         
-        // VLC
+        // VLC Player
         ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=5000");
-        options.add("--file-caching=3000");
+        options.add("--network-caching=3000");
+        options.add("--file-caching=2000");
         options.add("--http-reconnect");
         options.add("--clock-synchro=0");
         libVLC = new LibVLC(this, options);
@@ -91,18 +91,18 @@ public class MainActivity extends AppCompatActivity {
                     case MediaPlayer.Event.Playing:
                         addLog("[VLC] ▶ Playing");
                         isPlayerActive = true;
-                        runOnUiThread(() -> loadingOverlay.setVisibility(View.GONE));
                         break;
                     case MediaPlayer.Event.Buffering:
-                        float pct = event.getBuffering();
-                        addLog("[VLC] 🔄 Buffering " + pct + "%");
-                        // SÓ mostra buffering quando o player estiver ativo
-                        if (isPlayerActive && pct < 100) {
-                            runOnUiThread(() -> loadingOverlay.setVisibility(View.VISIBLE));
+                        if (isPlayerActive) {
+                            addLog("[VLC] Buffering " + event.getBuffering() + "%");
                         }
                         break;
                     case MediaPlayer.Event.Stopped:
-                        addLog("[VLC] ⏹ Stopped");
+                        addLog("[VLC] Stopped");
+                        isPlayerActive = false;
+                        break;
+                    case MediaPlayer.Event.EndReached:
+                        addLog("[VLC] End");
                         isPlayerActive = false;
                         break;
                     case MediaPlayer.Event.EncounteredError:
@@ -120,13 +120,17 @@ public class MainActivity extends AppCompatActivity {
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers");
+                    progressText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers | " + (info.downloaded/1048576) + "MB");
                 });
             }
             
             public void onStreamReady(torrent_handle handle, String sp) {
-                streamServer.setSavePath(sp);
-                streamServer.setTorrent(handle);
+                // Procura o arquivo de vídeo e passa para o servidor
+                File videoFile = findVideoFile(new File(sp));
+                if (videoFile != null) {
+                    streamServer.setVideoFile(videoFile);
+                    addLog("[ENG] Video: " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)");
+                }
                 addLog("[ENG] ✅ STREAM READY");
                 runOnUiThread(() -> {
                     spinnerBar.setVisibility(View.GONE);
@@ -141,8 +145,12 @@ public class MainActivity extends AppCompatActivity {
         });
         
         streamServer = new StreamServer();
-        try { streamServer.start(); addLog("[SRV] HTTP:8080 OK"); }
-        catch (Exception e) { addLog("[SRV] ERRO: " + e.getMessage()); }
+        try { 
+            streamServer.start(); 
+            addLog("[SRV] ✅ HTTP:8080 OK"); 
+        } catch (Exception e) { 
+            addLog("[SRV] ❌ ERRO: " + e.getMessage()); 
+        }
         
         torrentEngine.start();
         
@@ -155,11 +163,28 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void addLog(String msg) {
-        String line = sdf.format(new Date()) + " " + msg + "\n";
+        String time = sdf.format(new Date());
+        String line = time + " " + msg + "\n";
         Log.d(TAG, msg);
         logBuilder.insert(0, line);
         if (logBuilder.length() > 15000) logBuilder.setLength(15000);
         runOnUiThread(() -> statusText.setText(logBuilder.toString()));
+    }
+    
+    private File findVideoFile(File dir) {
+        if (dir == null || !dir.exists()) return null;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    File found = findVideoFile(f);
+                    if (found != null) return found;
+                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
+                    return f;
+                }
+            }
+        }
+        return null;
     }
     
     private void requestPermissions() {
@@ -180,7 +205,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         videoLayout.setVisibility(View.GONE);
-        loadingOverlay.setVisibility(View.GONE); // SEM buffering durante preparação
+        loadingOverlay.setVisibility(View.GONE);
         titleText.setText("⬇️ Preparando stream...");
         isPlayerActive = false;
         torrentEngine.startDownload(magnet, savePath);
@@ -189,7 +214,7 @@ public class MainActivity extends AppCompatActivity {
     private void watch() {
         btnWatch.setVisibility(View.GONE);
         videoLayout.setVisibility(View.VISIBLE);
-        loadingOverlay.setVisibility(View.GONE); // SEM buffering inicial
+        loadingOverlay.setVisibility(View.GONE);
         titleText.setText("▶️ Reproduzindo");
         isPlayerActive = false;
         
@@ -198,9 +223,10 @@ public class MainActivity extends AppCompatActivity {
         
         Media media = new Media(libVLC, Uri.parse(url));
         media.setHWDecoderEnabled(true, true);
-        media.addOption(":network-caching=5000");
-        media.addOption(":file-caching=3000");
+        media.addOption(":network-caching=3000");
+        media.addOption(":file-caching=2000");
         media.addOption(":http-reconnect");
+        media.addOption(":clock-synchro=0");
         
         vlcPlayer.setMedia(media);
         media.release();
