@@ -8,7 +8,6 @@ import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
-import org.libtorrent4j.SettingsPack;
 import org.libtorrent4j.swig.*;
 
 import java.io.File;
@@ -34,27 +33,36 @@ public class TorrentEngine {
     
     public TorrentEngine(EngineCallback callback) {
         this.callback = callback;
+        // Garante que o handler está na Main thread
         this.handler = new Handler(Looper.getMainLooper());
     }
     
     private void log(String msg) {
         Log.d(TAG, msg);
-        try { handler.post(() -> callback.onLog(msg)); } catch (Exception e) {}
+        // NÃO chama callback aqui - apenas loga no Logcat
     }
     
     public void start() {
         new Thread(() -> {
             try {
-                log("Iniciando engine...");
                 session = new SessionManager();
                 session.start(new SessionParams());
                 ready = true;
-                log("Engine pronto!");
-                try { handler.post(() -> callback.onReady()); } catch (Exception e) {}
+                Log.d(TAG, "Engine pronto!");
+                safePost(() -> callback.onReady());
             } catch (Exception e) {
-                log("ERRO: " + e.getMessage());
+                Log.e(TAG, "Erro start: " + e.getMessage());
+                safePost(() -> callback.onError(e.getMessage()));
             }
         }).start();
+    }
+    
+    private void safePost(Runnable r) {
+        try {
+            handler.post(r);
+        } catch (Exception e) {
+            Log.e(TAG, "Erro safePost: " + e.getMessage());
+        }
     }
     
     public void startDownload(String magnetUri, String savePath) {
@@ -64,7 +72,7 @@ public class TorrentEngine {
         
         new Thread(() -> {
             try {
-                log("Conectando ao tracker...");
+                Log.d(TAG, "Conectando ao tracker...");
                 File saveDir = new File(savePath);
                 try {
                     if (saveDir.exists()) {
@@ -74,37 +82,31 @@ public class TorrentEngine {
                 } catch (Exception e) {}
                 saveDir.mkdirs();
                 
-                log("Chamando session.download()...");
                 session.download(magnetUri, saveDir, new torrent_flags_t());
                 
-                log("Aguardando torrent aparecer...");
+                Log.d(TAG, "Aguardando torrent...");
                 Thread.sleep(3000);
                 
-                log("Obtendo lista de torrents...");
                 torrent_handle_vector handles = session.swig().get_torrents();
-                log("Torrents encontrados: " + handles.size());
+                Log.d(TAG, "Torrents: " + handles.size());
                 
                 if (handles.size() == 0) {
-                    log("Nenhum peer encontrado");
+                    safePost(() -> callback.onError("Nenhum peer"));
                     downloading = false;
                     return;
                 }
                 
                 torrentHandle = handles.get(0);
-                log("Handle obtido, isValid=" + torrentHandle.is_valid());
+                Log.d(TAG, "Handle valid: " + torrentHandle.is_valid());
                 
                 torrent_status st = torrentHandle.status();
                 int w = 0;
-                log("Aguardando metadados... has_metadata=" + st.getHas_metadata());
-                
                 while (!st.getHas_metadata() && w < 60 && downloading) {
                     Thread.sleep(1000);
                     w++;
                     st = torrentHandle.status();
-                    if (w % 10 == 0) log("  " + w + "s... has_metadata=" + st.getHas_metadata() + " peers=" + st.getNum_peers());
                 }
                 
-                log("Metadados: " + (st.getHas_metadata() ? "RECEBIDOS" : "TIMEOUT") + " após " + w + "s");
                 if (!st.getHas_metadata()) { downloading = false; return; }
                 
                 long totalSize = st.getTotal();
@@ -116,7 +118,7 @@ public class TorrentEngine {
                 } catch (Exception e) {}
                 if (numPieces <= 0) numPieces = 100;
                 
-                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
+                Log.d(TAG, "Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
                 
                 // Prioridades
                 try {
@@ -124,101 +126,57 @@ public class TorrentEngine {
                         torrentHandle.piece_priority_ex(i, (byte)(i < 200 ? 7 : 1));
                     for (int i = 0; i < Math.min(100, numPieces); i++)
                         torrentHandle.set_piece_deadline(i, 2000);
-                    log("Prioridades configuradas");
-                } catch (Exception e) {
-                    log("Aviso prioridades: " + e.getMessage());
-                }
+                } catch (Exception e) {}
                 
-                // Aguarda peças iniciais
                 int target = Math.min(10, numPieces);
-                log("Aguardando " + target + " peças iniciais...");
-                
-                int lastComplete = -1;
+                Log.d(TAG, "Aguardando " + target + " peças...");
                 
                 while (downloading) {
                     Thread.sleep(500);
                     
-                    // Verifica se handle ainda é válido
-                    if (torrentHandle == null || !torrentHandle.is_valid()) {
-                        log("Handle ficou inválido durante espera!");
-                        break;
-                    }
+                    if (torrentHandle == null || !torrentHandle.is_valid()) break;
                     
-                    // Conta peças com segurança
                     int complete = 0;
-                    try {
-                        for (int i = 0; i < target; i++) {
-                            try {
-                                if (torrentHandle.have_piece(i)) complete++;
-                            } catch (Exception e) {}
-                        }
-                    } catch (Exception e) {
-                        log("Erro contando peças: " + e.getMessage());
+                    for (int i = 0; i < target; i++) {
+                        try { if (torrentHandle.have_piece(i)) complete++; } 
+                        catch (Exception e) {}
                     }
                     
-                    // Atualiza status
-                    try {
-                        st = torrentHandle.status();
-                    } catch (Exception e) {
-                        log("Erro status: " + e.getMessage());
-                        continue;
-                    }
+                    st = torrentHandle.status();
                     
-                    // Log apenas quando mudar
-                    if (complete != lastComplete) {
-                        lastComplete = complete;
-                        log("Peças: " + complete + "/" + target + " | " + (st.getDownload_rate()/1024) + "KB/s");
-                    }
+                    // Envia progresso
+                    final TorrentInfo info = new TorrentInfo();
+                    info.progress = (complete * 100) / target;
+                    info.downloaded = st.getTotal_done();
+                    info.speed = st.getDownload_rate();
+                    info.peers = st.getNum_peers();
+                    safePost(() -> callback.onProgress(info));
                     
-                    // Atualiza UI
-                    try {
-                        TorrentInfo info = new TorrentInfo();
-                        info.progress = (complete * 100) / target;
-                        info.downloaded = st.getTotal_done();
-                        info.speed = st.getDownload_rate();
-                        info.peers = st.getNum_peers();
-                        handler.post(() -> callback.onProgress(info));
-                    } catch (Exception e) {}
-                    
-                    // Verifica se atingiu o target
                     if (complete >= target) {
-                        log("✅ Streaming pronto! " + complete + "/" + target + " peças");
+                        Log.d(TAG, "Streaming pronto! " + complete + "/" + target);
                         
-                        final String sp = currentSavePath;
+                        // Envia onStreamReady na thread principal
                         final torrent_handle th = torrentHandle;
+                        final String sp = currentSavePath;
                         
-                        try {
-                            handler.post(() -> {
-                                try {
-                                    callback.onStreamReady(th, sp);
-                                } catch (Exception e) {
-                                    log("❌ ERRO no callback onStreamReady: " + e.getMessage());
-                                    Log.e(TAG, "Callback error", e);
-                                }
-                            });
-                            log("Callback onStreamReady enviado com sucesso");
-                        } catch (Exception e) {
-                            log("❌ ERRO ao enviar callback: " + e.getMessage());
-                        }
-                        break;
-                    }
-                    
-                    // Timeout de segurança
-                    if (st.getDownload_rate() == 0 && complete == 0 && 
-                        (System.currentTimeMillis() - startTime) > 30000) {
-                        log("Timeout - sem progresso por 30s");
+                        safePost(() -> {
+                            try {
+                                Log.d(TAG, "Chamando callback.onStreamReady...");
+                                callback.onStreamReady(th, sp);
+                                Log.d(TAG, "callback.onStreamReady retornou com sucesso");
+                            } catch (Exception e) {
+                                Log.e(TAG, "ERRO no onStreamReady: " + e.getMessage(), e);
+                            }
+                        });
                         break;
                     }
                 }
             } catch (Exception e) {
-                log("❌ ERRO FATAL: " + e.getMessage());
-                Log.e(TAG, "Erro download", e);
+                Log.e(TAG, "ERRO download: " + e.getMessage(), e);
                 downloading = false;
             }
         }).start();
     }
-    
-    private long startTime;
     
     private void deleteRecursive(File dir) {
         if (dir.exists()) {
