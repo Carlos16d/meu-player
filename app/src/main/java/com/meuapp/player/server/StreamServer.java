@@ -20,9 +20,9 @@ public class StreamServer extends NanoHTTPD {
     private long bytesServed = 0;
     private String fileName = "video.mp4";
     
-    // CACHE EM MEMÓRIA
+    // CACHE 100% EM MEMÓRIA
     private Map<Integer, byte[]> pieceCache = new ConcurrentHashMap<>();
-    private Set<Integer> requestedPieces = new HashSet<>();
+    private Set<Integer> pendingPieces = new HashSet<>();
     
     public StreamServer() { 
         super(8080); 
@@ -38,8 +38,85 @@ public class StreamServer extends NanoHTTPD {
                 this.numPieces = ti.num_pieces();
                 this.fileName = ti.name();
                 Log.d(TAG, "Torrent: " + (fileSize/1048576) + "MB, " + numPieces + " peças, " + (pieceLength/1024) + "KB");
+                
+                // Inicia thread de leitura de peças
+                startPieceReader();
             }
         }
+    }
+    
+    private void startPieceReader() {
+        new Thread(() -> {
+            while (torrentHandle != null && torrentHandle.is_valid()) {
+                try {
+                    // Popula cache com peças disponíveis
+                    for (int i = 0; i < numPieces && pieceCache.size() < 100; i++) {
+                        if (!pieceCache.containsKey(i) && torrentHandle.have_piece(i)) {
+                            // Lê a peça do torrent (read_piece é assíncrono)
+                            // Usamos o arquivo em disco como fonte (libtorrent salva automaticamente)
+                            byte[] data = readPieceFromTorrent(i);
+                            if (data != null) {
+                                pieceCache.put(i, data);
+                            }
+                        }
+                    }
+                    Thread.sleep(1000);
+                } catch (Exception e) {
+                    Log.e(TAG, "Erro reader", e);
+                }
+            }
+        }).start();
+    }
+    
+    private byte[] readPieceFromTorrent(int pieceIndex) {
+        // O libtorrent armazena as peças no arquivo de save_path
+        // Vamos ler diretamente de lá
+        if (torrentHandle == null) return null;
+        
+        try {
+            torrent_status st = torrentHandle.status();
+            String savePath = st.getSave_path();
+            String name = st.getName();
+            
+            if (savePath != null && name != null) {
+                // Procura o arquivo
+                File dir = new File(savePath);
+                File videoFile = findFileRecursive(dir);
+                
+                if (videoFile != null && videoFile.exists()) {
+                    long offset = (long)pieceIndex * pieceLength;
+                    int len = (int)Math.min(pieceLength, videoFile.length() - offset);
+                    
+                    if (len > 0 && offset < videoFile.length()) {
+                        byte[] data = new byte[len];
+                        RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
+                        raf.seek(offset);
+                        raf.readFully(data);
+                        raf.close();
+                        return data;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Erro lendo peça " + pieceIndex, e);
+        }
+        return null;
+    }
+    
+    private File findFileRecursive(File dir) {
+        if (dir == null || !dir.exists()) return null;
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    File found = findFileRecursive(f);
+                    if (found != null) return found;
+                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
+                    return f;
+                }
+            }
+        }
+        return null;
     }
     
     public String getStats() {
@@ -65,7 +142,7 @@ public class StreamServer extends NanoHTTPD {
                 if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
             }
             
-            if (start >= fileSize) start = Math.max(0, fileSize - 524288);
+            if (start >= fileSize) start = Math.max(0, fileSize - 262144);
             if (end >= fileSize) end = fileSize - 1;
             
             int chunkSize = Math.min((int)(end - start + 1), 262144);
@@ -75,7 +152,7 @@ public class StreamServer extends NanoHTTPD {
             bytesServed += data.length;
             
             if (totalRequests % 50 == 0) {
-                Log.d(TAG, "#" + totalRequests + " Range:" + start + "+" + data.length + " fileSize:" + fileSize);
+                Log.d(TAG, "#" + totalRequests + " Range:" + start + "+" + data.length + " cache:" + pieceCache.size());
             }
             
             String mime = "video/mp4";
@@ -98,36 +175,23 @@ public class StreamServer extends NanoHTTPD {
     }
     
     private byte[] readFromCache(long offset, int size) {
-        if (torrentHandle == null || pieceLength <= 0) return new byte[0];
+        if (pieceLength <= 0) return new byte[0];
         
         int startPiece = (int)(offset / pieceLength);
-        int endPiece = (int)((offset + size - 1) / pieceLength);
         int pieceOffset = (int)(offset % pieceLength);
         
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        long currentOffset = offset;
         int remaining = size;
+        long currentOffset = offset;
         
-        for (int i = startPiece; i <= Math.min(endPiece, numPieces - 1) && remaining > 0; i++) {
+        for (int i = startPiece; i < numPieces && remaining > 0; i++) {
             byte[] pieceData = pieceCache.get(i);
             
             if (pieceData == null) {
-                // Peça não está no cache - tenta ler do torrent
-                if (torrentHandle.have_piece(i)) {
-                    // Lê a peça do disco (libtorrent salva automaticamente)
-                    pieceData = readPieceFromDisk(i);
-                    if (pieceData != null) {
-                        pieceCache.put(i, pieceData);
-                        Log.d(TAG, "Peça " + i + " carregada no cache (" + (pieceData.length/1024) + "KB)");
-                    }
-                } else {
-                    // Força prioridade nesta peça
-                    if (!requestedPieces.contains(i)) {
-                        torrentHandle.piece_priority_ex(i, (byte)7);
-                        torrentHandle.set_piece_deadline(i, 500);
-                        requestedPieces.add(i);
-                        Log.d(TAG, "Solicitando peça " + i);
-                    }
+                // Tenta ler na hora
+                pieceData = readPieceFromTorrent(i);
+                if (pieceData != null) {
+                    pieceCache.put(i, pieceData);
                 }
             }
             
@@ -136,80 +200,20 @@ public class StreamServer extends NanoHTTPD {
                 int dataLen = Math.min(remaining, pieceData.length - dataOffset);
                 if (dataLen > 0) {
                     baos.write(pieceData, dataOffset, dataLen);
-                    currentOffset += dataLen;
                     remaining -= dataLen;
+                    currentOffset += dataLen;
                 }
             } else {
-                // Peça não disponível - preenche com zeros
+                // Peça não disponível - preenche com zeros (vai dar glitch mas não trava)
                 int fillLen = Math.min(remaining, pieceLength - ((i == startPiece) ? pieceOffset : 0));
                 if (fillLen > 0) {
                     baos.write(new byte[fillLen], 0, fillLen);
                     remaining -= fillLen;
                 }
+                break; // Para de tentar se não tem a peça
             }
-        }
-        
-        // Limpa requestedPieces se muito grande
-        if (requestedPieces.size() > 200) {
-            requestedPieces.clear();
         }
         
         return baos.toByteArray();
-    }
-    
-    private byte[] readPieceFromDisk(int pieceIndex) {
-        if (torrentHandle == null || !torrentHandle.is_valid()) return null;
-        
-        try {
-            // O libtorrent salva as peças em um arquivo oculto
-            // Tenta encontrar o arquivo de dados
-            torrent_status st = torrentHandle.status();
-            String savePath = st.getSave_path();
-            String name = st.getName();
-            
-            if (savePath != null && name != null) {
-                File dir = new File(savePath);
-                File videoFile = findVideoFile(dir, name);
-                
-                if (videoFile != null && videoFile.exists()) {
-                    long offset = (long)pieceIndex * pieceLength;
-                    int len = (int)Math.min(pieceLength, videoFile.length() - offset);
-                    
-                    if (len > 0 && offset < videoFile.length()) {
-                        byte[] data = new byte[len];
-                        RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                        raf.seek(offset);
-                        raf.readFully(data);
-                        raf.close();
-                        return data;
-                    }
-                }
-            }
-        } catch (Exception e) {
-            Log.e(TAG, "Erro lendo peça " + pieceIndex, e);
-        }
-        return null;
-    }
-    
-    private File findVideoFile(File dir, String name) {
-        if (dir == null || !dir.exists()) return null;
-        
-        // Primeiro procura pelo nome exato
-        File exact = new File(dir, name);
-        if (exact.exists()) return exact;
-        
-        // Depois procura recursivamente
-        File[] files = dir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    File found = findVideoFile(f, name);
-                    if (found != null) return found;
-                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
-                    return f;
-                }
-            }
-        }
-        return null;
     }
 }
