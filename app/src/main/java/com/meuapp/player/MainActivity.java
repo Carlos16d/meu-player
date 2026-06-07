@@ -74,19 +74,16 @@ public class MainActivity extends AppCompatActivity {
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
-        addLog("App iniciado v3");
+        addLog("=== APP INICIADO ===");
+        addLog("Save: " + savePath);
         
-        // Configura ExoPlayer com software decoding para áudio
+        // ExoPlayer com software decoding
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
         
         exoPlayer = new SimpleExoPlayer.Builder(this, renderersFactory)
             .setTrackSelector(new DefaultTrackSelector(this))
-            .setAudioAttributes(new AudioAttributes.Builder()
-                .setUsage(C.USAGE_MEDIA)
-                .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-                .build(), true)
             .build();
         
         playerView.setPlayer(exoPlayer);
@@ -105,7 +102,7 @@ public class MainActivity extends AppCompatActivity {
                         audioTracks += group.length;
                         for (int i = 0; i < group.length; i++) {
                             Format f = group.getTrackFormat(i);
-                            addLog("🎵 Audio " + i + ": " + f.language + " " + f.sampleMimeType);
+                            addLog("🎵 Audio " + i + ": " + f.language + " " + f.sampleMimeType + " " + f.codecs);
                         }
                     }
                     if (group.getMediaTrackGroup().type == C.TRACK_TYPE_TEXT) {
@@ -117,8 +114,8 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 
-                if (audioTracks > 1) addLog("🎵 MULTI-AUDIO: " + audioTracks + " faixas");
-                if (subtitleTracks > 0) addLog("📝 LEGENDAS: " + subtitleTracks + " faixas");
+                if (audioTracks > 0) addLog("🎵 " + audioTracks + " faixa(s) de áudio");
+                if (subtitleTracks > 0) addLog("📝 " + subtitleTracks + " faixa(s) de legenda");
             }
             
             @Override
@@ -129,39 +126,57 @@ public class MainActivity extends AppCompatActivity {
                     case Player.STATE_BUFFERING: s = "BUFFERING"; break;
                     case Player.STATE_READY: s = "READY"; break;
                     case Player.STATE_ENDED: s = "ENDED"; break;
-                    default: s = "?"; break;
+                    default: s = "STATE_" + state; break;
                 }
-                addLog("Player: " + s);
-                loadingOverlay.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
-                loadingText.setText(state == Player.STATE_BUFFERING ? "Buffering..." : "");
+                addLog("▶️ Player: " + s);
+                
+                runOnUiThread(() -> {
+                    loadingOverlay.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
+                    loadingText.setText(state == Player.STATE_BUFFERING ? "Buffering..." : "");
+                });
             }
             
             @Override
             public void onPlayerError(PlaybackException error) {
-                addLog("ERRO: " + error.getErrorCodeName() + " - " + error.getMessage());
+                addLog("❌ ERRO PLAYER: " + error.getErrorCodeName());
+                addLog("   Msg: " + error.getMessage());
+                if (error.getCause() != null) {
+                    addLog("   Cause: " + error.getCause().getMessage());
+                }
+            }
+            
+            @Override
+            public void onIsPlayingChanged(boolean isPlaying) {
+                addLog("   Playing: " + isPlaying);
             }
         });
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { addLog("Engine pronto"); }
-            public void onError(String e) { addLog("ERRO Engine: " + e); }
+            public void onReady() { addLog("✅ Engine pronto"); }
+            public void onError(String e) { addLog("❌ Engine: " + e); }
+            
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + "p");
+                    progressText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers | " + (info.downloaded/1048576) + "MB");
                 });
             }
+            
             public void onStreamReady(File f) {
                 videoFile = f;
                 streamServer.setVideoFile(f);
-                addLog("READY: " + (f.length()/1048576) + "MB");
+                addLog("✅ STREAM READY: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
                 runOnUiThread(() -> {
                     loadingOverlay.setVisibility(View.GONE);
+                    loadingText.setText("");
                     btnWatch.setVisibility(View.VISIBLE);
-                    titleText.setText("🎬 Pronto!");
+                    titleText.setText("🎬 Pronto! Clique ASSISTIR");
                 });
             }
-            public void onStatus(String s) { addLog(s); }
+            
+            public void onStatus(String s) { 
+                addLog("📡 " + s);
+            }
         });
         
         streamServer = new StreamServer();
@@ -169,27 +184,37 @@ public class MainActivity extends AppCompatActivity {
         try {
             streamServer.start();
             torrentEngine.start();
-            addLog("OK");
+            addLog("✅ Servidor HTTP:8080 + Engine iniciados");
         } catch (Exception e) {
-            addLog("ERRO: " + e.getMessage());
+            addLog("❌ ERRO ao iniciar: " + e.getMessage());
         }
         
         btnStream.setOnClickListener(v -> {
             String m = magnetInput.getText().toString().trim();
             if (m.startsWith("magnet:")) {
-                addLog("Iniciando...");
+                addLog("🔗 Iniciando stream...");
                 startStream(m);
             }
         });
-        btnStop.setOnClickListener(v -> stop());
-        btnWatch.setOnClickListener(v -> watch());
+        
+        btnStop.setOnClickListener(v -> {
+            addLog("⏹️ PARAR");
+            stop();
+        });
+        
+        btnWatch.setOnClickListener(v -> {
+            addLog("▶️ ASSISTIR - " + streamServer.getStats());
+            addLog("   Arquivo: " + (videoFile != null ? videoFile.length()/1048576 + "MB" : "null"));
+            watch();
+        });
     }
     
     private void addLog(String msg) {
-        String line = sdf.format(new Date()) + " " + msg + "\n";
+        String time = sdf.format(new Date());
+        String line = time + " " + msg + "\n";
         Log.d(TAG, msg);
         logBuilder.insert(0, line);
-        if (logBuilder.length() > 8000) logBuilder.setLength(8000);
+        if (logBuilder.length() > 10000) logBuilder.setLength(10000);
         runOnUiThread(() -> statusText.setText(logBuilder.toString()));
     }
     
@@ -212,7 +237,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
-        titleText.setText("⬇️ Preparando...");
+        titleText.setText("⬇️ Preparando stream...");
         torrentEngine.startDownload(magnet, savePath);
     }
     
@@ -220,13 +245,15 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
-        loadingText.setText("Abrindo...");
+        loadingText.setText("Abrindo player...");
+        titleText.setText("▶️ Reproduzindo");
         
         Uri videoUri = Uri.parse("http://127.0.0.1:8080/video");
         
         DataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(60000);
+            .setReadTimeoutMs(60000)
+            .setAllowCrossProtocolRedirects(true);
         
         ProgressiveMediaSource.Factory mediaSourceFactory = 
             new ProgressiveMediaSource.Factory(dataSourceFactory);
@@ -236,6 +263,8 @@ public class MainActivity extends AppCompatActivity {
         exoPlayer.setMediaSource(mediaSource);
         exoPlayer.prepare();
         exoPlayer.setPlayWhenReady(true);
+        
+        addLog("▶️ Player iniciado com URL: http://127.0.0.1:8080/video");
     }
     
     private void stop() {
@@ -246,15 +275,18 @@ public class MainActivity extends AppCompatActivity {
         }
         playerView.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
+        loadingText.setText("");
         btnStop.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
         titleText.setText("🎬 Torrent Stream");
         progressText.setText("Pronto");
+        addLog("⏹️ Reprodução parada");
     }
     
     @Override
     protected void onDestroy() {
+        addLog("💀 onDestroy");
         if (torrentEngine != null) torrentEngine.destroy();
         if (streamServer != null) streamServer.stop();
         if (exoPlayer != null) exoPlayer.release();
