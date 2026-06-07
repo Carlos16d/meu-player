@@ -63,7 +63,7 @@ public class TorrentEngine {
                 log("Engine pronto!");
                 try { handler.post(() -> callback.onReady()); } catch (Exception e) {}
             } catch (Exception e) {
-                log("ERRO: " + e.getMessage());
+                log("ERRO start: " + e.getMessage());
                 try { handler.post(() -> callback.onError(e.getMessage())); } catch (Exception ex) {}
             }
         }).start();
@@ -86,44 +86,62 @@ public class TorrentEngine {
                 } catch (Exception e) {}
                 saveDir.mkdirs();
                 
+                log("Chamando session.download()...");
                 session.download(magnetUri, saveDir, new torrent_flags_t());
                 
-                log("Aguardando torrent...");
+                log("Aguardando torrent aparecer...");
                 Thread.sleep(3000);
                 
+                log("Obtendo lista de torrents...");
                 torrent_handle_vector handles = session.swig().get_torrents();
+                log("Torrents encontrados: " + handles.size());
+                
                 if (handles.size() == 0) {
-                    log("Nenhum peer");
+                    log("Nenhum peer encontrado");
                     downloading = false;
                     return;
                 }
                 
                 torrentHandle = handles.get(0);
+                log("Handle obtido, isValid=" + torrentHandle.is_valid());
                 
                 torrent_status st = torrentHandle.status();
                 int w = 0;
+                log("Aguardando metadados... has_metadata=" + st.getHas_metadata());
+                
                 while (!st.getHas_metadata() && w < 60 && downloading) {
                     Thread.sleep(1000);
                     w++;
                     st = torrentHandle.status();
+                    if (w % 10 == 0) log("  " + w + "s... has_metadata=" + st.getHas_metadata() + " peers=" + st.getNum_peers());
                 }
+                
+                log("Metadados: " + (st.getHas_metadata() ? "RECEBIDOS" : "TIMEOUT") + " após " + w + "s");
                 
                 if (!st.getHas_metadata()) { downloading = false; return; }
                 
                 long totalSize = st.getTotal();
                 torrent_info ti = torrentHandle.torrent_file_ptr();
-                int numPieces = ti != null ? ti.num_pieces() : 100;
+                int numPieces = ti != null ? ti.num_pieces() : st.getNum_pieces();
+                if (numPieces <= 0) numPieces = 100;
                 
-                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
+                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers, " + (st.getDownload_rate()/1024) + "KB/s");
                 
+                // Prioridades
                 try {
                     for (int i = 0; i < numPieces; i++)
                         torrentHandle.piece_priority_ex(i, (byte)(i < 200 ? 7 : 1));
                     for (int i = 0; i < Math.min(100, numPieces); i++)
                         torrentHandle.set_piece_deadline(i, 2000);
-                } catch (Exception e) {}
+                    log("Prioridades configuradas");
+                } catch (Exception e) {
+                    log("Erro prioridades: " + e.getMessage());
+                }
                 
+                // Aguarda peças iniciais
                 int target = Math.min(10, numPieces);
+                log("Aguardando " + target + " peças iniciais...");
+                
                 while (downloading) {
                     Thread.sleep(500);
                     int complete = 0;
@@ -139,14 +157,21 @@ public class TorrentEngine {
                     try { handler.post(() -> callback.onProgress(info)); } catch (Exception e) {}
                     
                     if (complete >= target) {
-                        log("Streaming pronto! " + complete + "/" + target + " peças");
+                        log("✅ Streaming pronto! " + complete + "/" + target + " peças, " + (st.getTotal_done()/1048576) + "MB baixados");
                         final String sp = currentSavePath;
-                        try { handler.post(() -> callback.onStreamReady(torrentHandle, sp)); } catch (Exception e) {}
+                        final torrent_handle th = torrentHandle;
+                        try { 
+                            handler.post(() -> callback.onStreamReady(th, sp)); 
+                            log("Callback onStreamReady enviado");
+                        } catch (Exception e) {
+                            log("Erro callback: " + e.getMessage());
+                        }
                         break;
                     }
                 }
             } catch (Exception e) {
-                log("ERRO: " + e.getMessage());
+                log("❌ ERRO FATAL: " + e.getMessage());
+                Log.e(TAG, "Erro download", e);
                 downloading = false;
             }
         }).start();
