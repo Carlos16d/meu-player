@@ -52,23 +52,29 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
+        // Tamanho fixo para evitar crash
         webView.post(() -> {
-            int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
-            int h = (int)(w * 9.0 / 16.0);
-            ViewGroup.LayoutParams p = webView.getLayoutParams();
-            p.width = w; p.height = h;
-            webView.setLayoutParams(p);
+            try {
+                int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
+                int h = (int)(w * 9.0 / 16.0);
+                ViewGroup.LayoutParams p = webView.getLayoutParams();
+                if (p != null) { p.width = w; p.height = h; webView.setLayoutParams(p); }
+            } catch (Exception e) {}
         });
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        webView.getSettings().setJavaScriptEnabled(true);
-        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-        webView.getSettings().setAllowFileAccess(true);
-        webView.setWebChromeClient(new WebChromeClient());
-        webView.setWebViewClient(new WebViewClient());
+        // WebView seguro
+        try {
+            webView.getSettings().setJavaScriptEnabled(true);
+            webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+            webView.getSettings().setAllowFileAccess(true);
+            webView.getSettings().setDomStorageEnabled(true);
+            webView.setWebChromeClient(new WebChromeClient());
+            webView.setWebViewClient(new WebViewClient());
+        } catch (Exception e) {}
         webView.setVisibility(View.GONE);
         
         debug("=== TORRENT STREAM ===");
@@ -83,24 +89,32 @@ public class MainActivity extends AppCompatActivity {
             
             public void onProgress(TorrentInfo info) {
                 handler.post(() -> {
-                    bufferBar.setProgress(info.progress);
-                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
+                    try {
+                        bufferBar.setProgress(info.progress);
+                        statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
+                    } catch (Exception e) {}
                 });
             }
             
             public void onStreamReady(torrent_handle handle, String sp) {
-                File vf = findVideoFile(new File(sp));
-                if (vf != null) {
-                    videoFile = vf;
-                    streamServer.setVideoFile(vf);
-                    streamServer.setTorrentInfo(handle);
-                    debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                try {
+                    File vf = findVideoFile(new File(sp));
+                    if (vf != null) {
+                        videoFile = vf;
+                        streamServer.setVideoFile(vf);
+                        streamServer.setTorrentInfo(handle);
+                        debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                    }
+                    debug("[ENG] STREAM READY");
+                    handler.post(() -> {
+                        try {
+                            spinnerBar.setVisibility(View.GONE);
+                            btnWatch.setVisibility(View.VISIBLE);
+                        } catch (Exception e) {}
+                    });
+                } catch (Exception e) {
+                    debug("[ENG] ERRO: " + e.getMessage());
                 }
-                debug("[ENG] STREAM READY");
-                handler.post(() -> {
-                    spinnerBar.setVisibility(View.GONE);
-                    btnWatch.setVisibility(View.VISIBLE);
-                });
             }
             
             public void onStatus(String s) { debug("[ENG] " + s); }
@@ -122,22 +136,26 @@ public class MainActivity extends AppCompatActivity {
     private void debug(String msg) {
         String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
         debugLog.append(line);
-        handler.post(() -> debugText.setText(debugLog.toString()));
+        handler.post(() -> {
+            try { debugText.setText(debugLog.toString()); } catch (Exception e) {}
+        });
     }
     
     private File findVideoFile(File dir) {
-        if (dir == null || !dir.exists()) return null;
-        File[] files = dir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    File found = findVideoFile(f);
-                    if (found != null) return found;
-                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
-                    return f;
+        try {
+            if (dir == null || !dir.exists()) return null;
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.isDirectory()) {
+                        File found = findVideoFile(f);
+                        if (found != null) return found;
+                    } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
+                        return f;
+                    }
                 }
             }
-        }
+        } catch (Exception e) {}
         return null;
     }
     
@@ -158,32 +176,38 @@ public class MainActivity extends AppCompatActivity {
         }
         
         debug("Iniciando player...");
+        debug("Arquivo: " + videoFile.getName());
+        debug("Tamanho: " + (videoFile.length()/1048576) + "MB");
+        debug("URL: http://127.0.0.1:8080/video");
         
-        handler.post(() -> { 
-            webView.setVisibility(View.VISIBLE); 
-            btnWatch.setVisibility(View.GONE);
-        });
-        
-        // APENAS WEBVIEW - SEM PLAYER EXTERNO
+        // HTML simples que não crasha
         String html = "<!DOCTYPE html><html><head>"
             + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1'>"
-            + "<style>"
-            + "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden;}"
-            + "video{width:100%;max-height:100vh;outline:none;}"
-            + "</style></head><body>"
-            + "<video controls autoplay playsinline style='width:100%'>"
+            + "<style>body{margin:0;background:#000;}"
+            + "video{width:100%;height:100vh;display:block;}</style></head><body>"
+            + "<video controls autoplay playsinline>"
             + "<source src='http://127.0.0.1:8080/video' type='video/mp4'>"
             + "</video></body></html>";
         
-        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        debug("Player WebView carregado");
+        handler.post(() -> { 
+            try {
+                webView.setVisibility(View.VISIBLE); 
+                btnWatch.setVisibility(View.GONE);
+                webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+                debug("Player carregado");
+            } catch (Exception e) {
+                debug("ERRO ao carregar player: " + e.getMessage());
+            }
+        });
     }
     
     private void stop() {
         debug("Parado");
         torrentEngine.stop();
-        webView.loadUrl("about:blank");
-        webView.setVisibility(View.GONE); 
+        try {
+            webView.loadUrl("about:blank");
+            webView.setVisibility(View.GONE);
+        } catch (Exception e) {}
         btnStop.setVisibility(View.GONE); 
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
