@@ -11,7 +11,7 @@
         android:layout_weight="40"
         android:background="#000000">
         
-        <SurfaceView
+        <org.videolan.libvlc.util.VLCVideoLayout
             android:id="@+id/video_surface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
