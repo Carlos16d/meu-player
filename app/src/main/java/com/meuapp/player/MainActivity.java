@@ -15,13 +15,12 @@ import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 
 import com.google.android.exoplayer2.*;
-import com.google.android.exoplayer2.source.hls.*;
+import com.google.android.exoplayer2.source.*;
 import com.google.android.exoplayer2.ui.*;
 import com.google.android.exoplayer2.upstream.*;
-import com.google.android.exoplayer2.util.*;
 
 import com.meuapp.player.engine.TorrentEngine;
-import com.meuapp.player.server.HlsStreamServer;
+import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.model.TorrentInfo;
 
 import java.io.*;
@@ -34,7 +33,7 @@ public class MainActivity extends AppCompatActivity {
     private PlayerView playerView;
     private SimpleExoPlayer exoPlayer;
     private TorrentEngine torrentEngine;
-    private HlsStreamServer streamServer;
+    private StreamServer streamServer;
     
     private TextView statusText, progressText, titleText;
     private ProgressBar bufferBar;
@@ -70,9 +69,12 @@ public class MainActivity extends AppCompatActivity {
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
-        addLog("=== APP HLS STREAMING ===");
+        addLog("╔══════════════════════════════╗");
+        addLog("║   TORRENT STREAMING v4       ║");
+        addLog("╚══════════════════════════════╝");
+        addLog("Save: " + savePath);
         
-        // ExoPlayer configurado para HLS
+        // ExoPlayer
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
         playerView.setUseController(true);
@@ -89,76 +91,89 @@ public class MainActivity extends AppCompatActivity {
                     case Player.STATE_ENDED: s = "ENDED"; break;
                     default: s = "?"; break;
                 }
-                addLog("▶ " + s);
+                addLog("▶ Player: " + s);
                 loadingOverlay.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
             }
             
             @Override
             public void onPlayerError(PlaybackException error) {
-                addLog("❌ " + error.getErrorCodeName() + ": " + error.getMessage());
+                addLog("❌ PLAYER ERRO: " + error.getErrorCodeName());
+                addLog("   " + error.getMessage());
             }
             
             @Override
-            public void onTracksChanged(Tracks tracks) {
-                for (Tracks.Group g : tracks.getGroups()) {
-                    if (g.getMediaTrackGroup().type == C.TRACK_TYPE_AUDIO) {
-                        addLog("🎵 " + g.length + " áudios");
-                    }
-                    if (g.getMediaTrackGroup().type == C.TRACK_TYPE_TEXT) {
-                        addLog("📝 " + g.length + " legendas");
-                    }
-                }
+            public void onIsPlayingChanged(boolean isPlaying) {
+                addLog("   Playing: " + isPlaying);
             }
         });
         
+        // Torrent Engine com callback onLog
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { addLog("Engine OK"); }
-            public void onError(String e) { addLog("Engine ERRO: " + e); }
+            public void onReady() { addLog("✅ Engine pronto"); }
+            public void onError(String e) { addLog("❌ Engine: " + e); }
+            
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% " + (info.speed/1024) + "KB/s " + info.peers + "p");
+                    progressText.setText(info.progress + "% " + (info.speed/1024) + "KB/s " + info.peers + "p " + (info.downloaded/1048576) + "MB");
                 });
             }
+            
             public void onStreamReady(File f) {
                 videoFile = f;
                 streamServer.setVideoFile(f);
-                addLog("READY: " + (f.length()/1048576) + "MB");
+                addLog("✅ STREAM READY: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
                 runOnUiThread(() -> {
                     loadingOverlay.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
+                    titleText.setText("🎬 Pronto! Clique ASSISTIR");
                 });
             }
-            public void onStatus(String s) { addLog(s); }
+            
+            public void onStatus(String s) { addLog("📡 " + s); }
+            
+            public void onLog(String log) { addLog("🔧 " + log); }
         });
         
-        startServer();
+        // Servidor HTTP
+        streamServer = new StreamServer();
+        try {
+            streamServer.start();
+            addLog("✅ Servidor HTTP:8080 OK");
+        } catch (Exception e) {
+            addLog("❌ Servidor: " + e.getMessage());
+        }
+        
         torrentEngine.start();
         
         btnStream.setOnClickListener(v -> {
             String m = magnetInput.getText().toString().trim();
-            if (m.startsWith("magnet:")) startStream(m);
+            if (m.startsWith("magnet:")) {
+                addLog("🔗 Iniciando stream...");
+                startStream(m);
+            } else {
+                addLog("⚠ Magnet inválido");
+            }
         });
-        btnStop.setOnClickListener(v -> stop());
-        btnWatch.setOnClickListener(v -> watch());
-    }
-    
-    private void startServer() {
-        if (streamServer != null) streamServer.stop();
-        streamServer = new HlsStreamServer();
-        try {
-            streamServer.start();
-            addLog("HLS Server :8080 OK");
-        } catch (Exception e) {
-            addLog("ERRO: " + e.getMessage());
-        }
+        
+        btnStop.setOnClickListener(v -> {
+            addLog("⏹ Parando...");
+            stop();
+        });
+        
+        btnWatch.setOnClickListener(v -> {
+            addLog("▶ Assistindo...");
+            addLog("   Server: " + streamServer.getStats());
+            watch();
+        });
     }
     
     private void addLog(String msg) {
-        String line = sdf.format(new Date()) + " " + msg + "\n";
+        String time = sdf.format(new Date());
+        String line = time + " " + msg + "\n";
         Log.d(TAG, msg);
         logBuilder.insert(0, line);
-        if (logBuilder.length() > 8000) logBuilder.setLength(8000);
+        if (logBuilder.length() > 12000) logBuilder.setLength(12000);
         runOnUiThread(() -> statusText.setText(logBuilder.toString()));
     }
     
@@ -180,42 +195,79 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
+        titleText.setText("⬇️ Preparando stream...");
         torrentEngine.startDownload(magnet, savePath);
     }
     
     private void watch() {
+        if (videoFile == null) {
+            addLog("❌ videoFile é NULL!");
+            return;
+        }
+        
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
+        titleText.setText("▶️ Reproduzindo");
         
-        String hlsUrl = "http://127.0.0.1:8080/video.m3u8";
-        addLog("HLS: " + hlsUrl);
+        String url = "http://127.0.0.1:8080/video";
+        addLog("▶ URL: " + url);
+        addLog("   Arquivo: " + videoFile.getName() + " (" + videoFile.length()/1048576 + "MB)");
         
-        DataSource.Factory factory = new DefaultHttpDataSource.Factory()
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(30000);
+        // Teste rápido de conectividade
+        try {
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) 
+                new java.net.URL(url).openConnection();
+            conn.setRequestMethod("HEAD");
+            conn.setConnectTimeout(5000);
+            conn.setReadTimeout(5000);
+            int code = conn.getResponseCode();
+            long len = conn.getContentLength();
+            String type = conn.getContentType();
+            addLog("   Teste HTTP: " + code + " Type:" + type + " Len:" + len);
+            conn.disconnect();
+        } catch (Exception e) {
+            addLog("   Teste HTTP FALHOU: " + e.getMessage());
+        }
         
-        HlsMediaSource.Factory hlsFactory = new HlsMediaSource.Factory(factory);
-        HlsMediaSource hlsSource = hlsFactory.createMediaSource(MediaItem.fromUri(Uri.parse(hlsUrl)));
+        Uri videoUri = Uri.parse(url);
         
-        exoPlayer.setMediaSource(hlsSource);
+        DataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(60000)
+            .setAllowCrossProtocolRedirects(true);
+        
+        ProgressiveMediaSource.Factory mediaSourceFactory = 
+            new ProgressiveMediaSource.Factory(dataSourceFactory);
+        
+        MediaSource mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(videoUri));
+        
+        exoPlayer.setMediaSource(mediaSource);
         exoPlayer.prepare();
         exoPlayer.setPlayWhenReady(true);
+        
+        addLog("   Player iniciado");
     }
     
     private void stop() {
         torrentEngine.stop();
-        if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); }
+        if (exoPlayer != null) {
+            exoPlayer.stop();
+            exoPlayer.clearMediaItems();
+        }
         playerView.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
-        addLog("Parado");
+        titleText.setText("🎬 Torrent Stream");
+        progressText.setText("Pronto");
+        addLog("⏹ Parado");
     }
     
     @Override
     protected void onDestroy() {
+        addLog("💀 onDestroy");
         if (torrentEngine != null) torrentEngine.destroy();
         if (streamServer != null) streamServer.stop();
         if (exoPlayer != null) exoPlayer.release();
