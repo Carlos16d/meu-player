@@ -21,6 +21,10 @@ public class TorrentEngine {
     private Handler handler;
     private EngineCallback callback;
     
+    private int numPieces = 0;
+    private long totalSize = 0;
+    private int pieceLength = 0;
+    
     public interface EngineCallback {
         void onReady();
         void onError(String error);
@@ -43,7 +47,7 @@ public class TorrentEngine {
     public void start() {
         new Thread(() -> {
             try {
-                log("Iniciando...");
+                log("Iniciando engine...");
                 session = new SessionManager();
                 session.start(new SessionParams());
                 ready = true;
@@ -62,11 +66,10 @@ public class TorrentEngine {
         
         new Thread(() -> {
             try {
-                log("Baixando...");
+                log("Conectando ao tracker...");
                 File saveDir = new File(savePath);
                 session.download(magnetUri, saveDir, new torrent_flags_t());
                 
-                // Aguarda torrent
                 Thread.sleep(3000);
                 
                 torrent_handle_vector handles = session.swig().get_torrents();
@@ -88,50 +91,29 @@ public class TorrentEngine {
                 }
                 
                 if (!st.getHas_metadata()) {
-                    notifyError("Timeout");
+                    notifyError("Timeout metadados");
                     downloading = false;
                     return;
                 }
                 
-                log("Metadados OK: " + (st.getTotal()/1048576) + "MB");
-                
-                // Ativa prioridade em tudo
+                totalSize = st.getTotal();
                 torrent_info ti = torrentHandle.torrent_file_ptr();
-                int numPieces = ti != null ? ti.num_pieces() : 100;
+                if (ti != null && ti.is_valid()) {
+                    numPieces = ti.num_pieces();
+                    pieceLength = ti.piece_length();
+                }
                 
+                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças");
+                
+                // Ativa TUDO com prioridade normal
                 byte_vector priorities = new byte_vector();
                 for (int i = 0; i < numPieces; i++) {
-                    priorities.add((byte)4); // Tudo prioridade normal
+                    priorities.add((byte)4);
                 }
                 torrentHandle.prioritize_pieces_ex(priorities);
                 
-                // Aguarda algumas peças
-                int complete = 0;
-                int target = Math.min(10, numPieces);
-                long startWait = System.currentTimeMillis();
-                
-                while (complete < target && downloading) {
-                    Thread.sleep(500);
-                    complete = 0;
-                    for (int i = 0; i < target; i++) {
-                        if (torrentHandle.have_piece(i)) complete++;
-                    }
-                    
-                    st = torrentHandle.status();
-                    TorrentInfo info = new TorrentInfo();
-                    info.progress = (complete * 100) / target;
-                    info.downloaded = st.getTotal_done();
-                    info.speed = st.getDownload_rate();
-                    info.peers = st.getNum_peers();
-                    handler.post(() -> callback.onProgress(info));
-                    
-                    if ((System.currentTimeMillis() - startWait) > 60000) break;
-                }
-                
-                log("Peças iniciais: " + complete + "/" + target);
-                
-                // Passa o handle para o servidor
-                handler.post(() -> callback.onStreamReady(torrentHandle));
+                // Aguarda primeiras 10 peças
+                waitForInitialPieces();
                 
             } catch (Exception e) {
                 log("ERRO: " + e.getMessage());
@@ -139,6 +121,46 @@ public class TorrentEngine {
                 downloading = false;
             }
         }).start();
+    }
+    
+    private void waitForInitialPieces() {
+        int target = Math.min(10, numPieces);
+        long startWait = System.currentTimeMillis();
+        
+        while (downloading) {
+            try {
+                Thread.sleep(500);
+                
+                int complete = 0;
+                for (int i = 0; i < target; i++) {
+                    if (torrentHandle.have_piece(i)) complete++;
+                }
+                
+                torrent_status st = torrentHandle.status();
+                
+                TorrentInfo info = new TorrentInfo();
+                info.progress = (complete * 100) / target;
+                info.downloaded = st.getTotal_done();
+                info.speed = st.getDownload_rate();
+                info.peers = st.getNum_peers();
+                handler.post(() -> callback.onProgress(info));
+                
+                if (complete >= target) {
+                    log("Streaming pronto! " + complete + "/" + target + " peças");
+                    handler.post(() -> callback.onStreamReady(torrentHandle));
+                    break;
+                }
+                
+                if ((System.currentTimeMillis() - startWait) > 120000) {
+                    log("Timeout - liberando mesmo incompleto");
+                    handler.post(() -> callback.onStreamReady(torrentHandle));
+                    break;
+                }
+                
+            } catch (Exception e) {
+                log("Erro: " + e.getMessage());
+            }
+        }
     }
     
     public void stop() { 
