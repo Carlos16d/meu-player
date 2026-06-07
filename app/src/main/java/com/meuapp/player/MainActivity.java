@@ -1,174 +1,134 @@
 package com.meuapp.player;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
-import android.text.method.ScrollingMovementMethod;
-import android.util.Log;
+import android.os.Handler;
+import android.os.Looper;
 import android.view.View;
+import android.view.ViewGroup;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
 import com.meuapp.player.engine.TorrentEngine;
 import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.swig.torrent_handle;
-import org.videolan.libvlc.*;
-import org.videolan.libvlc.interfaces.*;
-import org.videolan.libvlc.util.VLCVideoLayout;
 
 import java.io.*;
+import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    private static final String TAG = "MainActivity";
-    
-    private VLCVideoLayout videoLayout;
-    private LibVLC libVLC;
-    private MediaPlayer vlcPlayer;
-    private TorrentEngine torrentEngine;
-    private StreamServer streamServer;
-    
-    private TextView statusText, progressText, titleText;
+    private WebView webView;
+    private TextView statusText, debugText;
     private ProgressBar bufferBar, spinnerBar;
-    private View loadingOverlay;
     private EditText magnetInput;
-    private Button btnStream, btnStop, btnWatch;
+    private Button btnPlay, btnStop, btnWatch;
     
     private String savePath;
-    private StringBuilder logBuilder = new StringBuilder();
+    private TorrentEngine torrentEngine;
+    private StreamServer streamServer;
+    private volatile File videoFile;
+    private Handler handler;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
-    private boolean isPlayerActive = false;
-    
+    private StringBuilder debugLog = new StringBuilder();
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        requestPermissions();
-        
-        videoLayout = findViewById(R.id.video_surface);
+        webView = findViewById(R.id.webview);
         statusText = findViewById(R.id.status_text);
-        progressText = findViewById(R.id.progress_text);
-        titleText = findViewById(R.id.title_text);
+        debugText = findViewById(R.id.debug_text);
         bufferBar = findViewById(R.id.buffer_bar);
         spinnerBar = findViewById(R.id.spinner_bar);
-        loadingOverlay = findViewById(R.id.loading_overlay);
         magnetInput = findViewById(R.id.magnet_input);
-        btnStream = findViewById(R.id.btn_play);
+        btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
-        statusText.setMovementMethod(new ScrollingMovementMethod());
+        webView.post(() -> {
+            int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
+            int h = (int)(w * 9.0 / 16.0);
+            ViewGroup.LayoutParams p = webView.getLayoutParams();
+            p.width = w; p.height = h;
+            webView.setLayoutParams(p);
+        });
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
+        handler = new Handler(Looper.getMainLooper());
         
-        addLog("=== TORRENT STREAM VLC DASH ===");
-        addLog("Limite: 2MB/s | Buffer: OFF | DASH: ON");
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        webView.getSettings().setAllowFileAccess(true);
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient());
+        webView.setVisibility(View.GONE);
         
-        // VLC Player
-        ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=3000");
-        options.add("--file-caching=2000");
-        options.add("--http-reconnect");
-        options.add("--clock-synchro=0");
-        libVLC = new LibVLC(this, options);
-        vlcPlayer = new MediaPlayer(libVLC);
-        vlcPlayer.attachViews(videoLayout, null, false, false);
+        debug("=== TORRENT STREAM WEBVIEW ===");
+        debug("WebView com HTML5 video player");
         
-        vlcPlayer.setEventListener(new MediaPlayer.EventListener() {
-            @Override
-            public void onEvent(MediaPlayer.Event event) {
-                switch (event.type) {
-                    case MediaPlayer.Event.Playing:
-                        addLog("[VLC] ▶ Playing");
-                        isPlayerActive = true;
-                        break;
-                    case MediaPlayer.Event.Buffering:
-                        if (isPlayerActive) {
-                            addLog("[VLC] Buffering " + event.getBuffering() + "%");
-                        }
-                        break;
-                    case MediaPlayer.Event.Stopped:
-                        addLog("[VLC] Stopped");
-                        isPlayerActive = false;
-                        break;
-                    case MediaPlayer.Event.EndReached:
-                        addLog("[VLC] End");
-                        isPlayerActive = false;
-                        break;
-                    case MediaPlayer.Event.EncounteredError:
-                        addLog("[VLC] ❌ ERRO!");
-                        isPlayerActive = false;
-                        break;
-                }
-            }
-        });
+        // Servidor HTTP (NanoHTTPD)
+        streamServer = new StreamServer();
+        try { streamServer.start(); debug("[SRV] HTTP:8080 OK"); } 
+        catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
         
+        // Torrent Engine
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { addLog("[ENG] ✅ Pronto"); }
-            public void onError(String e) { addLog("[ENG] ❌ " + e); }
+            public void onReady() { debug("[ENG] Pronto"); }
+            public void onError(String e) { debug("[ENG] ❌ " + e); }
             
             public void onProgress(TorrentInfo info) {
-                runOnUiThread(() -> {
+                handler.post(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers | " + (info.downloaded/1048576) + "MB");
+                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers");
                 });
             }
             
             public void onStreamReady(torrent_handle handle, String sp) {
-                // Procura o arquivo de vídeo e passa para o servidor
-                File videoFile = findVideoFile(new File(sp));
-                if (videoFile != null) {
-                    streamServer.setVideoFile(videoFile);
-                    addLog("[ENG] Video: " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)");
+                // Procura o arquivo
+                File vf = findVideoFile(new File(sp));
+                if (vf != null) {
+                    videoFile = vf;
+                    streamServer.setVideoFile(vf);
+                    debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
                 }
-                addLog("[ENG] ✅ STREAM READY");
-                runOnUiThread(() -> {
+                debug("[ENG] STREAM READY");
+                handler.post(() -> {
                     spinnerBar.setVisibility(View.GONE);
-                    loadingOverlay.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
-                    titleText.setText("🎬 Pronto! Clique ASSISTIR");
                 });
             }
             
-            public void onStatus(String s) { addLog("[ENG] " + s); }
-            public void onLog(String log) { addLog("[ENG] " + log); }
+            public void onStatus(String s) { debug("[ENG] " + s); }
+            public void onLog(String log) { debug("[ENG] " + log); }
         });
-        
-        streamServer = new StreamServer();
-        try { 
-            streamServer.start(); 
-            addLog("[SRV] ✅ HTTP:8080 OK"); 
-        } catch (Exception e) { 
-            addLog("[SRV] ❌ ERRO: " + e.getMessage()); 
-        }
         
         torrentEngine.start();
         
-        btnStream.setOnClickListener(v -> {
+        btnPlay.setOnClickListener(v -> {
             String m = magnetInput.getText().toString().trim();
             if (m.startsWith("magnet:")) startStream(m);
         });
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
+        
+        debug("📱 Pronto");
     }
     
-    private void addLog(String msg) {
-        String time = sdf.format(new Date());
-        String line = time + " " + msg + "\n";
-        Log.d(TAG, msg);
-        logBuilder.insert(0, line);
-        if (logBuilder.length() > 15000) logBuilder.setLength(15000);
-        runOnUiThread(() -> statusText.setText(logBuilder.toString()));
+    private void debug(String msg) {
+        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
+        debugLog.append(line);
+        handler.post(() -> {
+            debugText.setText(debugLog.toString());
+        });
     }
     
     private File findVideoFile(File dir) {
@@ -187,73 +147,73 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
     
-    private void requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            String[] perms = {Manifest.permission.INTERNET, Manifest.permission.WRITE_EXTERNAL_STORAGE};
-            for (String p : perms) {
-                if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                    ActivityCompat.requestPermissions(this, perms, 1);
-                    break;
-                }
-            }
-        }
-    }
-    
     private void startStream(String magnet) {
         bufferBar.setVisibility(View.VISIBLE);
         spinnerBar.setVisibility(View.VISIBLE);
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
-        videoLayout.setVisibility(View.GONE);
-        loadingOverlay.setVisibility(View.GONE);
-        titleText.setText("⬇️ Preparando stream...");
-        isPlayerActive = false;
+        webView.setVisibility(View.GONE);
+        debugLog.setLength(0);
         torrentEngine.startDownload(magnet, savePath);
     }
     
     private void watch() {
-        btnWatch.setVisibility(View.GONE);
-        videoLayout.setVisibility(View.VISIBLE);
-        loadingOverlay.setVisibility(View.GONE);
-        titleText.setText("▶️ Reproduzindo");
-        isPlayerActive = false;
+        if (videoFile == null || !videoFile.exists()) { 
+            debug("❌ Video não encontrado"); 
+            return; 
+        }
         
-        String url = "http://127.0.0.1:8080/video";
-        addLog("[VLC] Playing: " + url);
+        debug("▶️ Iniciando WebView player...");
+        debug("   Arquivo: " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)");
         
-        Media media = new Media(libVLC, Uri.parse(url));
-        media.setHWDecoderEnabled(true, true);
-        media.addOption(":network-caching=3000");
-        media.addOption(":file-caching=2000");
-        media.addOption(":http-reconnect");
-        media.addOption(":clock-synchro=0");
+        handler.post(() -> { 
+            webView.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE);
+        });
         
-        vlcPlayer.setMedia(media);
-        media.release();
-        vlcPlayer.play();
+        String html = "<!DOCTYPE html><html><head>" +
+            "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1'>" +
+            "<style>" +
+            "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden;}" +
+            "video{width:100%;max-height:100vh;outline:none;}" +
+            "</style></head><body>" +
+            "<video id='v' controls autoplay playsinline style='width:100%'>" +
+            "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
+            "</video>" +
+            "<script>" +
+            "var v=document.getElementById('v');" +
+            "v.addEventListener('loadedmetadata',function(){" +
+            "  document.title='▶️ ' + v.duration + 's';" +
+            "});" +
+            "v.addEventListener('error',function(e){" +
+            "  document.title='❌ Erro';" +
+            "});" +
+            "v.addEventListener('waiting',function(){" +
+            "  document.title='⏳ Buffering...';" +
+            "});" +
+            "v.addEventListener('playing',function(){" +
+            "  document.title='▶️ Reproduzindo';" +
+            "});" +
+            "</script></body></html>";
+        
+        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        debug("   HTML carregado no WebView");
     }
     
     private void stop() {
+        debug("⏹ Parado");
         torrentEngine.stop();
-        if (vlcPlayer != null) vlcPlayer.stop();
-        videoLayout.setVisibility(View.GONE);
-        spinnerBar.setVisibility(View.GONE);
-        loadingOverlay.setVisibility(View.GONE);
-        btnStop.setVisibility(View.GONE);
+        webView.loadUrl("about:blank");
+        webView.setVisibility(View.GONE); 
+        btnStop.setVisibility(View.GONE); 
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
-        titleText.setText("🎬 Torrent Stream");
-        progressText.setText("Pronto");
-        isPlayerActive = false;
-        addLog("⏹ Parado");
+        spinnerBar.setVisibility(View.GONE);
     }
     
-    @Override
-    protected void onDestroy() {
-        if (torrentEngine != null) torrentEngine.destroy();
+    @Override protected void onDestroy() {
+        stop();
         if (streamServer != null) streamServer.stop();
-        if (vlcPlayer != null) { vlcPlayer.release(); vlcPlayer = null; }
-        if (libVLC != null) { libVLC.release(); libVLC = null; }
         super.onDestroy();
     }
 }
