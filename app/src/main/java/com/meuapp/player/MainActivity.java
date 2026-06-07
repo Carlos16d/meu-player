@@ -71,9 +71,7 @@ public class MainActivity extends AppCompatActivity {
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
-        addLog("╔══════════════════════════════╗");
-        addLog("║  TORRENT STREAM CACHE MEM   ║");
-        addLog("╚══════════════════════════════╝");
+        addLog("=== TORRENT STREAM v9 ===");
         
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
@@ -109,7 +107,7 @@ public class MainActivity extends AppCompatActivity {
             
             public void onStreamReady(torrent_handle handle) {
                 streamServer.setTorrent(handle);
-                addLog("STREAM READY - cache em memória ativado");
+                addLog("STREAM READY");
                 runOnUiThread(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     loadingOverlay.setVisibility(View.GONE);
@@ -125,7 +123,7 @@ public class MainActivity extends AppCompatActivity {
         streamServer = new StreamServer();
         try {
             streamServer.start();
-            addLog("Servidor HTTP:8080 OK");
+            addLog("Servidor OK");
         } catch (Exception e) {
             addLog("Servidor ERRO: " + e.getMessage());
         }
@@ -168,7 +166,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
-        titleText.setText("Preparando stream...");
+        titleText.setText("Preparando...");
         torrentEngine.startDownload(magnet, savePath);
     }
     
