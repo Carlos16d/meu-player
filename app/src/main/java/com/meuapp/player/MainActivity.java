@@ -1,230 +1,169 @@
-package com.meuapp.player;
+package com.meuapp.player.engine;
 
-import android.Manifest;
-import android.content.pm.PackageManager;
-import android.net.Uri;
-import android.os.Build;
-import android.os.Bundle;
-import android.os.Environment;
-import android.text.method.ScrollingMovementMethod;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
-import android.view.View;
-import android.widget.*;
-import androidx.appcompat.app.AppCompatActivity;
-import androidx.core.app.ActivityCompat;
-import androidx.core.content.ContextCompat;
 
-import com.google.android.exoplayer2.*;
-import com.google.android.exoplayer2.source.*;
-import com.google.android.exoplayer2.trackselection.*;
-import com.google.android.exoplayer2.ui.*;
-import com.google.android.exoplayer2.upstream.*;
-import com.google.android.exoplayer2.upstream.cache.*;
-import com.google.android.exoplayer2.util.*;
-
-import com.meuapp.player.engine.TorrentEngine;
-import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.model.TorrentInfo;
 
-import org.libtorrent4j.swig.torrent_handle;
+import org.libtorrent4j.SessionManager;
+import org.libtorrent4j.SessionParams;
+import org.libtorrent4j.swig.*;
 
-import java.io.*;
-import java.text.SimpleDateFormat;
-import java.util.*;
+import java.io.File;
 
-public class MainActivity extends AppCompatActivity {
-    private static final String TAG = "MainActivity";
+public class TorrentEngine {
+    private static final String TAG = "TorrentEngine";
+    private SessionManager session;
+    private torrent_handle torrentHandle;
+    private boolean ready = false;
+    private boolean downloading = false;
+    private Handler handler;
+    private EngineCallback callback;
+    private String currentSavePath;
     
-    private PlayerView playerView;
-    private SimpleExoPlayer exoPlayer;
-    private TorrentEngine torrentEngine;
-    private StreamServer streamServer;
-    
-    private TextView statusText, progressText, titleText;
-    private ProgressBar bufferBar, spinnerBar;
-    private View loadingOverlay;
-    private EditText magnetInput;
-    private Button btnStream, btnStop, btnWatch;
-    
-    private String savePath;
-    private StringBuilder logBuilder = new StringBuilder();
-    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
-    private int logCount = 0;
-    
-    // Cache para o ExoPlayer
-    private Cache cache;
-    private CacheDataSource.Factory cacheDataSourceFactory;
-    
-    @Override
-    protected void onCreate(Bundle savedInstanceState) {
-        super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
-        
-        requestPermissions();
-        
-        playerView = findViewById(R.id.player_view);
-        statusText = findViewById(R.id.status_text);
-        progressText = findViewById(R.id.progress_text);
-        titleText = findViewById(R.id.title_text);
-        bufferBar = findViewById(R.id.buffer_bar);
-        spinnerBar = findViewById(R.id.spinner_bar);
-        loadingOverlay = findViewById(R.id.loading_overlay);
-        magnetInput = findViewById(R.id.magnet_input);
-        btnStream = findViewById(R.id.btn_play);
-        btnStop = findViewById(R.id.btn_stop);
-        btnWatch = findViewById(R.id.btn_watch);
-        
-        statusText.setMovementMethod(new ScrollingMovementMethod());
-        
-        savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
-        new File(savePath).mkdirs();
-        
-        addLog("=== TORRENT STREAM v13 ===");
-        addLog("Android: " + Build.VERSION.SDK_INT + " | " + Build.MANUFACTURER + " " + Build.MODEL);
-        
-        // Cache do ExoPlayer (2MB)
-        File cacheDir = new File(getCacheDir(), "exo-cache");
-        cache = new SimpleCache(cacheDir, new NoOpCacheEvictor());
-        cacheDataSourceFactory = new CacheDataSource.Factory()
-            .setCache(cache)
-            .setUpstreamDataSourceFactory(new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(60000));
-        
-        addLog("Cache ExoPlayer: " + cacheDir.getAbsolutePath());
-        
-        // ExoPlayer
-        exoPlayer = new SimpleExoPlayer.Builder(this)
-            .setTrackSelector(new DefaultTrackSelector(this))
-            .build();
-        
-        playerView.setPlayer(exoPlayer);
-        playerView.setUseController(true);
-        playerView.setControllerShowTimeoutMs(0);
-        playerView.setKeepScreenOn(true);
-        
-        exoPlayer.addListener(new Player.Listener() {
-            @Override
-            public void onPlaybackStateChanged(int state) {
-                String s = state == Player.STATE_BUFFERING ? "BUFFERING" : 
-                          state == Player.STATE_READY ? "READY" : 
-                          state == Player.STATE_ENDED ? "ENDED" : "IDLE";
-                addLog("[EXO] " + s);
-                loadingOverlay.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
-            }
-            
-            @Override
-            public void onPlayerError(PlaybackException error) {
-                addLog("[EXO] ERRO: " + error.getErrorCodeName() + " - " + error.getMessage());
-            }
-        });
-        
-        torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { addLog("[ENG] OK"); }
-            public void onError(String e) { addLog("[ENG] ERRO: " + e); }
-            public void onProgress(TorrentInfo info) {
-                runOnUiThread(() -> {
-                    bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% " + (info.speed/1024) + "KB/s");
-                });
-            }
-            public void onStreamReady(torrent_handle handle) {
-                streamServer.setSavePath(savePath);
-                streamServer.setTorrent(handle);
-                addLog("[ENG] READY");
-                runOnUiThread(() -> {
-                    spinnerBar.setVisibility(View.GONE);
-                    loadingOverlay.setVisibility(View.GONE);
-                    btnWatch.setVisibility(View.VISIBLE);
-                });
-            }
-            public void onStatus(String s) { addLog("[ENG] " + s); }
-            public void onLog(String log) { addLog("[ENG] " + log); }
-        });
-        
-        streamServer = new StreamServer();
-        try { streamServer.start(); addLog("[SRV] OK"); } 
-        catch (Exception e) { addLog("[SRV] ERRO: " + e.getMessage()); }
-        
-        torrentEngine.start();
-        
-        btnStream.setOnClickListener(v -> {
-            String m = magnetInput.getText().toString().trim();
-            if (m.startsWith("magnet:")) startStream(m);
-        });
-        btnStop.setOnClickListener(v -> stop());
-        btnWatch.setOnClickListener(v -> watch());
+    public interface EngineCallback {
+        void onReady();
+        void onError(String error);
+        void onProgress(TorrentInfo info);
+        void onStreamReady(torrent_handle handle, String savePath);
+        void onStatus(String status);
+        void onLog(String log);
     }
     
-    private void addLog(String msg) {
-        logCount++;
-        String line = String.format("#%04d %s %s\n", logCount, sdf.format(new Date()), msg);
+    public TorrentEngine(EngineCallback callback) {
+        this.callback = callback;
+        this.handler = new Handler(Looper.getMainLooper());
+    }
+    
+    private void log(String msg) {
         Log.d(TAG, msg);
-        logBuilder.insert(0, line);
-        if (logBuilder.length() > 15000) logBuilder.setLength(15000);
-        runOnUiThread(() -> statusText.setText(logBuilder.toString()));
+        handler.post(() -> callback.onLog(msg));
     }
     
-    private void requestPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            String[] perms = {Manifest.permission.INTERNET, Manifest.permission.WRITE_EXTERNAL_STORAGE};
-            for (String p : perms) {
-                if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
-                    ActivityCompat.requestPermissions(this, perms, 1);
-                    break;
+    public void start() {
+        new Thread(() -> {
+            try {
+                log("Iniciando engine...");
+                session = new SessionManager();
+                session.start(new SessionParams());
+                ready = true;
+                log("Engine pronto!");
+                notifyReady();
+            } catch (Exception e) {
+                log("ERRO: " + e.getMessage());
+                notifyError(e.getMessage());
+            }
+        }).start();
+    }
+    
+    public void startDownload(String magnetUri, String savePath) {
+        if (!ready) { notifyError("Aguarde..."); return; }
+        downloading = true;
+        currentSavePath = savePath;
+        
+        new Thread(() -> {
+            try {
+                log("Conectando ao tracker...");
+                File saveDir = new File(savePath);
+                deleteRecursive(saveDir);
+                saveDir.mkdirs();
+                
+                session.download(magnetUri, saveDir, new torrent_flags_t());
+                
+                log("Aguardando torrent...");
+                Thread.sleep(3000);
+                
+                torrent_handle_vector handles = session.swig().get_torrents();
+                if (handles.size() == 0) {
+                    notifyError("Nenhum peer");
+                    downloading = false;
+                    return;
+                }
+                
+                torrentHandle = handles.get(0);
+                
+                torrent_status st = torrentHandle.status();
+                int w = 0;
+                while (!st.getHas_metadata() && w < 60 && downloading) {
+                    Thread.sleep(1000);
+                    w++;
+                    st = torrentHandle.status();
+                }
+                
+                if (!st.getHas_metadata()) {
+                    notifyError("Timeout");
+                    downloading = false;
+                    return;
+                }
+                
+                long totalSize = st.getTotal();
+                torrent_info ti = torrentHandle.torrent_file_ptr();
+                int numPieces = ti != null ? ti.num_pieces() : 100;
+                
+                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças");
+                
+                // Download sequencial
+                for (int i = 0; i < numPieces; i++) {
+                    torrentHandle.piece_priority_ex(i, (byte)(i < 100 ? 7 : 1));
+                }
+                for (int i = 0; i < Math.min(50, numPieces); i++) {
+                    torrentHandle.set_piece_deadline(i, 2000);
+                }
+                
+                // Aguarda peças iniciais
+                int target = Math.min(10, numPieces);
+                while (downloading) {
+                    Thread.sleep(500);
+                    
+                    int complete = 0;
+                    for (int i = 0; i < target; i++) {
+                        if (torrentHandle.have_piece(i)) complete++;
+                    }
+                    
+                    st = torrentHandle.status();
+                    TorrentInfo info = new TorrentInfo();
+                    info.progress = (complete * 100) / target;
+                    info.downloaded = st.getTotal_done();
+                    info.speed = st.getDownload_rate();
+                    info.peers = st.getNum_peers();
+                    handler.post(() -> callback.onProgress(info));
+                    
+                    if (complete >= target) {
+                        log("Streaming pronto! " + complete + "/" + target + " peças");
+                        handler.post(() -> callback.onStreamReady(torrentHandle, currentSavePath));
+                        break;
+                    }
+                }
+                
+            } catch (Exception e) {
+                log("ERRO: " + e.getMessage());
+                notifyError(e.getMessage());
+                downloading = false;
+            }
+        }).start();
+    }
+    
+    private void deleteRecursive(File dir) {
+        if (dir.exists()) {
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.isDirectory()) deleteRecursive(f);
+                    else f.delete();
                 }
             }
         }
     }
     
-    private void startStream(String magnet) {
-        bufferBar.setVisibility(View.VISIBLE);
-        spinnerBar.setVisibility(View.VISIBLE);
-        loadingOverlay.setVisibility(View.VISIBLE);
-        btnStop.setVisibility(View.VISIBLE);
-        btnWatch.setVisibility(View.GONE);
-        playerView.setVisibility(View.GONE);
-        torrentEngine.startDownload(magnet, savePath);
+    public void stop() { 
+        downloading = false;
+        deleteRecursive(new File(currentSavePath));
+        if (session != null) try { session.stop(); } catch (Exception e) {} 
     }
     
-    private void watch() {
-        btnWatch.setVisibility(View.GONE);
-        playerView.setVisibility(View.VISIBLE);
-        loadingOverlay.setVisibility(View.VISIBLE);
-        
-        String url = "http://127.0.0.1:8080/video";
-        addLog("[UI] Playing: " + url);
-        
-        Uri videoUri = Uri.parse(url);
-        
-        // Usa CacheDataSource para buffer local
-        ProgressiveMediaSource.Factory mediaFactory = 
-            new ProgressiveMediaSource.Factory(cacheDataSourceFactory);
-        
-        MediaSource source = mediaFactory.createMediaSource(MediaItem.fromUri(videoUri));
-        
-        exoPlayer.setMediaSource(source);
-        exoPlayer.prepare();
-        exoPlayer.setPlayWhenReady(true);
-    }
-    
-    private void stop() {
-        torrentEngine.stop();
-        if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); }
-        playerView.setVisibility(View.GONE);
-        spinnerBar.setVisibility(View.GONE);
-        loadingOverlay.setVisibility(View.GONE);
-        btnStop.setVisibility(View.GONE);
-        btnWatch.setVisibility(View.GONE);
-        bufferBar.setVisibility(View.GONE);
-    }
-    
-    @Override
-    protected void onDestroy() {
-        if (torrentEngine != null) torrentEngine.destroy();
-        if (streamServer != null) streamServer.stop();
-        if (exoPlayer != null) exoPlayer.release();
-        if (cache != null) cache.release();
-        super.onDestroy();
-    }
+    public void destroy() { stop(); if (session != null) try { session.stop(); } catch (Exception e) {} }
+    public boolean isReady() { return ready; }
+    private void notifyReady() { handler.post(() -> callback.onReady()); }
+    private void notifyError(String msg) { handler.post(() -> callback.onError(msg)); }
 }
