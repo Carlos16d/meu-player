@@ -39,7 +39,9 @@ public class TorrentEngine {
     
     private void log(String msg) {
         Log.d(TAG, msg);
-        handler.post(() -> callback.onLog(msg));
+        try {
+            handler.post(() -> callback.onLog(msg));
+        } catch (Exception e) {}
     }
     
     public void start() {
@@ -49,26 +51,34 @@ public class TorrentEngine {
                 session = new SessionManager();
                 session.start(new SessionParams());
                 
-                SettingsPack sp = new SettingsPack();
-                sp.activeDownloads(2);
-                sp.activeSeeds(2);
-                sp.connectionsLimit(30);
-                sp.downloadRateLimit(2097152); // 2 MB/s
-                sp.uploadRateLimit(524288);
-                session.applySettings(sp);
+                try {
+                    SettingsPack sp = new SettingsPack();
+                    sp.activeDownloads(2);
+                    sp.activeSeeds(2);
+                    sp.connectionsLimit(30);
+                    sp.downloadRateLimit(2097152);
+                    sp.uploadRateLimit(524288);
+                    session.applySettings(sp);
+                    log("Configs aplicadas: 2MB/s limite");
+                } catch (Exception e) {
+                    log("Aviso: não aplicou configs - " + e.getMessage());
+                }
                 
                 ready = true;
-                log("Engine pronto! Limite: 2MB/s");
-                notifyReady();
+                log("Engine pronto!");
+                try { handler.post(() -> callback.onReady()); } catch (Exception e) {}
             } catch (Exception e) {
                 log("ERRO: " + e.getMessage());
-                notifyError(e.getMessage());
+                try { handler.post(() -> callback.onError(e.getMessage())); } catch (Exception ex) {}
             }
         }).start();
     }
     
     public void startDownload(String magnetUri, String savePath) {
-        if (!ready) { notifyError("Aguarde..."); return; }
+        if (!ready) { 
+            try { handler.post(() -> callback.onError("Aguarde...")); } catch (Exception e) {}
+            return; 
+        }
         downloading = true;
         currentSavePath = savePath;
         
@@ -76,7 +86,16 @@ public class TorrentEngine {
             try {
                 log("Conectando ao tracker...");
                 File saveDir = new File(savePath);
-                deleteRecursive(saveDir);
+                
+                // Limpa pasta
+                try {
+                    if (saveDir.exists()) {
+                        File[] files = saveDir.listFiles();
+                        if (files != null) {
+                            for (File f : files) deleteRecursive(f);
+                        }
+                    }
+                } catch (Exception e) {}
                 saveDir.mkdirs();
                 
                 session.download(magnetUri, saveDir, new torrent_flags_t());
@@ -86,7 +105,8 @@ public class TorrentEngine {
                 
                 torrent_handle_vector handles = session.swig().get_torrents();
                 if (handles.size() == 0) {
-                    notifyError("Nenhum peer");
+                    log("Nenhum peer encontrado");
+                    try { handler.post(() -> callback.onError("Nenhum peer")); } catch (Exception e) {}
                     downloading = false;
                     return;
                 }
@@ -102,7 +122,7 @@ public class TorrentEngine {
                 }
                 
                 if (!st.getHas_metadata()) {
-                    notifyError("Timeout");
+                    log("Timeout metadados");
                     downloading = false;
                     return;
                 }
@@ -114,11 +134,15 @@ public class TorrentEngine {
                 log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
                 
                 // Download sequencial
-                for (int i = 0; i < numPieces; i++) {
-                    torrentHandle.piece_priority_ex(i, (byte)(i < 200 ? 7 : 1));
-                }
-                for (int i = 0; i < Math.min(100, numPieces); i++) {
-                    torrentHandle.set_piece_deadline(i, 2000);
+                try {
+                    for (int i = 0; i < numPieces; i++) {
+                        torrentHandle.piece_priority_ex(i, (byte)(i < 200 ? 7 : 1));
+                    }
+                    for (int i = 0; i < Math.min(100, numPieces); i++) {
+                        torrentHandle.set_piece_deadline(i, 2000);
+                    }
+                } catch (Exception e) {
+                    log("Aviso prioridades: " + e.getMessage());
                 }
                 
                 // Aguarda peças iniciais
@@ -138,18 +162,24 @@ public class TorrentEngine {
                     info.downloaded = st.getTotal_done();
                     info.speed = st.getDownload_rate();
                     info.peers = st.getNum_peers();
-                    handler.post(() -> callback.onProgress(info));
+                    
+                    try {
+                        handler.post(() -> callback.onProgress(info));
+                    } catch (Exception e) {}
                     
                     if (complete >= target) {
                         log("Streaming pronto! " + complete + "/" + target + " peças");
-                        handler.post(() -> callback.onStreamReady(torrentHandle, currentSavePath));
+                        try {
+                            final String sp = currentSavePath;
+                            handler.post(() -> callback.onStreamReady(torrentHandle, sp));
+                        } catch (Exception e) {}
                         break;
                     }
                 }
                 
             } catch (Exception e) {
                 log("ERRO: " + e.getMessage());
-                notifyError(e.getMessage());
+                try { handler.post(() -> callback.onError(e.getMessage())); } catch (Exception ex) {}
                 downloading = false;
             }
         }).start();
@@ -169,12 +199,12 @@ public class TorrentEngine {
     
     public void stop() { 
         downloading = false;
-        deleteRecursive(new File(currentSavePath));
+        try {
+            deleteRecursive(new File(currentSavePath));
+        } catch (Exception e) {}
         if (session != null) try { session.stop(); } catch (Exception e) {} 
     }
     
     public void destroy() { stop(); if (session != null) try { session.stop(); } catch (Exception e) {} }
     public boolean isReady() { return ready; }
-    private void notifyReady() { handler.post(() -> callback.onReady()); }
-    private void notifyError(String msg) { handler.post(() -> callback.onError(msg)); }
 }
