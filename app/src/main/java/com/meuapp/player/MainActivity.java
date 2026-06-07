@@ -1,5 +1,7 @@
 package com.meuapp.player;
 
+import android.content.Intent;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -72,7 +74,8 @@ public class MainActivity extends AppCompatActivity {
         webView.setVisibility(View.GONE);
         
         debug("╔══════════════════════════════╗");
-        debug("║  TORRENT STREAM PRO+DASH     ║");
+        debug("║  TORRENT STREAM FINAL        ║");
+        debug("║  SEEK + MULTI-AUDIO          ║");
         debug("╚══════════════════════════════╝");
         
         streamServer = new StreamServer();
@@ -95,10 +98,10 @@ public class MainActivity extends AppCompatActivity {
                 if (vf != null) {
                     videoFile = vf;
                     streamServer.setVideoFile(vf);
+                    streamServer.setTorrentInfo(handle);
                     debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
                 }
-                debug("[ENG] ✅ STREAM READY");
-                debug("[ENG] 📁 DASH em: dash_segments/");
+                debug("[ENG] ✅ STREAM READY - Seek habilitado");
                 handler.post(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
@@ -159,31 +162,35 @@ public class MainActivity extends AppCompatActivity {
             return; 
         }
         
-        // Mostra informações dos segmentos DASH
-        File dashDir = new File(videoFile.getParentFile(), "dash_segments");
-        if (dashDir.exists()) {
-            File[] segs = dashDir.listFiles();
-            if (segs != null && segs.length > 0) {
-                Arrays.sort(segs);
-                debug("📁 DASH: " + segs.length + " segmentos");
-                for (int i = 0; i < Math.min(3, segs.length); i++) {
-                    debug("   " + segs[i].getName() + " (" + (segs[i].length()/1024) + "KB)");
-                }
-                if (segs.length > 3) debug("   ... +" + (segs.length - 3) + " mais");
-            } else {
-                debug("📁 DASH: segmentos serão criados ao reproduzir");
-            }
-        }
-        
-        debug("▶️ Iniciando player PRO...");
+        debug("▶️ Abrindo player...");
+        debug("   📁 " + videoFile.getAbsolutePath());
+        debug("   🌐 http://127.0.0.1:8080/video");
         debug("   📊 " + streamServer.getStats());
         
+        // Tenta abrir com player externo (VLC/MX) para multi-áudio/legendas
+        try {
+            Intent intent = new Intent(Intent.ACTION_VIEW);
+            Uri uri = Uri.parse("http://127.0.0.1:8080/video");
+            intent.setDataAndType(uri, "video/*");
+            intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            startActivity(Intent.createChooser(intent, "🎬 Abrir com..."));
+            debug("   ✅ Seletor de player aberto");
+            debug("   💡 Use VLC ou MX Player para:");
+            debug("      🎵 Multi-áudio");
+            debug("      📝 Legendas");
+            debug("      ⏩ Seek para qualquer minuto");
+        } catch (Exception e) {
+            debug("   ⚠️ Fallback: WebView player");
+            playWithWebView();
+        }
+    }
+    
+    private void playWithWebView() {
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
             btnWatch.setVisibility(View.GONE);
         });
         
-        // PLAYER PROFISSIONAL ESTILO NETFLIX
         String html = "<!DOCTYPE html><html><head>"
             + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
             + "<style>"
@@ -211,16 +218,6 @@ public class MainActivity extends AppCompatActivity {
             + ".btn:active{background:rgba(255,255,255,0.2);}"
             + ".btn svg{width:20px;height:20px;fill:#fff;}"
             + "#time-display{color:#fff;font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;}"
-            + "#track-menu{position:absolute;bottom:70px;right:16px;"
-            + "background:rgba(20,20,30,0.95);border-radius:12px;padding:8px 0;"
-            + "min-width:180px;display:none;z-index:20;backdrop-filter:blur(10px);}"
-            + "#track-menu.show{display:block;}"
-            + ".track-item{color:#fff;padding:10px 16px;font-size:13px;cursor:pointer;"
-            + "display:flex;align-items:center;justify-content:space-between;}"
-            + ".track-item:hover{background:rgba(255,255,255,0.1);}"
-            + ".track-item.active{color:#6c5ce7;}"
-            + ".track-item .check{color:#6c5ce7;display:none;}"
-            + ".track-item.active .check{display:inline;}"
             + "#video-title{position:absolute;top:16px;left:16px;color:#fff;"
             + "font-size:16px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);"
             + "opacity:0;transition:opacity 0.3s;z-index:10;}"
@@ -229,56 +226,30 @@ public class MainActivity extends AppCompatActivity {
             + "color:#fff;font-size:14px;display:none;z-index:5;text-align:center;}"
             + "#loading-indicator.show{display:block;}"
             + ".spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,0.3);"
-            + "border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;"
-            + "margin:0 auto 12px auto;}"
+            + "border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 12px auto;}"
             + "@keyframes spin{to{transform:rotate(360deg);}}"
             + "</style></head><body>"
-            
             + "<div id='player-container'>"
             + "<video id='v' playsinline>"
             + "<source src='http://127.0.0.1:8080/video' type='video/mp4'>"
             + "</video>"
-            
             + "<div id='video-title'></div>"
-            
-            + "<div id='loading-indicator'>"
-            + "<div class='spinner'></div>"
-            + "<div id='loading-text'>Carregando...</div>"
-            + "</div>"
-            
+            + "<div id='loading-indicator'><div class='spinner'></div><div id='loading-text'>Carregando...</div></div>"
             + "<div id='controls'>"
             + "<div id='progress-bar' onmousedown='startSeek(event)' onmousemove='moveSeek(event)' onmouseup='endSeek(event)' ontouchstart='startSeek(event)' ontouchmove='moveSeek(event)' ontouchend='endSeek(event)'>"
-            + "<div id='progress-filled'></div>"
-            + "<div id='progress-thumb'></div>"
+            + "<div id='progress-filled'></div><div id='progress-thumb'></div>"
             + "</div>"
-            
             + "<div id='buttons-row'>"
             + "<div id='left-buttons'>"
-            + "<button class='btn' onclick='togglePlay()' id='btn-play'>"
-            + "<svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg>"
-            + "</button>"
-            + "<button class='btn' onclick='skip(-10)'>"
-            + "<svg viewBox='0 0 24 24'><path d='M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z'/><text x='13' y='17' font-size='9' fill='#fff' font-weight='bold'>10</text></svg>"
-            + "</button>"
-            + "<button class='btn' onclick='skip(10)'>"
-            + "<svg viewBox='0 0 24 24'><path d='M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z'/><text x='7' y='17' font-size='9' fill='#fff' font-weight='bold'>10</text></svg>"
-            + "</button>"
+            + "<button class='btn' onclick='togglePlay()' id='btn-play'><svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg></button>"
+            + "<button class='btn' onclick='skip(-10)'><svg viewBox='0 0 24 24'><path d='M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z'/><text x='13' y='17' font-size='9' fill='#fff' font-weight='bold'>10</text></svg></button>"
+            + "<button class='btn' onclick='skip(10)'><svg viewBox='0 0 24 24'><path d='M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z'/><text x='7' y='17' font-size='9' fill='#fff' font-weight='bold'>10</text></svg></button>"
             + "<span id='time-display'>0:00 / 0:00</span>"
             + "</div>"
-            
             + "<div id='right-buttons'>"
-            + "<button class='btn' id='btn-audio' onclick='toggleTrackMenu(\"audio\")' style='font-size:11px;font-weight:bold;width:auto;padding:8px 12px;border-radius:20px;'>🎵 Áudio</button>"
-            + "<button class='btn' id='btn-subs' onclick='toggleTrackMenu(\"subs\")' style='font-size:11px;font-weight:bold;width:auto;padding:8px 12px;border-radius:20px;'>📝 Legendas</button>"
-            + "<button class='btn' onclick='toggleFullscreen()'>"
-            + "<svg viewBox='0 0 24 24'><path d='M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z'/></svg>"
-            + "</button>"
+            + "<button class='btn' onclick='toggleFullscreen()'><svg viewBox='0 0 24 24'><path d='M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z'/></svg></button>"
             + "</div>"
-            + "</div>"
-            + "</div>"
-            
-            + "<div id='track-menu'></div>"
-            + "</div>"
-            
+            + "</div></div></div>"
             + "<script>"
             + "var v=document.getElementById('v');"
             + "var controls=document.getElementById('controls');"
@@ -287,100 +258,29 @@ public class MainActivity extends AppCompatActivity {
             + "var progressBar=document.getElementById('progress-bar');"
             + "var timeDisplay=document.getElementById('time-display');"
             + "var loading=document.getElementById('loading-indicator');"
-            + "var loadingText=document.getElementById('loading-text');"
-            + "var trackMenu=document.getElementById('track-menu');"
             + "var videoTitle=document.getElementById('video-title');"
             + "var btnPlay=document.getElementById('btn-play');"
-            + "var isSeeking=false;"
-            + "var hideTimeout;"
-            
-            + "v.addEventListener('timeupdate',function(){"
-            + "  if(!isSeeking){"
-            + "    var pct=(v.currentTime/v.duration)*100;"
-            + "    progressFilled.style.width=pct+'%';"
-            + "    progressThumb.style.left=pct+'%';"
-            + "    timeDisplay.textContent=formatTime(v.currentTime)+' / '+formatTime(v.duration);"
-            + "  }"
-            + "});"
-            
-            + "v.addEventListener('waiting',function(){"
-            + "  loading.classList.add('show');"
-            + "  loadingText.textContent='Carregando...';"
-            + "});"
+            + "var isSeeking=false;var hideTimeout;"
+            + "v.addEventListener('timeupdate',function(){if(!isSeeking){var pct=(v.currentTime/v.duration)*100;progressFilled.style.width=pct+'%';progressThumb.style.left=pct+'%';timeDisplay.textContent=formatTime(v.currentTime)+' / '+formatTime(v.duration);}});"
+            + "v.addEventListener('waiting',function(){loading.classList.add('show');});"
             + "v.addEventListener('canplay',function(){loading.classList.remove('show');});"
-            + "v.addEventListener('playing',function(){"
-            + "  loading.classList.remove('show');"
-            + "  btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M6 19h4V5H6v14zm8-14v14h4V5h-4z'/></svg>\";"
-            + "});"
-            + "v.addEventListener('pause',function(){"
-            + "  btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg>\";"
-            + "});"
-            + "v.addEventListener('seeked',function(){"
-            + "  videoTitle.textContent='⏩ Seek: '+formatTime(v.currentTime);"
-            + "  videoTitle.style.opacity='1';"
-            + "  setTimeout(function(){videoTitle.style.opacity='0';},2000);"
-            + "});"
-            
-            + "document.addEventListener('click',function(){"
-            + "  controls.classList.add('active');"
-            + "  clearTimeout(hideTimeout);"
-            + "  hideTimeout=setTimeout(function(){controls.classList.remove('active');},3000);"
-            + "});"
-            
+            + "v.addEventListener('playing',function(){loading.classList.remove('show');btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M6 19h4V5H6v14zm8-14v14h4V5h-4z'/></svg>\";});"
+            + "v.addEventListener('pause',function(){btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg>\";});"
+            + "v.addEventListener('seeked',function(){videoTitle.textContent='⏩ '+formatTime(v.currentTime);videoTitle.style.opacity='1';setTimeout(function(){videoTitle.style.opacity='0';},2000);});"
+            + "document.addEventListener('click',function(){controls.classList.add('active');clearTimeout(hideTimeout);hideTimeout=setTimeout(function(){controls.classList.remove('active');},3000);});"
             + "function togglePlay(){if(v.paused){v.play();}else{v.pause();}}"
             + "function skip(s){v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+s));}"
             + "function formatTime(t){if(isNaN(t))return'0:00';var m=Math.floor(t/60);var s=Math.floor(t%60);return m+':'+(s<10?'0':'')+s;}"
-            
             + "function startSeek(e){isSeeking=true;updateSeek(e);}"
             + "function moveSeek(e){if(isSeeking)updateSeek(e);}"
             + "function endSeek(e){if(isSeeking){updateSeek(e);isSeeking=false;}}"
-            + "function updateSeek(e){"
-            + "  var rect=progressBar.getBoundingClientRect();"
-            + "  var x=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;"
-            + "  var pct=Math.max(0,Math.min(100,(x/rect.width)*100));"
-            + "  progressFilled.style.width=pct+'%';progressThumb.style.left=pct+'%';"
-            + "  if(e.type=='mouseup'||e.type=='touchend'){v.currentTime=(pct/100)*v.duration;}"
-            + "}"
-            
-            + "function toggleTrackMenu(type){"
-            + "  var tracks=type=='audio'?v.audioTracks:v.textTracks;"
-            + "  var html='';"
-            + "  if(tracks&&tracks.length>0){"
-            + "    for(var i=0;i<tracks.length;i++){"
-            + "      var t=tracks[i];"
-            + "      var label=t.label||t.language||('Track '+(i+1));"
-            + "      var active=(type=='audio'?v.audioTrack:i)==i;"
-            + "      html+=\"<div class='track-item\"+(active?\" active\":\"\")+\"' onclick='selectTrack(\\\"\"+type+\"\\\",\"+i+\")'>\"+label+\"<span class='check'>✓</span></div>\";"
-            + "    }"
-            + "  }else{html=\"<div class='track-item'>Nenhum disponível</div>\";}"
-            + "  trackMenu.innerHTML=html;"
-            + "  trackMenu.classList.toggle('show');"
-            + "}"
-            
-            + "function selectTrack(type,index){"
-            + "  if(type=='audio'){for(var i=0;i<v.audioTracks.length;i++)v.audioTracks[i].enabled=(i==index);}"
-            + "  else{for(var i=0;i<v.textTracks.length;i++)v.textTracks[i].mode=(i==index?'showing':'hidden');}"
-            + "  trackMenu.classList.remove('show');"
-            + "}"
-            
-            + "function toggleFullscreen(){"
-            + "  if(document.fullscreenElement){document.exitFullscreen();}"
-            + "  else{document.getElementById('player-container').requestFullscreen();}"
-            + "}"
-            
-            + "v.addEventListener('loadedmetadata',function(){"
-            + "  videoTitle.textContent='▶️ '+Math.floor(v.duration)+'s | DASH Streaming';"
-            + "  videoTitle.style.opacity='1';"
-            + "  setTimeout(function(){videoTitle.style.opacity='0';},3000);"
-            + "});"
-            + "v.addEventListener('error',function(){"
-            + "  videoTitle.textContent='❌ Erro ao carregar';"
-            + "  videoTitle.style.opacity='1';"
-            + "});"
+            + "function updateSeek(e){var rect=progressBar.getBoundingClientRect();var x=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;var pct=Math.max(0,Math.min(100,(x/rect.width)*100));progressFilled.style.width=pct+'%';progressThumb.style.left=pct+'%';if(e.type=='mouseup'||e.type=='touchend'){v.currentTime=(pct/100)*v.duration;}}"
+            + "function toggleFullscreen(){if(document.fullscreenElement){document.exitFullscreen();}else{document.getElementById('player-container').requestFullscreen();}}"
+            + "v.addEventListener('loadedmetadata',function(){videoTitle.textContent='▶️ '+Math.floor(v.duration)+'s';videoTitle.style.opacity='1';setTimeout(function(){videoTitle.style.opacity='0';},3000);});"
             + "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        debug("✅ Player PRO carregado");
+        debug("   ✅ WebView player carregado");
     }
     
     private void stop() {
