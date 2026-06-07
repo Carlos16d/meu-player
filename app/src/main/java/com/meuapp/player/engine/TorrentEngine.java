@@ -31,7 +31,7 @@ public class TorrentEngine {
         void onReady();
         void onError(String error);
         void onProgress(TorrentInfo info);
-        void onStreamReady(File videoFile);
+        void onStreamReady(torrent_handle handle);
         void onStatus(String status);
         void onLog(String log);
     }
@@ -137,7 +137,7 @@ public class TorrentEngine {
                 }
                 log("   " + initialPieces + " peças iniciais ATIVADAS");
                 
-                waitForInitialBuffer(savePath, initialPieces);
+                waitForInitialBuffer(initialPieces);
                 
             } catch (Exception e) {
                 log("❌ ERRO: " + e.getMessage());
@@ -148,7 +148,7 @@ public class TorrentEngine {
         }).start();
     }
     
-    private void waitForInitialBuffer(String savePath, int targetPieces) {
+    private void waitForInitialBuffer(int targetPieces) {
         if (targetPieces <= 0) { log("❌ targetPieces=0"); return; }
         long waitStart = System.currentTimeMillis();
         int lastLogPercent = -1;
@@ -180,22 +180,21 @@ public class TorrentEngine {
                 handler.post(() -> callback.onProgress(info));
                 
                 if (complete >= targetPieces * 0.7f) {
-                    File videoFile = findVideoFile(new File(savePath));
-                    long fileLen = videoFile != null ? videoFile.length() : 0;
+                    long fileLen = st.getTotal_done();
                     log("✅ BUFFER OK! " + complete + "/" + targetPieces + " peças, " + (fileLen/1048576) + "MB, " + elapsed + "s");
                     
-                    if (videoFile != null && fileLen > 5242880) {
-                        currentStreamPiece = targetPieces;
-                        int ahead = Math.min(targetPieces + BUFFER_PIECES_AHEAD, numPieces);
-                        for (int i = targetPieces; i < ahead; i++) {
-                            torrentHandle.piece_priority_ex(i, (byte)6);
-                            torrentHandle.set_piece_deadline(i, 3000);
-                        }
-                        File f = videoFile;
-                        handler.post(() -> callback.onStreamReady(f));
-                        manageStreamBuffer();
-                        break;
+                    currentStreamPiece = targetPieces;
+                    int ahead = Math.min(targetPieces + BUFFER_PIECES_AHEAD, numPieces);
+                    for (int i = targetPieces; i < ahead; i++) {
+                        torrentHandle.piece_priority_ex(i, (byte)6);
+                        torrentHandle.set_piece_deadline(i, 3000);
                     }
+                    
+                    // Passa o handle diretamente para o servidor
+                    handler.post(() -> callback.onStreamReady(torrentHandle));
+                    
+                    manageStreamBuffer();
+                    break;
                 }
             } catch (Exception e) { log("❌ Erro buffer: " + e.getMessage()); }
         }
@@ -231,17 +230,6 @@ public class TorrentEngine {
                 }
             } catch (Exception e) { log("❌ Erro: " + e.getMessage()); }
         }
-    }
-    
-    private File findVideoFile(File dir) {
-        if (dir == null || !dir.exists()) return null;
-        File[] files = dir.listFiles();
-        if (files != null)
-            for (File f : files) {
-                if (f.isDirectory()) { File found = findVideoFile(f); if (found != null) return found; }
-                else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) return f;
-            }
-        return null;
     }
     
     public void stop() { downloading = false; if (session != null) try { session.stop(); } catch (Exception e) {} }
