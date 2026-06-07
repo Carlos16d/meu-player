@@ -12,22 +12,17 @@ import org.libtorrent4j.swig.*;
 public class StreamServer extends NanoHTTPD {
     private static final String TAG = "StreamServer";
     private torrent_handle torrentHandle;
-    private File videoFile;
     private long fileSize = 0;
     private int pieceLength = 0;
     private int numPieces = 0;
     private long totalRequests = 0;
     private long bytesServed = 0;
-    private String savePath;
+    
+    // Cache em memória das peças
+    private Map<Integer, byte[]> pieceCache = new HashMap<>();
     
     public StreamServer() { 
-        super(8080);
-        Log.d(TAG, "StreamServer CRIADO na porta 8080");
-    }
-    
-    public void setSavePath(String path) {
-        this.savePath = path;
-        Log.d(TAG, "setSavePath: " + path);
+        super(8080); 
     }
     
     public void setTorrent(torrent_handle handle) {
@@ -38,57 +33,30 @@ public class StreamServer extends NanoHTTPD {
                 this.fileSize = ti.total_size();
                 this.pieceLength = ti.piece_length();
                 this.numPieces = ti.num_pieces();
-                Log.d(TAG, "TorrentInfo: " + (fileSize/1048576) + "MB, " + numPieces + " peças");
+                Log.d(TAG, "Torrent: " + (fileSize/1048576) + "MB, " + numPieces + " peças, " + (pieceLength/1024) + "KB");
             }
-            findVideoFile();
         }
     }
     
-    private void findVideoFile() {
-        if (savePath == null) return;
-        File dir = new File(savePath);
-        videoFile = findRecursive(dir);
-        if (videoFile != null) {
-            Log.d(TAG, "VIDEO: " + videoFile.getName() + " " + videoFile.length());
-        }
-    }
-    
-    private File findRecursive(File dir) {
-        if (dir == null || !dir.exists()) return null;
-        File[] files = dir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    File found = findRecursive(f);
-                    if (found != null) return found;
-                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
-                    return f;
-                }
-            }
-        }
-        return null;
+    public void setSavePath(String path) {
+        // Não usamos mais
     }
     
     public String getStats() {
-        return totalRequests + "req " + (bytesServed/1048576) + "MB";
+        return totalRequests + "req " + (bytesServed/1048576) + "MB cache:" + pieceCache.size();
     }
     
     @Override
     public Response serve(IHTTPSession session) {
         totalRequests++;
-        String uri = session.getUri();
         String rangeHeader = session.getHeaders().get("range");
         
-        if (videoFile == null || !videoFile.exists()) {
-            findVideoFile();
-            if (videoFile == null || !videoFile.exists()) {
-                return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Video not ready");
-            }
+        if (torrentHandle == null || !torrentHandle.is_valid() || fileSize == 0) {
+            return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not ready");
         }
         
         try {
-            long actualFileSize = videoFile.length();
-            long start = 0, end = actualFileSize - 1;
+            long start = 0, end = fileSize - 1;
             
             if (rangeHeader != null && rangeHeader.startsWith("bytes=")) {
                 String[] parts = rangeHeader.substring(6).split("-");
@@ -96,70 +64,32 @@ public class StreamServer extends NanoHTTPD {
                 if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
             }
             
-            // CORREÇÃO: Garante que o range é válido
-            if (start >= actualFileSize) start = Math.max(0, actualFileSize - 1048576);
-            if (end >= actualFileSize) end = actualFileSize - 1;
+            if (start >= fileSize) start = Math.max(0, fileSize - 1048576);
+            if (end >= fileSize) end = fileSize - 1;
             if (start < 0) start = 0;
-            if (end < start) end = start + 262143;
-            if (end >= actualFileSize) end = actualFileSize - 1;
             
-            // Chunk maior para MKV (precisa de mais dados para parsing)
-            int chunkSize = Math.min((int)(end - start + 1), 1048576); // 1MB
+            int chunkSize = Math.min((int)(end - start + 1), 1048576);
             
-            // Força prioridade nas peças necessárias
-            if (torrentHandle != null && pieceLength > 0 && start > 0) {
-                int targetPiece = (int)(start / pieceLength);
-                if (targetPiece < numPieces) {
-                    torrentHandle.piece_priority_ex(targetPiece, (byte)7);
-                    torrentHandle.set_piece_deadline(targetPiece, 1000);
-                }
+            // LÊ DAS PEÇAS EM MEMÓRIA
+            byte[] data = readFromPieces(start, chunkSize);
+            bytesServed += data.length;
+            
+            if (data.length == 0) {
+                return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Buffering...");
             }
-            
-            byte[] data = new byte[chunkSize];
-            int bytesRead = 0;
-            int retries = 0;
-            
-            // AGUARDA ATÉ TER DADOS SUFICIENTES (máximo 15 segundos)
-            while (bytesRead < 8192 && retries < 30) {
-                long currentSize = videoFile.length();
-                
-                if (currentSize > start) {
-                    RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                    raf.seek(start);
-                    bytesRead = raf.read(data);
-                    raf.close();
-                }
-                
-                if (bytesRead < 8192) {
-                    Thread.sleep(500);
-                    retries++;
-                }
-            }
-            
-            bytesServed += bytesRead;
-            
-            if (totalRequests % 50 == 0) {
-                Log.d(TAG, "#" + totalRequests + " Range:" + start + "+" + bytesRead + " fileSize:" + actualFileSize + " retries:" + retries);
-            }
-            
-            // SEMPRE retorna dados, mesmo que menos que o pedido
-            if (bytesRead <= 0) bytesRead = 0;
             
             String mime = "video/mp4";
-            if (videoFile.getName().toLowerCase().endsWith(".mkv")) mime = "video/x-matroska";
-            else if (videoFile.getName().toLowerCase().endsWith(".webm")) mime = "video/webm";
+            if (torrentHandle.is_valid()) {
+                torrent_info ti = torrentHandle.torrent_file_ptr();
+                if (ti != null && ti.name().toLowerCase().endsWith(".mkv")) mime = "video/x-matroska";
+            }
             
-            byte[] respData = new byte[bytesRead];
-            if (bytesRead > 0) System.arraycopy(data, 0, respData, 0, bytesRead);
-            
-            ByteArrayInputStream bais = new ByteArrayInputStream(respData);
-            Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, bais, bytesRead);
-            response.addHeader("Content-Range", "bytes " + start + "-" + (start + Math.max(0, bytesRead - 1)) + "/" + actualFileSize);
-            response.addHeader("Content-Length", String.valueOf(bytesRead));
+            ByteArrayInputStream bais = new ByteArrayInputStream(data);
+            Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, bais, data.length);
+            response.addHeader("Content-Range", "bytes " + start + "-" + (start + data.length - 1) + "/" + fileSize);
+            response.addHeader("Content-Length", String.valueOf(data.length));
             response.addHeader("Accept-Ranges", "bytes");
             response.addHeader("Access-Control-Allow-Origin", "*");
-            response.addHeader("Connection", "keep-alive");
-            response.addHeader("Cache-Control", "no-cache");
             
             return response;
             
@@ -167,5 +97,41 @@ public class StreamServer extends NanoHTTPD {
             Log.e(TAG, "Error", e);
             return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error");
         }
+    }
+    
+    private byte[] readFromPieces(long offset, int size) {
+        if (torrentHandle == null || pieceLength <= 0) return new byte[0];
+        
+        int startPiece = (int)(offset / pieceLength);
+        int pieceOffset = (int)(offset % pieceLength);
+        
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        int remaining = size;
+        int currentPiece = startPiece;
+        
+        while (remaining > 0 && currentPiece < numPieces) {
+            byte[] pieceData = pieceCache.get(currentPiece);
+            
+            if (pieceData == null && torrentHandle.have_piece(currentPiece)) {
+                // Força prioridade e deadline
+                torrentHandle.piece_priority_ex(currentPiece, (byte)7);
+                torrentHandle.set_piece_deadline(currentPiece, 500);
+            }
+            
+            if (pieceData != null) {
+                int dataOffset = (currentPiece == startPiece) ? pieceOffset : 0;
+                int dataLen = Math.min(remaining, pieceData.length - dataOffset);
+                if (dataLen > 0) {
+                    baos.write(pieceData, dataOffset, dataLen);
+                    remaining -= dataLen;
+                }
+            } else {
+                break; // Peça não disponível
+            }
+            
+            currentPiece++;
+        }
+        
+        return baos.toByteArray();
     }
 }
