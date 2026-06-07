@@ -36,7 +36,7 @@ public class MainActivity extends AppCompatActivity {
     private StreamServer streamServer;
     
     private TextView statusText, progressText, titleText;
-    private ProgressBar bufferBar;
+    private ProgressBar bufferBar, spinnerBar;
     private View loadingOverlay;
     private EditText magnetInput;
     private Button btnStream, btnStop, btnWatch;
@@ -58,6 +58,7 @@ public class MainActivity extends AppCompatActivity {
         progressText = findViewById(R.id.progress_text);
         titleText = findViewById(R.id.title_text);
         bufferBar = findViewById(R.id.buffer_bar);
+        spinnerBar = findViewById(R.id.spinner_bar);
         loadingOverlay = findViewById(R.id.loading_overlay);
         magnetInput = findViewById(R.id.magnet_input);
         btnStream = findViewById(R.id.btn_play);
@@ -70,11 +71,10 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         
         addLog("╔══════════════════════════════╗");
-        addLog("║   TORRENT STREAMING v4       ║");
+        addLog("║   TORRENT STREAMING v5       ║");
         addLog("╚══════════════════════════════╝");
         addLog("Save: " + savePath);
         
-        // ExoPlayer
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
         playerView.setUseController(true);
@@ -107,7 +107,6 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         
-        // Torrent Engine com callback onLog
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
             public void onReady() { addLog("✅ Engine pronto"); }
             public void onError(String e) { addLog("❌ Engine: " + e); }
@@ -124,6 +123,7 @@ public class MainActivity extends AppCompatActivity {
                 streamServer.setVideoFile(f);
                 addLog("✅ STREAM READY: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
                 runOnUiThread(() -> {
+                    spinnerBar.setVisibility(View.GONE);
                     loadingOverlay.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
                     titleText.setText("🎬 Pronto! Clique ASSISTIR");
@@ -131,11 +131,9 @@ public class MainActivity extends AppCompatActivity {
             }
             
             public void onStatus(String s) { addLog("📡 " + s); }
-            
             public void onLog(String log) { addLog("🔧 " + log); }
         });
         
-        // Servidor HTTP
         streamServer = new StreamServer();
         try {
             streamServer.start();
@@ -151,19 +149,11 @@ public class MainActivity extends AppCompatActivity {
             if (m.startsWith("magnet:")) {
                 addLog("🔗 Iniciando stream...");
                 startStream(m);
-            } else {
-                addLog("⚠ Magnet inválido");
             }
         });
-        
-        btnStop.setOnClickListener(v -> {
-            addLog("⏹ Parando...");
-            stop();
-        });
-        
+        btnStop.setOnClickListener(v -> { addLog("⏹ Parando..."); stop(); });
         btnWatch.setOnClickListener(v -> {
-            addLog("▶ Assistindo...");
-            addLog("   Server: " + streamServer.getStats());
+            addLog("▶ Assistindo... " + streamServer.getStats());
             watch();
         });
     }
@@ -191,6 +181,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void startStream(String magnet) {
         bufferBar.setVisibility(View.VISIBLE);
+        spinnerBar.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
@@ -200,10 +191,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void watch() {
-        if (videoFile == null) {
-            addLog("❌ videoFile é NULL!");
-            return;
-        }
+        if (videoFile == null) { addLog("❌ videoFile NULL!"); return; }
         
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
@@ -214,10 +202,9 @@ public class MainActivity extends AppCompatActivity {
         addLog("▶ URL: " + url);
         addLog("   Arquivo: " + videoFile.getName() + " (" + videoFile.length()/1048576 + "MB)");
         
-        // Teste rápido de conectividade
+        // Teste de conectividade
         try {
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) 
-                new java.net.URL(url).openConnection();
+            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
             conn.setRequestMethod("HEAD");
             conn.setConnectTimeout(5000);
             conn.setReadTimeout(5000);
@@ -237,9 +224,7 @@ public class MainActivity extends AppCompatActivity {
             .setReadTimeoutMs(60000)
             .setAllowCrossProtocolRedirects(true);
         
-        ProgressiveMediaSource.Factory mediaSourceFactory = 
-            new ProgressiveMediaSource.Factory(dataSourceFactory);
-        
+        ProgressiveMediaSource.Factory mediaSourceFactory = new ProgressiveMediaSource.Factory(dataSourceFactory);
         MediaSource mediaSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(videoUri));
         
         exoPlayer.setMediaSource(mediaSource);
@@ -251,11 +236,9 @@ public class MainActivity extends AppCompatActivity {
     
     private void stop() {
         torrentEngine.stop();
-        if (exoPlayer != null) {
-            exoPlayer.stop();
-            exoPlayer.clearMediaItems();
-        }
+        if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); }
         playerView.setVisibility(View.GONE);
+        spinnerBar.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
