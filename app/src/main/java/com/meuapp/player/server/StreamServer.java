@@ -4,6 +4,7 @@ import android.util.Log;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.*;
 
 import fi.iki.elonen.NanoHTTPD;
 
@@ -19,7 +20,13 @@ public class StreamServer extends NanoHTTPD {
     private long bytesServed = 0;
     private String fileName = "video.mp4";
     
-    public StreamServer() { super(8080); }
+    // CACHE EM MEMÓRIA
+    private Map<Integer, byte[]> pieceCache = new ConcurrentHashMap<>();
+    private Set<Integer> requestedPieces = new HashSet<>();
+    
+    public StreamServer() { 
+        super(8080); 
+    }
     
     public void setTorrent(torrent_handle handle) {
         this.torrentHandle = handle;
@@ -36,7 +43,7 @@ public class StreamServer extends NanoHTTPD {
     }
     
     public String getStats() {
-        return totalRequests + "req " + (bytesServed/1048576) + "MB";
+        return totalRequests + "req " + (bytesServed/1048576) + "MB cache:" + pieceCache.size() + "pcs";
     }
     
     @Override
@@ -61,18 +68,14 @@ public class StreamServer extends NanoHTTPD {
             if (start >= fileSize) start = Math.max(0, fileSize - 524288);
             if (end >= fileSize) end = fileSize - 1;
             
-            int chunkSize = Math.min((int)(end - start + 1), 262144); // 256KB
+            int chunkSize = Math.min((int)(end - start + 1), 262144);
             
-            // LÊ DIRETO DAS PEÇAS
-            byte[] data = readFromPieces(start, chunkSize);
+            // LÊ DO CACHE EM MEMÓRIA
+            byte[] data = readFromCache(start, chunkSize);
             bytesServed += data.length;
             
-            if (totalRequests % 20 == 0) {
+            if (totalRequests % 50 == 0) {
                 Log.d(TAG, "#" + totalRequests + " Range:" + start + "+" + data.length + " fileSize:" + fileSize);
-            }
-            
-            if (data.length == 0) {
-                return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Piece not available");
             }
             
             String mime = "video/mp4";
@@ -94,33 +97,119 @@ public class StreamServer extends NanoHTTPD {
         }
     }
     
-    private byte[] readFromPieces(long offset, int size) {
+    private byte[] readFromCache(long offset, int size) {
         if (torrentHandle == null || pieceLength <= 0) return new byte[0];
         
         int startPiece = (int)(offset / pieceLength);
+        int endPiece = (int)((offset + size - 1) / pieceLength);
         int pieceOffset = (int)(offset % pieceLength);
         
-        // Verifica se a peça está disponível
-        if (startPiece < numPieces && torrentHandle.have_piece(startPiece)) {
-            // Força prioridade
-            torrentHandle.piece_priority_ex(startPiece, (byte)7);
+        ByteArrayOutputStream baos = new ByteArrayOutputStream();
+        long currentOffset = offset;
+        int remaining = size;
+        
+        for (int i = startPiece; i <= Math.min(endPiece, numPieces - 1) && remaining > 0; i++) {
+            byte[] pieceData = pieceCache.get(i);
             
-            // Tenta ler a peça via read_piece (assíncrono no libtorrent)
-            // Como read_piece é assíncrono, vamos usar o arquivo em disco como fallback
-            // O libtorrent salva as peças em disco automaticamente
+            if (pieceData == null) {
+                // Peça não está no cache - tenta ler do torrent
+                if (torrentHandle.have_piece(i)) {
+                    // Lê a peça do disco (libtorrent salva automaticamente)
+                    pieceData = readPieceFromDisk(i);
+                    if (pieceData != null) {
+                        pieceCache.put(i, pieceData);
+                        Log.d(TAG, "Peça " + i + " carregada no cache (" + (pieceData.length/1024) + "KB)");
+                    }
+                } else {
+                    // Força prioridade nesta peça
+                    if (!requestedPieces.contains(i)) {
+                        torrentHandle.piece_priority_ex(i, (byte)7);
+                        torrentHandle.set_piece_deadline(i, 500);
+                        requestedPieces.add(i);
+                        Log.d(TAG, "Solicitando peça " + i);
+                    }
+                }
+            }
             
-            // Por enquanto, retorna bytes vazios (placeholder)
-            // O correto seria implementar read_piece com callback
-            int availableBytes = Math.min(size, pieceLength - pieceOffset);
-            return new byte[availableBytes];
+            if (pieceData != null) {
+                int dataOffset = (i == startPiece) ? pieceOffset : 0;
+                int dataLen = Math.min(remaining, pieceData.length - dataOffset);
+                if (dataLen > 0) {
+                    baos.write(pieceData, dataOffset, dataLen);
+                    currentOffset += dataLen;
+                    remaining -= dataLen;
+                }
+            } else {
+                // Peça não disponível - preenche com zeros
+                int fillLen = Math.min(remaining, pieceLength - ((i == startPiece) ? pieceOffset : 0));
+                if (fillLen > 0) {
+                    baos.write(new byte[fillLen], 0, fillLen);
+                    remaining -= fillLen;
+                }
+            }
         }
         
-        // Peça não disponível - força prioridade
-        if (startPiece < numPieces) {
-            torrentHandle.piece_priority_ex(startPiece, (byte)7);
-            torrentHandle.set_piece_deadline(startPiece, 500);
+        // Limpa requestedPieces se muito grande
+        if (requestedPieces.size() > 200) {
+            requestedPieces.clear();
         }
         
-        return new byte[0];
+        return baos.toByteArray();
+    }
+    
+    private byte[] readPieceFromDisk(int pieceIndex) {
+        if (torrentHandle == null || !torrentHandle.is_valid()) return null;
+        
+        try {
+            // O libtorrent salva as peças em um arquivo oculto
+            // Tenta encontrar o arquivo de dados
+            torrent_status st = torrentHandle.status();
+            String savePath = st.getSave_path();
+            String name = st.getName();
+            
+            if (savePath != null && name != null) {
+                File dir = new File(savePath);
+                File videoFile = findVideoFile(dir, name);
+                
+                if (videoFile != null && videoFile.exists()) {
+                    long offset = (long)pieceIndex * pieceLength;
+                    int len = (int)Math.min(pieceLength, videoFile.length() - offset);
+                    
+                    if (len > 0 && offset < videoFile.length()) {
+                        byte[] data = new byte[len];
+                        RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
+                        raf.seek(offset);
+                        raf.readFully(data);
+                        raf.close();
+                        return data;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Erro lendo peça " + pieceIndex, e);
+        }
+        return null;
+    }
+    
+    private File findVideoFile(File dir, String name) {
+        if (dir == null || !dir.exists()) return null;
+        
+        // Primeiro procura pelo nome exato
+        File exact = new File(dir, name);
+        if (exact.exists()) return exact;
+        
+        // Depois procura recursivamente
+        File[] files = dir.listFiles();
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    File found = findVideoFile(f, name);
+                    if (found != null) return found;
+                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
+                    return f;
+                }
+            }
+        }
+        return null;
     }
 }
