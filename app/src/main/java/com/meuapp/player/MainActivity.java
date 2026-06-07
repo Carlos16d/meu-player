@@ -1,169 +1,214 @@
-package com.meuapp.player.engine;
+package com.meuapp.player;
 
-import android.os.Handler;
-import android.os.Looper;
+import android.Manifest;
+import android.content.pm.PackageManager;
+import android.net.Uri;
+import android.os.Build;
+import android.os.Bundle;
+import android.os.Environment;
+import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
+import android.view.SurfaceView;
+import android.view.View;
+import android.widget.*;
+import androidx.appcompat.app.AppCompatActivity;
+import androidx.core.app.ActivityCompat;
+import androidx.core.content.ContextCompat;
 
+import com.meuapp.player.engine.TorrentEngine;
+import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.model.TorrentInfo;
 
-import org.libtorrent4j.SessionManager;
-import org.libtorrent4j.SessionParams;
-import org.libtorrent4j.swig.*;
+import org.libtorrent4j.swig.torrent_handle;
+import org.videolan.libvlc.*;
+import org.videolan.libvlc.interfaces.*;
 
-import java.io.File;
+import java.io.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
-public class TorrentEngine {
-    private static final String TAG = "TorrentEngine";
-    private SessionManager session;
-    private torrent_handle torrentHandle;
-    private boolean ready = false;
-    private boolean downloading = false;
-    private Handler handler;
-    private EngineCallback callback;
-    private String currentSavePath;
+public class MainActivity extends AppCompatActivity {
+    private static final String TAG = "MainActivity";
     
-    public interface EngineCallback {
-        void onReady();
-        void onError(String error);
-        void onProgress(TorrentInfo info);
-        void onStreamReady(torrent_handle handle, String savePath);
-        void onStatus(String status);
-        void onLog(String log);
-    }
+    private SurfaceView videoSurface;
+    private LibVLC libVLC;
+    private MediaPlayer vlcPlayer;
+    private TorrentEngine torrentEngine;
+    private StreamServer streamServer;
     
-    public TorrentEngine(EngineCallback callback) {
-        this.callback = callback;
-        this.handler = new Handler(Looper.getMainLooper());
-    }
+    private TextView statusText, progressText, titleText;
+    private ProgressBar bufferBar, spinnerBar;
+    private View loadingOverlay;
+    private EditText magnetInput;
+    private Button btnStream, btnStop, btnWatch;
     
-    private void log(String msg) {
-        Log.d(TAG, msg);
-        handler.post(() -> callback.onLog(msg));
-    }
+    private String savePath;
+    private StringBuilder logBuilder = new StringBuilder();
+    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     
-    public void start() {
-        new Thread(() -> {
-            try {
-                log("Iniciando engine...");
-                session = new SessionManager();
-                session.start(new SessionParams());
-                ready = true;
-                log("Engine pronto!");
-                notifyReady();
-            } catch (Exception e) {
-                log("ERRO: " + e.getMessage());
-                notifyError(e.getMessage());
-            }
-        }).start();
-    }
-    
-    public void startDownload(String magnetUri, String savePath) {
-        if (!ready) { notifyError("Aguarde..."); return; }
-        downloading = true;
-        currentSavePath = savePath;
+    @Override
+    protected void onCreate(Bundle savedInstanceState) {
+        super.onCreate(savedInstanceState);
+        setContentView(R.layout.activity_main);
         
-        new Thread(() -> {
-            try {
-                log("Conectando ao tracker...");
-                File saveDir = new File(savePath);
-                deleteRecursive(saveDir);
-                saveDir.mkdirs();
-                
-                session.download(magnetUri, saveDir, new torrent_flags_t());
-                
-                log("Aguardando torrent...");
-                Thread.sleep(3000);
-                
-                torrent_handle_vector handles = session.swig().get_torrents();
-                if (handles.size() == 0) {
-                    notifyError("Nenhum peer");
-                    downloading = false;
-                    return;
-                }
-                
-                torrentHandle = handles.get(0);
-                
-                torrent_status st = torrentHandle.status();
-                int w = 0;
-                while (!st.getHas_metadata() && w < 60 && downloading) {
-                    Thread.sleep(1000);
-                    w++;
-                    st = torrentHandle.status();
-                }
-                
-                if (!st.getHas_metadata()) {
-                    notifyError("Timeout");
-                    downloading = false;
-                    return;
-                }
-                
-                long totalSize = st.getTotal();
-                torrent_info ti = torrentHandle.torrent_file_ptr();
-                int numPieces = ti != null ? ti.num_pieces() : 100;
-                
-                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças");
-                
-                // Download sequencial
-                for (int i = 0; i < numPieces; i++) {
-                    torrentHandle.piece_priority_ex(i, (byte)(i < 100 ? 7 : 1));
-                }
-                for (int i = 0; i < Math.min(50, numPieces); i++) {
-                    torrentHandle.set_piece_deadline(i, 2000);
-                }
-                
-                // Aguarda peças iniciais
-                int target = Math.min(10, numPieces);
-                while (downloading) {
-                    Thread.sleep(500);
-                    
-                    int complete = 0;
-                    for (int i = 0; i < target; i++) {
-                        if (torrentHandle.have_piece(i)) complete++;
-                    }
-                    
-                    st = torrentHandle.status();
-                    TorrentInfo info = new TorrentInfo();
-                    info.progress = (complete * 100) / target;
-                    info.downloaded = st.getTotal_done();
-                    info.speed = st.getDownload_rate();
-                    info.peers = st.getNum_peers();
-                    handler.post(() -> callback.onProgress(info));
-                    
-                    if (complete >= target) {
-                        log("Streaming pronto! " + complete + "/" + target + " peças");
-                        handler.post(() -> callback.onStreamReady(torrentHandle, currentSavePath));
+        requestPermissions();
+        
+        videoSurface = findViewById(R.id.video_surface);
+        statusText = findViewById(R.id.status_text);
+        progressText = findViewById(R.id.progress_text);
+        titleText = findViewById(R.id.title_text);
+        bufferBar = findViewById(R.id.buffer_bar);
+        spinnerBar = findViewById(R.id.spinner_bar);
+        loadingOverlay = findViewById(R.id.loading_overlay);
+        magnetInput = findViewById(R.id.magnet_input);
+        btnStream = findViewById(R.id.btn_play);
+        btnStop = findViewById(R.id.btn_stop);
+        btnWatch = findViewById(R.id.btn_watch);
+        
+        statusText.setMovementMethod(new ScrollingMovementMethod());
+        
+        savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
+        new File(savePath).mkdirs();
+        
+        addLog("=== TORRENT STREAM VLC ===");
+        addLog("VLC suporta TODOS os codecs");
+        
+        // Configura VLC
+        ArrayList<String> options = new ArrayList<>();
+        options.add("--network-caching=3000");
+        options.add("--file-caching=2000");
+        options.add("--http-reconnect");
+        options.add("--clock-synchro=0");
+        libVLC = new LibVLC(this, options);
+        vlcPlayer = new MediaPlayer(libVLC);
+        
+        vlcPlayer.setEventListener(new MediaPlayer.EventListener() {
+            @Override
+            public void onEvent(MediaPlayer.Event event) {
+                switch (event.type) {
+                    case MediaPlayer.Event.Playing:
+                        addLog("[VLC] Playing");
+                        runOnUiThread(() -> loadingOverlay.setVisibility(View.GONE));
                         break;
-                    }
+                    case MediaPlayer.Event.Buffering:
+                        addLog("[VLC] Buffering " + event.getBuffering() + "%");
+                        break;
+                    case MediaPlayer.Event.EncounteredError:
+                        addLog("[VLC] ERRO!");
+                        break;
                 }
-                
-            } catch (Exception e) {
-                log("ERRO: " + e.getMessage());
-                notifyError(e.getMessage());
-                downloading = false;
             }
-        }).start();
+        });
+        
+        torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
+            public void onReady() { addLog("[ENG] OK"); }
+            public void onError(String e) { addLog("[ENG] ERRO: " + e); }
+            public void onProgress(TorrentInfo info) {
+                runOnUiThread(() -> {
+                    bufferBar.setProgress(info.progress);
+                    progressText.setText(info.progress + "% " + (info.speed/1024) + "KB/s " + info.peers + "p");
+                });
+            }
+            public void onStreamReady(torrent_handle handle, String sp) {
+                streamServer.setSavePath(sp);
+                streamServer.setTorrent(handle);
+                addLog("[ENG] STREAM READY");
+                runOnUiThread(() -> {
+                    spinnerBar.setVisibility(View.GONE);
+                    loadingOverlay.setVisibility(View.GONE);
+                    btnWatch.setVisibility(View.VISIBLE);
+                    titleText.setText("🎬 Pronto!");
+                });
+            }
+            public void onStatus(String s) { addLog("[ENG] " + s); }
+            public void onLog(String log) { addLog("[ENG] " + log); }
+        });
+        
+        streamServer = new StreamServer();
+        try { streamServer.start(); addLog("[SRV] HTTP:8080 OK"); }
+        catch (Exception e) { addLog("[SRV] ERRO: " + e.getMessage()); }
+        
+        torrentEngine.start();
+        
+        btnStream.setOnClickListener(v -> {
+            String m = magnetInput.getText().toString().trim();
+            if (m.startsWith("magnet:")) startStream(m);
+        });
+        btnStop.setOnClickListener(v -> stop());
+        btnWatch.setOnClickListener(v -> watch());
     }
     
-    private void deleteRecursive(File dir) {
-        if (dir.exists()) {
-            File[] files = dir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    if (f.isDirectory()) deleteRecursive(f);
-                    else f.delete();
+    private void addLog(String msg) {
+        String line = sdf.format(new Date()) + " " + msg + "\n";
+        Log.d(TAG, msg);
+        logBuilder.insert(0, line);
+        if (logBuilder.length() > 10000) logBuilder.setLength(10000);
+        runOnUiThread(() -> statusText.setText(logBuilder.toString()));
+    }
+    
+    private void requestPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            String[] perms = {Manifest.permission.INTERNET, Manifest.permission.WRITE_EXTERNAL_STORAGE};
+            for (String p : perms) {
+                if (ContextCompat.checkSelfPermission(this, p) != PackageManager.PERMISSION_GRANTED) {
+                    ActivityCompat.requestPermissions(this, perms, 1);
+                    break;
                 }
             }
         }
     }
     
-    public void stop() { 
-        downloading = false;
-        deleteRecursive(new File(currentSavePath));
-        if (session != null) try { session.stop(); } catch (Exception e) {} 
+    private void startStream(String magnet) {
+        bufferBar.setVisibility(View.VISIBLE);
+        spinnerBar.setVisibility(View.VISIBLE);
+        loadingOverlay.setVisibility(View.VISIBLE);
+        btnStop.setVisibility(View.VISIBLE);
+        btnWatch.setVisibility(View.GONE);
+        videoSurface.setVisibility(View.GONE);
+        torrentEngine.startDownload(magnet, savePath);
     }
     
-    public void destroy() { stop(); if (session != null) try { session.stop(); } catch (Exception e) {} }
-    public boolean isReady() { return ready; }
-    private void notifyReady() { handler.post(() -> callback.onReady()); }
-    private void notifyError(String msg) { handler.post(() -> callback.onError(msg)); }
+    private void watch() {
+        btnWatch.setVisibility(View.GONE);
+        videoSurface.setVisibility(View.VISIBLE);
+        loadingOverlay.setVisibility(View.VISIBLE);
+        
+        String url = "http://127.0.0.1:8080/video";
+        addLog("[VLC] Playing: " + url);
+        
+        vlcPlayer.attachViews(videoSurface, null, false, false);
+        
+        Media media = new Media(libVLC, Uri.parse(url));
+        media.setHWDecoderEnabled(true, true);
+        media.addOption(":network-caching=3000");
+        media.addOption(":file-caching=2000");
+        media.addOption(":http-reconnect");
+        media.addOption(":clock-synchro=0");
+        
+        vlcPlayer.setMedia(media);
+        media.release();
+        vlcPlayer.play();
+    }
+    
+    private void stop() {
+        torrentEngine.stop();
+        if (vlcPlayer != null) vlcPlayer.stop();
+        videoSurface.setVisibility(View.GONE);
+        spinnerBar.setVisibility(View.GONE);
+        loadingOverlay.setVisibility(View.GONE);
+        btnStop.setVisibility(View.GONE);
+        btnWatch.setVisibility(View.GONE);
+        bufferBar.setVisibility(View.GONE);
+        titleText.setText("🎬 Torrent Stream");
+        progressText.setText("Pronto");
+    }
+    
+    @Override
+    protected void onDestroy() {
+        if (torrentEngine != null) torrentEngine.destroy();
+        if (streamServer != null) streamServer.stop();
+        if (vlcPlayer != null) { vlcPlayer.release(); vlcPlayer = null; }
+        if (libVLC != null) { libVLC.release(); libVLC = null; }
+        super.onDestroy();
+    }
 }
