@@ -4,7 +4,6 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
@@ -24,7 +23,6 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    private static final String TAG = "MainActivity";
     private WebView webView;
     private TextView statusText, debugText;
     private ProgressBar bufferBar, spinnerBar;
@@ -73,15 +71,15 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient());
         webView.setVisibility(View.GONE);
         
-        debug("=== DASH v2 ===");
+        debug("=== TORRENT STREAM ===");
         
         streamServer = new StreamServer();
-        try { streamServer.start(); debug("SRV OK"); } 
-        catch (Exception e) { debug("SRV ERRO: " + e.getMessage()); }
+        try { streamServer.start(); debug("[SRV] OK"); } 
+        catch (Exception e) { debug("[SRV] " + e.getMessage()); }
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { debug("ENG OK"); }
-            public void onError(String e) { debug("ENG ERRO: " + e); }
+            public void onReady() { debug("[ENG] OK"); }
+            public void onError(String e) { debug("[ENG] " + e); }
             
             public void onProgress(TorrentInfo info) {
                 handler.post(() -> {
@@ -91,36 +89,28 @@ public class MainActivity extends AppCompatActivity {
             }
             
             public void onStreamReady(torrent_handle handle, String sp) {
-                Log.d(TAG, "=== onStreamReady na UI thread ===");
-                debug("onStreamReady recebido!");
-                
-                try {
-                    debug("Configurando servidor...");
-                    streamServer.setSavePath(sp);
-                    streamServer.setTorrent(handle);
-                    debug("Servidor configurado: " + streamServer.getStats());
+                // PROCURA O ARQUIVO (igual antes)
+                File vf = findVideoFile(new File(sp));
+                if (vf != null) {
+                    videoFile = vf;
+                    // USA setVideoFile (SIMPLES, FUNCIONA)
+                    streamServer.setVideoFile(vf);
+                    debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
                     
-                    File vf = findVideoFile(new File(sp));
-                    if (vf != null) {
-                        videoFile = vf;
-                        debug("Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
-                    } else {
-                        debug("Video NÃO encontrado em: " + sp);
-                    }
-                    
-                    // Mostra botão
+                    // CRIA PASTA DE SEGMENTOS DASH
+                    File dashDir = new File(sp, "dash_segments");
+                    dashDir.mkdirs();
+                    debug("[ENG] DASH dir: " + dashDir.getAbsolutePath());
+                }
+                debug("[ENG] STREAM READY");
+                handler.post(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
-                    debug("Botão ASSISTIR visível!");
-                    
-                } catch (Exception e) {
-                    debug("ERRO: " + e.getMessage());
-                    Log.e(TAG, "Erro onStreamReady", e);
-                }
+                });
             }
             
-            public void onStatus(String s) { debug(s); }
-            public void onLog(String log) { debug(log); }
+            public void onStatus(String s) { debug("[ENG] " + s); }
+            public void onLog(String log) { debug("[ENG] " + log); }
         });
         
         torrentEngine.start();
@@ -137,7 +127,6 @@ public class MainActivity extends AppCompatActivity {
     
     private void debug(String msg) {
         String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
-        Log.d(TAG, msg);
         debugLog.append(line);
         handler.post(() -> debugText.setText(debugLog.toString()));
     }
@@ -174,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
             return; 
         }
         
-        debug("Player iniciado: " + streamServer.getStats());
+        debug("Iniciando player...");
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
@@ -183,10 +172,19 @@ public class MainActivity extends AppCompatActivity {
         
         String html = "<!DOCTYPE html><html><head>" +
             "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1'>" +
-            "<style>body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;}" +
-            "video{width:100%;max-height:100vh;}</style></head><body>" +
-            "<video controls autoplay playsinline style='width:100%'>" +
-            "<source src='http://127.0.0.1:8080/video' type='video/mp4'></video></body></html>";
+            "<style>" +
+            "body{margin:0;background:#000;display:flex;align-items:center;justify-content:center;height:100vh;overflow:hidden;}" +
+            "video{width:100%;max-height:100vh;outline:none;}" +
+            "</style></head><body>" +
+            "<video id='v' controls autoplay playsinline style='width:100%'>" +
+            "<source src='http://127.0.0.1:8080/video' type='video/mp4'>" +
+            "</video>" +
+            "<script>" +
+            "var v=document.getElementById('v');" +
+            "v.addEventListener('loadedmetadata',function(){document.title='DASH '+Math.floor(v.duration)+'s';});" +
+            "v.addEventListener('error',function(){document.title='Erro';});" +
+            "v.addEventListener('seeked',function(){document.title='Seek: '+Math.floor(v.currentTime)+'s';});" +
+            "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
     }
