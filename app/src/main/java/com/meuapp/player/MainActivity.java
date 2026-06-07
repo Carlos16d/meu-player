@@ -71,20 +71,22 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient());
         webView.setVisibility(View.GONE);
         
-        debug("=== TORRENT STREAM PRO ===");
+        debug("╔══════════════════════════════╗");
+        debug("║  TORRENT STREAM PRO+DASH     ║");
+        debug("╚══════════════════════════════╝");
         
         streamServer = new StreamServer();
-        try { streamServer.start(); debug("[SRV] OK"); } 
-        catch (Exception e) { debug("[SRV] " + e.getMessage()); }
+        try { streamServer.start(); debug("[SRV] ✅ HTTP:8080"); } 
+        catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { debug("[ENG] OK"); }
-            public void onError(String e) { debug("[ENG] " + e); }
+            public void onReady() { debug("[ENG] ✅ Pronto"); }
+            public void onError(String e) { debug("[ENG] ❌ " + e); }
             
             public void onProgress(TorrentInfo info) {
                 handler.post(() -> {
                     bufferBar.setProgress(info.progress);
-                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
+                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers");
                 });
             }
             
@@ -93,9 +95,10 @@ public class MainActivity extends AppCompatActivity {
                 if (vf != null) {
                     videoFile = vf;
                     streamServer.setVideoFile(vf);
-                    debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                    debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
                 }
-                debug("[ENG] STREAM READY");
+                debug("[ENG] ✅ STREAM READY");
+                debug("[ENG] 📁 DASH em: dash_segments/");
                 handler.post(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     btnWatch.setVisibility(View.VISIBLE);
@@ -115,7 +118,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         
-        debug("Pronto");
+        debug("📱 Pronto");
     }
     
     private void debug(String msg) {
@@ -152,11 +155,28 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { 
-            debug("Video não encontrado"); 
+            debug("❌ Video não encontrado"); 
             return; 
         }
         
-        debug("Iniciando player PRO...");
+        // Mostra informações dos segmentos DASH
+        File dashDir = new File(videoFile.getParentFile(), "dash_segments");
+        if (dashDir.exists()) {
+            File[] segs = dashDir.listFiles();
+            if (segs != null && segs.length > 0) {
+                Arrays.sort(segs);
+                debug("📁 DASH: " + segs.length + " segmentos");
+                for (int i = 0; i < Math.min(3, segs.length); i++) {
+                    debug("   " + segs[i].getName() + " (" + (segs[i].length()/1024) + "KB)");
+                }
+                if (segs.length > 3) debug("   ... +" + (segs.length - 3) + " mais");
+            } else {
+                debug("📁 DASH: segmentos serão criados ao reproduzir");
+            }
+        }
+        
+        debug("▶️ Iniciando player PRO...");
+        debug("   📊 " + streamServer.getStats());
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
@@ -170,17 +190,11 @@ public class MainActivity extends AppCompatActivity {
             + "*{margin:0;padding:0;box-sizing:border-box;}"
             + "body{background:#000;overflow:hidden;font-family:Arial,sans-serif;}"
             + "video{width:100%;height:100vh;display:block;}"
-            
-            // Container principal
             + "#player-container{position:relative;width:100%;height:100vh;}"
-            
-            // Controles overlay
             + "#controls{position:absolute;bottom:0;left:0;right:0;"
             + "background:linear-gradient(transparent,rgba(0,0,0,0.9));"
             + "padding:40px 16px 16px 16px;opacity:0;transition:opacity 0.3s;z-index:10;}"
             + "#controls:hover,#controls.active{opacity:1;}"
-            
-            // Barra de progresso
             + "#progress-bar{width:100%;height:4px;background:rgba(255,255,255,0.2);"
             + "border-radius:2px;cursor:pointer;margin-bottom:12px;position:relative;}"
             + "#progress-filled{height:100%;background:#6c5ce7;border-radius:2px;"
@@ -188,24 +202,15 @@ public class MainActivity extends AppCompatActivity {
             + "#progress-thumb{width:14px;height:14px;background:#fff;border-radius:50%;"
             + "position:absolute;top:-5px;left:0%;transform:translateX(-50%);display:none;}"
             + "#progress-bar:hover #progress-thumb{display:block;}"
-            
-            // Linha de botões
             + "#buttons-row{display:flex;align-items:center;justify-content:space-between;}"
             + "#left-buttons,#right-buttons{display:flex;align-items:center;gap:16px;}"
-            
-            // Botões
             + ".btn{background:none;border:none;color:#fff;cursor:pointer;"
             + "font-size:20px;padding:8px;border-radius:50%;width:40px;height:40px;"
             + "display:flex;align-items:center;justify-content:center;transition:background 0.2s;}"
             + ".btn:hover{background:rgba(255,255,255,0.1);}"
             + ".btn:active{background:rgba(255,255,255,0.2);}"
             + ".btn svg{width:20px;height:20px;fill:#fff;}"
-            
-            // Tempo
-            + "#time-display{color:#fff;font-size:13px;font-weight:500;"
-            + "font-variant-numeric:tabular-nums;}"
-            
-            // Menu de áudio/legendas
+            + "#time-display{color:#fff;font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;}"
             + "#track-menu{position:absolute;bottom:70px;right:16px;"
             + "background:rgba(20,20,30,0.95);border-radius:12px;padding:8px 0;"
             + "min-width:180px;display:none;z-index:20;backdrop-filter:blur(10px);}"
@@ -216,23 +221,17 @@ public class MainActivity extends AppCompatActivity {
             + ".track-item.active{color:#6c5ce7;}"
             + ".track-item .check{color:#6c5ce7;display:none;}"
             + ".track-item.active .check{display:inline;}"
-            
-            // Título
             + "#video-title{position:absolute;top:16px;left:16px;color:#fff;"
             + "font-size:16px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);"
             + "opacity:0;transition:opacity 0.3s;z-index:10;}"
-            + "#controls:hover ~ #video-title,#controls.active ~ #video-title{opacity:0;}"
             + "#player-container:hover #video-title{opacity:1;}"
-            
-            // Loading central
             + "#loading-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);"
-            + "color:#fff;font-size:14px;display:none;z-index:5;}"
+            + "color:#fff;font-size:14px;display:none;z-index:5;text-align:center;}"
             + "#loading-indicator.show{display:block;}"
             + ".spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,0.3);"
             + "border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;"
             + "margin:0 auto 12px auto;}"
             + "@keyframes spin{to{transform:rotate(360deg);}}"
-            
             + "</style></head><body>"
             
             + "<div id='player-container'>"
@@ -295,13 +294,6 @@ public class MainActivity extends AppCompatActivity {
             + "var isSeeking=false;"
             + "var hideTimeout;"
             
-            // Extrai nome do arquivo
-            + "try{"
-            + "  var urlParams=new URLSearchParams(window.location.search);"
-            + "  videoTitle.textContent=document.title || 'Reproduzindo';"
-            + "}catch(e){}"
-            
-            // Atualiza progresso
             + "v.addEventListener('timeupdate',function(){"
             + "  if(!isSeeking){"
             + "    var pct=(v.currentTime/v.duration)*100;"
@@ -311,14 +303,11 @@ public class MainActivity extends AppCompatActivity {
             + "  }"
             + "});"
             
-            // Loading
             + "v.addEventListener('waiting',function(){"
             + "  loading.classList.add('show');"
             + "  loadingText.textContent='Carregando...';"
             + "});"
-            + "v.addEventListener('canplay',function(){"
-            + "  loading.classList.remove('show');"
-            + "});"
+            + "v.addEventListener('canplay',function(){loading.classList.remove('show');});"
             + "v.addEventListener('playing',function(){"
             + "  loading.classList.remove('show');"
             + "  btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M6 19h4V5H6v14zm8-14v14h4V5h-4z'/></svg>\";"
@@ -326,73 +315,51 @@ public class MainActivity extends AppCompatActivity {
             + "v.addEventListener('pause',function(){"
             + "  btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg>\";"
             + "});"
+            + "v.addEventListener('seeked',function(){"
+            + "  videoTitle.textContent='⏩ Seek: '+formatTime(v.currentTime);"
+            + "  videoTitle.style.opacity='1';"
+            + "  setTimeout(function(){videoTitle.style.opacity='0';},2000);"
+            + "});"
             
-            // Mostra controles ao tocar
             + "document.addEventListener('click',function(){"
             + "  controls.classList.add('active');"
             + "  clearTimeout(hideTimeout);"
             + "  hideTimeout=setTimeout(function(){controls.classList.remove('active');},3000);"
             + "});"
             
-            + "function togglePlay(){"
-            + "  if(v.paused){v.play();}else{v.pause();}"
-            + "}"
+            + "function togglePlay(){if(v.paused){v.play();}else{v.pause();}}"
+            + "function skip(s){v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+s));}"
+            + "function formatTime(t){if(isNaN(t))return'0:00';var m=Math.floor(t/60);var s=Math.floor(t%60);return m+':'+(s<10?'0':'')+s;}"
             
-            + "function skip(secs){"
-            + "  v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+secs));"
-            + "}"
-            
-            + "function formatTime(t){"
-            + "  if(isNaN(t))return '0:00';"
-            + "  var m=Math.floor(t/60);"
-            + "  var s=Math.floor(t%60);"
-            + "  return m+':'+(s<10?'0':'')+s;"
-            + "}"
-            
-            // Seek
-            + "function startSeek(e){"
-            + "  isSeeking=true;"
-            + "  updateSeek(e);"
-            + "}"
+            + "function startSeek(e){isSeeking=true;updateSeek(e);}"
             + "function moveSeek(e){if(isSeeking)updateSeek(e);}"
-            + "function endSeek(e){"
-            + "  if(isSeeking){updateSeek(e);isSeeking=false;}"
-            + "}"
+            + "function endSeek(e){if(isSeeking){updateSeek(e);isSeeking=false;}}"
             + "function updateSeek(e){"
             + "  var rect=progressBar.getBoundingClientRect();"
             + "  var x=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;"
             + "  var pct=Math.max(0,Math.min(100,(x/rect.width)*100));"
-            + "  progressFilled.style.width=pct+'%';"
-            + "  progressThumb.style.left=pct+'%';"
-            + "  if(e.type=='mouseup'||e.type=='touchend'){"
-            + "    v.currentTime=(pct/100)*v.duration;"
-            + "  }"
+            + "  progressFilled.style.width=pct+'%';progressThumb.style.left=pct+'%';"
+            + "  if(e.type=='mouseup'||e.type=='touchend'){v.currentTime=(pct/100)*v.duration;}"
             + "}"
             
-            // Menu de tracks
             + "function toggleTrackMenu(type){"
             + "  var tracks=type=='audio'?v.audioTracks:v.textTracks;"
             + "  var html='';"
             + "  if(tracks&&tracks.length>0){"
             + "    for(var i=0;i<tracks.length;i++){"
-            + "      var track=tracks[i];"
-            + "      var label=track.label||track.language||('Track '+(i+1));"
+            + "      var t=tracks[i];"
+            + "      var label=t.label||t.language||('Track '+(i+1));"
             + "      var active=(type=='audio'?v.audioTrack:i)==i;"
             + "      html+=\"<div class='track-item\"+(active?\" active\":\"\")+\"' onclick='selectTrack(\\\"\"+type+\"\\\",\"+i+\")'>\"+label+\"<span class='check'>✓</span></div>\";"
             + "    }"
-            + "  }else{"
-            + "    html=\"<div class='track-item'>Nenhum disponível</div>\";"
-            + "  }"
+            + "  }else{html=\"<div class='track-item'>Nenhum disponível</div>\";}"
             + "  trackMenu.innerHTML=html;"
             + "  trackMenu.classList.toggle('show');"
             + "}"
             
             + "function selectTrack(type,index){"
-            + "  if(type=='audio'){"
-            + "    for(var i=0;i<v.audioTracks.length;i++){v.audioTracks[i].enabled=(i==index);}"
-            + "  }else{"
-            + "    for(var i=0;i<v.textTracks.length;i++){v.textTracks[i].mode=(i==index?'showing':'hidden');}"
-            + "  }"
+            + "  if(type=='audio'){for(var i=0;i<v.audioTracks.length;i++)v.audioTracks[i].enabled=(i==index);}"
+            + "  else{for(var i=0;i<v.textTracks.length;i++)v.textTracks[i].mode=(i==index?'showing':'hidden');}"
             + "  trackMenu.classList.remove('show');"
             + "}"
             
@@ -401,24 +368,23 @@ public class MainActivity extends AppCompatActivity {
             + "  else{document.getElementById('player-container').requestFullscreen();}"
             + "}"
             
-            // Atualiza título com nome do vídeo
             + "v.addEventListener('loadedmetadata',function(){"
-            + "  videoTitle.textContent='▶️ ' + Math.floor(v.duration) + 's';"
+            + "  videoTitle.textContent='▶️ '+Math.floor(v.duration)+'s | DASH Streaming';"
+            + "  videoTitle.style.opacity='1';"
             + "  setTimeout(function(){videoTitle.style.opacity='0';},3000);"
             + "});"
-            
             + "v.addEventListener('error',function(){"
             + "  videoTitle.textContent='❌ Erro ao carregar';"
             + "  videoTitle.style.opacity='1';"
             + "});"
-            
             + "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        debug("Player PRO carregado");
+        debug("✅ Player PRO carregado");
     }
     
     private void stop() {
+        debug("⏹ Parado");
         torrentEngine.stop();
         webView.loadUrl("about:blank");
         webView.setVisibility(View.GONE); 
