@@ -61,7 +61,6 @@ public class TorrentEngine {
                 try { handler.post(() -> callback.onReady()); } catch (Exception e) {}
             } catch (Exception e) {
                 log("ERRO: " + e.getMessage());
-                try { handler.post(() -> callback.onError(e.getMessage())); } catch (Exception ex) {}
             }
         }).start();
     }
@@ -74,12 +73,7 @@ public class TorrentEngine {
         new Thread(() -> {
             try {
                 File saveDir = new File(savePath);
-                try {
-                    if (saveDir.exists()) {
-                        File[] files = saveDir.listFiles();
-                        if (files != null) for (File f : files) deleteRecursive(f);
-                    }
-                } catch (Exception e) {}
+                try { if (saveDir.exists()) { File[] files = saveDir.listFiles(); if (files != null) for (File f : files) deleteRecursive(f); } } catch (Exception e) {}
                 saveDir.mkdirs();
                 
                 session.download(magnetUri, saveDir, new torrent_flags_t());
@@ -107,16 +101,24 @@ public class TorrentEngine {
                 
                 log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças");
                 
+                // ATIVA TODAS as peças (não ignora nenhuma)
                 try {
                     for (int i = 0; i < numPieces; i++)
-                        torrentHandle.piece_priority_ex(i, (byte)(i < 200 ? 7 : 1));
+                        torrentHandle.piece_priority_ex(i, (byte)4); // Todas prioridade NORMAL
+                    // Primeiras 100 com prioridade ALTA
+                    for (int i = 0; i < Math.min(100, numPieces); i++)
+                        torrentHandle.piece_priority_ex(i, (byte)7);
                     for (int i = 0; i < Math.min(100, numPieces); i++)
                         torrentHandle.set_piece_deadline(i, 2000);
                 } catch (Exception e) {}
                 
+                // Aguarda primeiras peças e depois libera
                 int target = Math.min(10, numPieces);
+                boolean streamReady = false;
+                
                 while (downloading) {
                     Thread.sleep(500);
+                    
                     int complete = 0;
                     for (int i = 0; i < target; i++)
                         if (torrentHandle.have_piece(i)) complete++;
@@ -129,12 +131,23 @@ public class TorrentEngine {
                     info.peers = st.getNum_peers();
                     try { handler.post(() -> callback.onProgress(info)); } catch (Exception e) {}
                     
-                    if (complete >= target) {
-                        log("Streaming pronto! " + complete + "/" + target);
+                    // Libera streaming e CONTINUA baixando
+                    if (complete >= target && !streamReady) {
+                        streamReady = true;
+                        log("Streaming liberado! Download continua...");
                         final String sp = currentSavePath;
                         final torrent_handle th = torrentHandle;
                         try { handler.post(() -> callback.onStreamReady(th, sp)); } catch (Exception e) {}
-                        break;
+                    }
+                    
+                    // Atualiza prioridades conforme baixa
+                    if (streamReady && pieceLength > 0) {
+                        long downloaded = st.getTotal_done();
+                        int currentPiece = (int)(downloaded / (totalSize / Math.max(numPieces, 1)));
+                        // Mantém prioridade nas próximas peças
+                        for (int i = currentPiece; i < Math.min(currentPiece + 50, numPieces); i++) {
+                            torrentHandle.piece_priority_ex(i, (byte)7);
+                        }
                     }
                 }
             } catch (Exception e) {
