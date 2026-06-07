@@ -83,48 +83,49 @@ public class MainActivity extends AppCompatActivity {
             
             public void onProgress(TorrentInfo info) {
                 handler.post(() -> {
-                    bufferBar.setProgress(info.progress);
-                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
+                    try {
+                        bufferBar.setProgress(info.progress);
+                        statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
+                    } catch (Exception e) {}
                 });
             }
             
             public void onStreamReady(torrent_handle handle, String sp) {
                 debug("[ENG] onStreamReady recebido");
                 
-                // Faz TUDO em thread separada para não travar
-                new Thread(() -> {
-                    try {
-                        debug("[ENG] Configurando servidor...");
-                        streamServer.setSavePath(sp);
-                        streamServer.setTorrent(handle);
-                        debug("[ENG] Servidor configurado");
-                        
-                        // Procura arquivo
-                        File vf = findVideoFile(new File(sp));
-                        if (vf != null) {
-                            videoFile = vf;
-                            debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
-                        } else {
-                            debug("[ENG] Video não encontrado ainda");
-                        }
-                        
-                        debug("[ENG] Stats: " + streamServer.getStats());
-                        
-                        // Mostra botão na UI thread
-                        handler.post(() -> {
-                            spinnerBar.setVisibility(View.GONE);
-                            btnWatch.setVisibility(View.VISIBLE);
-                            debug("[UI] Botão ASSISTIR visível");
-                        });
-                        
-                    } catch (Exception e) {
-                        final String err = e.getMessage();
-                        debug("[ENG] ERRO: " + err);
-                        handler.post(() -> {
-                            Toast.makeText(MainActivity.this, "Erro: " + err, Toast.LENGTH_LONG).show();
-                        });
+                // Configura servidor PRIMEIRO (na thread atual)
+                try {
+                    debug("[ENG] Configurando servidor...");
+                    streamServer.setSavePath(sp);
+                    streamServer.setTorrent(handle);
+                    debug("[ENG] Servidor OK");
+                } catch (Exception e) {
+                    debug("[ENG] ERRO servidor: " + e.getMessage());
+                }
+                
+                // Procura arquivo
+                try {
+                    File vf = findVideoFile(new File(sp));
+                    if (vf != null) {
+                        videoFile = vf;
+                        debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
                     }
-                }).start();
+                } catch (Exception e) {
+                    debug("[ENG] ERRO findVideo: " + e.getMessage());
+                }
+                
+                debug("[ENG] Stats: " + streamServer.getStats());
+                
+                // Mostra botão na UI thread
+                handler.post(() -> {
+                    try {
+                        spinnerBar.setVisibility(View.GONE);
+                        btnWatch.setVisibility(View.VISIBLE);
+                        debug("[UI] Botão ASSISTIR visível");
+                    } catch (Exception e) {
+                        debug("[UI] ERRO ao mostrar botão: " + e.getMessage());
+                    }
+                });
             }
             
             public void onStatus(String s) { debug("[ENG] " + s); }
@@ -146,22 +147,28 @@ public class MainActivity extends AppCompatActivity {
     private void debug(String msg) {
         String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
         debugLog.append(line);
-        handler.post(() -> debugText.setText(debugLog.toString()));
+        handler.post(() -> {
+            try {
+                debugText.setText(debugLog.toString());
+            } catch (Exception e) {}
+        });
     }
     
     private File findVideoFile(File dir) {
-        if (dir == null || !dir.exists()) return null;
-        File[] files = dir.listFiles();
-        if (files != null) {
-            for (File f : files) {
-                if (f.isDirectory()) {
-                    File found = findVideoFile(f);
-                    if (found != null) return found;
-                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
-                    return f;
+        try {
+            if (dir == null || !dir.exists()) return null;
+            File[] files = dir.listFiles();
+            if (files != null) {
+                for (File f : files) {
+                    if (f.isDirectory()) {
+                        File found = findVideoFile(f);
+                        if (found != null) return found;
+                    } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
+                        return f;
+                    }
                 }
             }
-        }
+        } catch (Exception e) {}
         return null;
     }
     
@@ -185,8 +192,10 @@ public class MainActivity extends AppCompatActivity {
         debug("Stats: " + streamServer.getStats());
         
         handler.post(() -> { 
-            webView.setVisibility(View.VISIBLE); 
-            btnWatch.setVisibility(View.GONE);
+            try {
+                webView.setVisibility(View.VISIBLE); 
+                btnWatch.setVisibility(View.GONE);
+            } catch (Exception e) {}
         });
         
         String html = "<!DOCTYPE html><html><head>" +
