@@ -39,8 +39,8 @@ public class MainActivity extends AppCompatActivity {
     private TorrentEngine torrentEngine;
     private StreamServer streamServer;
     
-    private TextView statusText, progressText, titleText, loadingText;
-    private ProgressBar bufferBar;
+    private TextView statusText, progressText, titleText;
+    private ProgressBar bufferBar, spinnerBar;
     private View loadingOverlay;
     private EditText magnetInput;
     private Button btnStream, btnStop, btnWatch;
@@ -61,8 +61,8 @@ public class MainActivity extends AppCompatActivity {
         statusText = findViewById(R.id.status_text);
         progressText = findViewById(R.id.progress_text);
         titleText = findViewById(R.id.title_text);
-        loadingText = findViewById(R.id.loading_text);
         bufferBar = findViewById(R.id.buffer_bar);
+        spinnerBar = findViewById(R.id.spinner_bar);
         loadingOverlay = findViewById(R.id.loading_overlay);
         magnetInput = findViewById(R.id.magnet_input);
         btnStream = findViewById(R.id.btn_play);
@@ -102,7 +102,7 @@ public class MainActivity extends AppCompatActivity {
                         audioTracks += group.length;
                         for (int i = 0; i < group.length; i++) {
                             Format f = group.getTrackFormat(i);
-                            addLog("🎵 Audio " + i + ": " + f.language + " " + f.sampleMimeType + " " + f.codecs);
+                            addLog("🎵 Audio " + i + ": " + f.language + " " + f.sampleMimeType);
                         }
                     }
                     if (group.getMediaTrackGroup().type == C.TRACK_TYPE_TEXT) {
@@ -132,7 +132,6 @@ public class MainActivity extends AppCompatActivity {
                 
                 runOnUiThread(() -> {
                     loadingOverlay.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE);
-                    loadingText.setText(state == Player.STATE_BUFFERING ? "Buffering..." : "");
                 });
             }
             
@@ -140,9 +139,6 @@ public class MainActivity extends AppCompatActivity {
             public void onPlayerError(PlaybackException error) {
                 addLog("❌ ERRO PLAYER: " + error.getErrorCodeName());
                 addLog("   Msg: " + error.getMessage());
-                if (error.getCause() != null) {
-                    addLog("   Cause: " + error.getCause().getMessage());
-                }
             }
             
             @Override
@@ -158,7 +154,7 @@ public class MainActivity extends AppCompatActivity {
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers | " + (info.downloaded/1048576) + "MB");
+                    progressText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + "p | " + (info.downloaded/1048576) + "MB");
                 });
             }
             
@@ -167,8 +163,8 @@ public class MainActivity extends AppCompatActivity {
                 streamServer.setVideoFile(f);
                 addLog("✅ STREAM READY: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
                 runOnUiThread(() -> {
+                    spinnerBar.setVisibility(View.GONE);
                     loadingOverlay.setVisibility(View.GONE);
-                    loadingText.setText("");
                     btnWatch.setVisibility(View.VISIBLE);
                     titleText.setText("🎬 Pronto! Clique ASSISTIR");
                 });
@@ -232,8 +228,8 @@ public class MainActivity extends AppCompatActivity {
     
     private void startStream(String magnet) {
         bufferBar.setVisibility(View.VISIBLE);
+        spinnerBar.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
-        loadingText.setText("Conectando...");
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
@@ -245,7 +241,6 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
-        loadingText.setText("Abrindo player...");
         titleText.setText("▶️ Reproduzindo");
         
         Uri videoUri = Uri.parse("http://127.0.0.1:8080/video");
@@ -264,7 +259,7 @@ public class MainActivity extends AppCompatActivity {
         exoPlayer.prepare();
         exoPlayer.setPlayWhenReady(true);
         
-        addLog("▶️ Player iniciado com URL: http://127.0.0.1:8080/video");
+        addLog("▶️ Player iniciado: http://127.0.0.1:8080/video");
     }
     
     private void stop() {
@@ -274,8 +269,8 @@ public class MainActivity extends AppCompatActivity {
             exoPlayer.clearMediaItems();
         }
         playerView.setVisibility(View.GONE);
+        spinnerBar.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
-        loadingText.setText("");
         btnStop.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE);
