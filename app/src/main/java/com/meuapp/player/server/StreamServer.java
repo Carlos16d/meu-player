@@ -45,9 +45,7 @@ public class StreamServer extends NanoHTTPD {
                     this.numPieces = ti.num_pieces();
                     Log.d(TAG, "Torrent: " + (fileSize/1048576) + "MB, " + numPieces + " peças");
                 }
-            } catch (Exception e) {
-                Log.e(TAG, "Erro setTorrent", e);
-            }
+            } catch (Exception e) {}
         }
         startCacheThread();
     }
@@ -59,9 +57,7 @@ public class StreamServer extends NanoHTTPD {
                     for (int i = 0; i < numPieces && pieceCache.size() < 300; i++) {
                         if (!pieceCache.containsKey(i) && torrentHandle.have_piece(i)) {
                             byte[] data = readPieceFromDisk(i);
-                            if (data != null) {
-                                pieceCache.put(i, data);
-                            }
+                            if (data != null) pieceCache.put(i, data);
                         }
                     }
                     Thread.sleep(500);
@@ -142,23 +138,19 @@ public class StreamServer extends NanoHTTPD {
             
             int chunkSize = Math.min((int)(end - start + 1), 262144);
             
-            // CRIA SEGMENTO VISÍVEL NA PASTA
-            int segmentNum = (int)(start / 500000);
-            File segmentFile = new File(segmentsDir, String.format("segment_%04d_%d_%d.m4s", segmentNum, start, start + chunkSize));
-            
             byte[] data = readFromCache(start, chunkSize);
             bytesServed += data.length;
             
-            // Salva o segmento na pasta (visível!)
+            // Salva segmento visível na pasta
+            int segmentNum = (int)(start / 500000);
+            File segmentFile = new File(segmentsDir, String.format("segment_%04d_%d_%d.m4s", segmentNum, start, start + chunkSize));
             if (data.length > 0 && !segmentFile.exists()) {
                 try {
                     FileOutputStream fos = new FileOutputStream(segmentFile);
                     fos.write(data);
                     fos.close();
-                    Log.d(TAG, "📁 Segmento salvo: " + segmentFile.getName() + " (" + data.length + " bytes)");
-                } catch (Exception e) {
-                    Log.e(TAG, "Erro salvando segmento", e);
-                }
+                    Log.d(TAG, "📁 Segmento: " + segmentFile.getName() + " (" + data.length + " bytes)");
+                } catch (Exception e) {}
             }
             
             if (data.length == 0) {
@@ -184,42 +176,26 @@ public class StreamServer extends NanoHTTPD {
     
     private byte[] readFromCache(long offset, int size) {
         if (pieceLength <= 0) return new byte[0];
-        
         try {
             int startPiece = (int)(offset / pieceLength);
             int pieceOffset = (int)(offset % pieceLength);
-            
             ByteArrayOutputStream baos = new ByteArrayOutputStream();
             int remaining = size;
             int currentPiece = startPiece;
-            
             while (remaining > 0 && currentPiece < numPieces) {
                 byte[] pieceData = pieceCache.get(currentPiece);
-                
                 if (pieceData == null && torrentHandle.have_piece(currentPiece)) {
                     pieceData = readPieceFromDisk(currentPiece);
-                    if (pieceData != null) {
-                        pieceCache.put(currentPiece, pieceData);
-                    }
+                    if (pieceData != null) pieceCache.put(currentPiece, pieceData);
                 }
-                
                 if (pieceData != null) {
                     int dataOffset = (currentPiece == startPiece) ? pieceOffset : 0;
                     int dataLen = Math.min(remaining, pieceData.length - dataOffset);
-                    if (dataLen > 0) {
-                        baos.write(pieceData, dataOffset, dataLen);
-                        remaining -= dataLen;
-                    }
-                } else {
-                    break;
-                }
-                
+                    if (dataLen > 0) { baos.write(pieceData, dataOffset, dataLen); remaining -= dataLen; }
+                } else break;
                 currentPiece++;
             }
-            
             return baos.toByteArray();
-        } catch (Exception e) {
-            return new byte[0];
-        }
+        } catch (Exception e) { return new byte[0]; }
     }
 }
