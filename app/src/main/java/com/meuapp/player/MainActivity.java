@@ -18,6 +18,7 @@ import com.google.android.exoplayer2.*;
 import com.google.android.exoplayer2.source.hls.*;
 import com.google.android.exoplayer2.ui.*;
 import com.google.android.exoplayer2.upstream.*;
+import com.google.android.exoplayer2.util.*;
 
 import com.meuapp.player.engine.TorrentEngine;
 import com.meuapp.player.server.HlsStreamServer;
@@ -100,10 +101,10 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onTracksChanged(Tracks tracks) {
                 for (Tracks.Group g : tracks.getGroups()) {
-                    if (g.getMediaTrackGroup().type == com.google.android.exoplayer2.util.C.TRACK_TYPE_AUDIO) {
+                    if (g.getMediaTrackGroup().type == C.TRACK_TYPE_AUDIO) {
                         addLog("🎵 " + g.length + " áudios");
                     }
-                    if (g.getMediaTrackGroup().type == com.google.android.exoplayer2.util.C.TRACK_TYPE_TEXT) {
+                    if (g.getMediaTrackGroup().type == C.TRACK_TYPE_TEXT) {
                         addLog("📝 " + g.length + " legendas");
                     }
                 }
@@ -187,7 +188,6 @@ public class MainActivity extends AppCompatActivity {
         playerView.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
         
-        // URL HLS
         String hlsUrl = "http://127.0.0.1:8080/video.m3u8";
         addLog("HLS: " + hlsUrl);
         
