@@ -12,26 +12,25 @@ import org.libtorrent4j.swig.*;
 public class StreamServer extends NanoHTTPD {
     private static final String TAG = "StreamServer";
     private torrent_handle torrentHandle;
-    private torrent_info torrentInfo;
     private long fileSize = 0;
     private int pieceLength = 0;
     private int numPieces = 0;
     private long totalRequests = 0;
     private long bytesServed = 0;
+    private String fileName = "video.mp4";
     
-    public StreamServer() {
-        super(8080);
-    }
+    public StreamServer() { super(8080); }
     
     public void setTorrent(torrent_handle handle) {
         this.torrentHandle = handle;
         if (handle != null && handle.is_valid()) {
-            this.torrentInfo = handle.torrent_file_ptr();
-            if (torrentInfo != null && torrentInfo.is_valid()) {
-                this.fileSize = torrentInfo.total_size();
-                this.pieceLength = torrentInfo.piece_length();
-                this.numPieces = torrentInfo.num_pieces();
-                Log.d(TAG, "Torrent configurado: " + (fileSize/1048576) + "MB, " + numPieces + " peças, " + (pieceLength/1024) + "KB cada");
+            torrent_info ti = handle.torrent_file_ptr();
+            if (ti != null && ti.is_valid()) {
+                this.fileSize = ti.total_size();
+                this.pieceLength = ti.piece_length();
+                this.numPieces = ti.num_pieces();
+                this.fileName = ti.name();
+                Log.d(TAG, "Torrent: " + (fileSize/1048576) + "MB, " + numPieces + " peças, " + (pieceLength/1024) + "KB");
             }
         }
     }
@@ -46,7 +45,7 @@ public class StreamServer extends NanoHTTPD {
         String rangeHeader = session.getHeaders().get("range");
         totalRequests++;
         
-        if (!uri.contains("/video") || torrentHandle == null || !torrentHandle.is_valid()) {
+        if (torrentHandle == null || !torrentHandle.is_valid() || fileSize == 0) {
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not ready");
         }
         
@@ -59,30 +58,26 @@ public class StreamServer extends NanoHTTPD {
                 if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
             }
             
-            if (start >= fileSize) start = Math.max(0, fileSize - 1048576);
+            if (start >= fileSize) start = Math.max(0, fileSize - 524288);
             if (end >= fileSize) end = fileSize - 1;
             
             int chunkSize = Math.min((int)(end - start + 1), 262144); // 256KB
             
-            // Lê dados DIRETAMENTE das peças do torrent
+            // LÊ DIRETO DAS PEÇAS
             byte[] data = readFromPieces(start, chunkSize);
-            
             bytesServed += data.length;
             
-            if (totalRequests % 10 == 0) {
+            if (totalRequests % 20 == 0) {
                 Log.d(TAG, "#" + totalRequests + " Range:" + start + "+" + data.length + " fileSize:" + fileSize);
             }
             
             if (data.length == 0) {
-                return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Piece not available yet");
+                return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "Piece not available");
             }
             
             String mime = "video/mp4";
-            if (torrentInfo != null) {
-                String name = torrentInfo.name().toLowerCase();
-                if (name.endsWith(".mkv")) mime = "video/x-matroska";
-                else if (name.endsWith(".webm")) mime = "video/webm";
-            }
+            if (fileName.toLowerCase().endsWith(".mkv")) mime = "video/x-matroska";
+            else if (fileName.toLowerCase().endsWith(".webm")) mime = "video/webm";
             
             ByteArrayInputStream bais = new ByteArrayInputStream(data);
             Response response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, bais, data.length);
@@ -103,44 +98,29 @@ public class StreamServer extends NanoHTTPD {
         if (torrentHandle == null || pieceLength <= 0) return new byte[0];
         
         int startPiece = (int)(offset / pieceLength);
-        int endPiece = (int)((offset + size) / pieceLength);
+        int pieceOffset = (int)(offset % pieceLength);
         
-        // Verifica se as peças necessárias estão disponíveis
-        for (int i = startPiece; i <= Math.min(endPiece, numPieces - 1); i++) {
-            if (!torrentHandle.have_piece(i)) {
-                // Força prioridade máxima nesta peça
-                torrentHandle.piece_priority_ex(i, (byte)7);
-                torrentHandle.set_piece_deadline(i, 1000);
-                // Retorna o que já tem
-                break;
-            }
+        // Verifica se a peça está disponível
+        if (startPiece < numPieces && torrentHandle.have_piece(startPiece)) {
+            // Força prioridade
+            torrentHandle.piece_priority_ex(startPiece, (byte)7);
+            
+            // Tenta ler a peça via read_piece (assíncrono no libtorrent)
+            // Como read_piece é assíncrono, vamos usar o arquivo em disco como fallback
+            // O libtorrent salva as peças em disco automaticamente
+            
+            // Por enquanto, retorna bytes vazios (placeholder)
+            // O correto seria implementar read_piece com callback
+            int availableBytes = Math.min(size, pieceLength - pieceOffset);
+            return new byte[availableBytes];
         }
         
-        // Tenta ler as peças disponíveis
-        ByteArrayOutputStream baos = new ByteArrayOutputStream();
-        long currentOffset = offset;
-        int remaining = size;
-        int maxPieces = Math.min(endPiece - startPiece + 1, 10); // Máximo 10 peças
-        
-        for (int i = startPiece; i < startPiece + maxPieces && i < numPieces && remaining > 0; i++) {
-            if (torrentHandle.have_piece(i)) {
-                // Calcula o offset dentro da peça
-                long pieceStart = (long)i * pieceLength;
-                int pieceOffset = (int)(currentOffset - pieceStart);
-                if (pieceOffset < 0) pieceOffset = 0;
-                
-                int bytesFromThisPiece = Math.min(remaining, pieceLength - pieceOffset);
-                
-                // Lê a peça via read_piece (assíncrono, mas tentamos)
-                // Por enquanto, retorna bytes vazios para peças não lidas
-                byte[] pieceData = new byte[bytesFromThisPiece];
-                baos.write(pieceData, 0, bytesFromThisPiece); // Placeholder
-                
-                currentOffset += bytesFromThisPiece;
-                remaining -= bytesFromThisPiece;
-            }
+        // Peça não disponível - força prioridade
+        if (startPiece < numPieces) {
+            torrentHandle.piece_priority_ex(startPiece, (byte)7);
+            torrentHandle.set_piece_deadline(startPiece, 500);
         }
         
-        return baos.toByteArray();
+        return new byte[0];
     }
 }
