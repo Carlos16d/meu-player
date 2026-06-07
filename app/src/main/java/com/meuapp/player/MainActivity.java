@@ -71,45 +71,60 @@ public class MainActivity extends AppCompatActivity {
         webView.setWebViewClient(new WebViewClient());
         webView.setVisibility(View.GONE);
         
-        debug("╔══════════════════════════════╗");
-        debug("║   TORRENT DASH SEGMENTS      ║");
-        debug("║   Segmentos visíveis em:     ║");
-        debug("║   dash_segments/             ║");
-        debug("╚══════════════════════════════╝");
+        debug("=== TORRENT DASH ===");
         
         streamServer = new StreamServer();
-        try { streamServer.start(); debug("[SRV] ✅ HTTP:8080"); } 
-        catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
+        try { streamServer.start(); debug("[SRV] OK"); } 
+        catch (Exception e) { debug("[SRV] " + e.getMessage()); }
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { debug("[ENG] ✅ Pronto"); }
-            public void onError(String e) { debug("[ENG] ❌ " + e); }
+            public void onReady() { debug("[ENG] OK"); }
+            public void onError(String e) { debug("[ENG] " + e); }
             
             public void onProgress(TorrentInfo info) {
                 handler.post(() -> {
                     bufferBar.setProgress(info.progress);
-                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s | " + info.peers + " peers");
+                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
                 });
             }
             
             public void onStreamReady(torrent_handle handle, String sp) {
-                try {
-                    streamServer.setSavePath(sp);
-                    streamServer.setTorrent(handle);
-                    File vf = findVideoFile(new File(sp));
-                    if (vf != null) {
-                        videoFile = vf;
-                        debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                debug("[ENG] onStreamReady recebido");
+                
+                // Faz TUDO em thread separada para não travar
+                new Thread(() -> {
+                    try {
+                        debug("[ENG] Configurando servidor...");
+                        streamServer.setSavePath(sp);
+                        streamServer.setTorrent(handle);
+                        debug("[ENG] Servidor configurado");
+                        
+                        // Procura arquivo
+                        File vf = findVideoFile(new File(sp));
+                        if (vf != null) {
+                            videoFile = vf;
+                            debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                        } else {
+                            debug("[ENG] Video não encontrado ainda");
+                        }
+                        
+                        debug("[ENG] Stats: " + streamServer.getStats());
+                        
+                        // Mostra botão na UI thread
+                        handler.post(() -> {
+                            spinnerBar.setVisibility(View.GONE);
+                            btnWatch.setVisibility(View.VISIBLE);
+                            debug("[UI] Botão ASSISTIR visível");
+                        });
+                        
+                    } catch (Exception e) {
+                        final String err = e.getMessage();
+                        debug("[ENG] ERRO: " + err);
+                        handler.post(() -> {
+                            Toast.makeText(MainActivity.this, "Erro: " + err, Toast.LENGTH_LONG).show();
+                        });
                     }
-                    debug("[ENG] ✅ STREAM READY");
-                    debug("[ENG] 📁 Segmentos: " + sp + "/dash_segments/");
-                    handler.post(() -> {
-                        spinnerBar.setVisibility(View.GONE);
-                        btnWatch.setVisibility(View.VISIBLE);
-                    });
-                } catch (Exception e) {
-                    debug("[ENG] ❌ " + e.getMessage());
-                }
+                }).start();
             }
             
             public void onStatus(String s) { debug("[ENG] " + s); }
@@ -125,7 +140,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         
-        debug("📱 Pronto");
+        debug("Pronto");
     }
     
     private void debug(String msg) {
@@ -162,13 +177,12 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { 
-            debug("❌ Video não encontrado"); 
+            debug("Video não encontrado"); 
             return; 
         }
         
-        debug("▶️ Iniciando DASH player...");
-        debug("   📊 " + streamServer.getStats());
-        debug("   📁 Segmentos em: dash_segments/");
+        debug("Iniciando player...");
+        debug("Stats: " + streamServer.getStats());
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
@@ -186,17 +200,14 @@ public class MainActivity extends AppCompatActivity {
             "</video>" +
             "<script>" +
             "var v=document.getElementById('v');" +
-            "v.addEventListener('loadedmetadata',function(){document.title='▶️ DASH '+Math.floor(v.duration)+'s';});" +
-            "v.addEventListener('error',function(){document.title='❌ Erro';});" +
-            "v.addEventListener('seeked',function(){document.title='⏩ '+Math.floor(v.currentTime)+'s';});" +
+            "v.addEventListener('loadedmetadata',function(){document.title='DASH '+Math.floor(v.duration)+'s';});" +
+            "v.addEventListener('error',function(){document.title='Erro';});" +
             "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        debug("   ✅ Player iniciado");
     }
     
     private void stop() {
-        debug("⏹ Parado");
         torrentEngine.stop();
         webView.loadUrl("about:blank");
         webView.setVisibility(View.GONE); 
