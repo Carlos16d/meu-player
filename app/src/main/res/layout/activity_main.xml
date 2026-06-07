@@ -5,44 +5,29 @@
     android:orientation="vertical"
     android:background="#0a0a0f">
     
+    <!-- Player WebView (45%) -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="40"
+        android:layout_weight="45"
         android:background="#000000">
         
-        <org.videolan.libvlc.util.VLCVideoLayout
-            android:id="@+id/video_surface"
+        <WebView
+            android:id="@+id/webview"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
         
-        <LinearLayout
-            android:id="@+id/loading_overlay"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+        <ProgressBar
+            android:id="@+id/spinner_bar"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
             android:layout_gravity="center"
-            android:visibility="gone"
-            android:orientation="horizontal"
-            android:background="#cc000000"
-            android:padding="8dp">
-            
-            <ProgressBar
-                android:id="@+id/spinner_bar"
-                android:layout_width="24dp"
-                android:layout_height="24dp"
-                android:indeterminateTint="#6c5ce7" />
-            
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="Buffering..."
-                android:textColor="#fff"
-                android:textSize="11sp" />
-        </LinearLayout>
+            android:indeterminateTint="#6c5ce7"
+            android:visibility="gone" />
     </FrameLayout>
     
+    <!-- Painel de controle (15%) -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -51,37 +36,11 @@
         android:background="#1a1a2e"
         android:padding="6dp">
         
-        <TextView
-            android:id="@+id/title_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="🎬 Torrent Stream VLC"
-            android:textColor="#fff"
-            android:textSize="13sp"
-            android:textStyle="bold" />
-        
-        <TextView
-            android:id="@+id/progress_text"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Pronto"
-            android:textColor="#aabbcc"
-            android:textSize="10sp" />
-        
-        <ProgressBar
-            android:id="@+id/buffer_bar"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="3dp"
-            android:progressTint="#6c5ce7"
-            android:progressBackgroundTint="#33ffffff"
-            android:visibility="gone" />
-        
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="2dp">
+            android:layout_marginBottom="2dp">
             
             <EditText
                 android:id="@+id/magnet_input"
@@ -97,7 +56,7 @@
             
             <Button
                 android:id="@+id/btn_play"
-                android:layout_width="50dp"
+                android:layout_width="45dp"
                 android:layout_height="30dp"
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
@@ -109,13 +68,12 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="2dp">
+            android:orientation="horizontal">
             
             <Button
                 android:id="@+id/btn_watch"
                 android:layout_width="0dp"
-                android:layout_height="28dp"
+                android:layout_height="26dp"
                 android:layout_weight="1"
                 android:background="@drawable/btn_success"
                 android:text="▶ ASSISTIR"
@@ -126,7 +84,7 @@
             <Button
                 android:id="@+id/btn_stop"
                 android:layout_width="0dp"
-                android:layout_height="28dp"
+                android:layout_height="26dp"
                 android:layout_weight="1"
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_danger"
@@ -135,16 +93,35 @@
                 android:textSize="10sp"
                 android:visibility="gone" />
         </LinearLayout>
-    </LinearLayout>
-    
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="45"
-        android:background="#0d0d1a">
         
         <TextView
             android:id="@+id/status_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Pronto"
+            android:textColor="#aabbcc"
+            android:textSize="10sp"
+            android:layout_marginTop="2dp" />
+        
+        <ProgressBar
+            android:id="@+id/buffer_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:progressTint="#6c5ce7"
+            android:progressBackgroundTint="#33ffffff"
+            android:visibility="gone" />
+    </LinearLayout>
+    
+    <!-- Logs (40%) -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="40"
+        android:background="#0d0d1a">
+        
+        <TextView
+            android:id="@+id/debug_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Logs:"
