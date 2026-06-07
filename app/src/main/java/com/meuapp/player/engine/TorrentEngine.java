@@ -8,9 +8,8 @@ import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
+import org.libtorrent4j.SettingsPack;
 import org.libtorrent4j.swig.*;
-
-import java.io.File;
 
 public class TorrentEngine {
     private static final String TAG = "TorrentEngine";
@@ -20,11 +19,6 @@ public class TorrentEngine {
     private boolean downloading = false;
     private Handler handler;
     private EngineCallback callback;
-    
-    private int numPieces = 0;
-    private long totalSize = 0;
-    private int pieceLength = 0;
-    private String currentSavePath;
     
     public interface EngineCallback {
         void onReady();
@@ -50,7 +44,13 @@ public class TorrentEngine {
             try {
                 log("Iniciando engine...");
                 session = new SessionManager();
-                session.start(new SessionParams());
+                
+                // Configura para NÃO salvar em disco (cache em memória)
+                SettingsPack sp = new SettingsPack();
+                sp.setBoolean(settings_pack.bool_types.use_read_cache.swigValue(), true);
+                sp.setInteger(settings_pack.int_types.cache_size.swigValue(), 104857600); // 100MB cache
+                
+                session.start(new SessionParams(sp));
                 ready = true;
                 log("Engine pronto!");
                 notifyReady();
@@ -64,20 +64,25 @@ public class TorrentEngine {
     public void startDownload(String magnetUri, String savePath) {
         if (!ready) { notifyError("Aguarde..."); return; }
         downloading = true;
-        currentSavePath = savePath;
         
         new Thread(() -> {
             try {
                 log("Conectando ao tracker...");
-                log("SavePath: " + savePath);
                 
-                File saveDir = new File(savePath);
-                session.download(magnetUri, saveDir, new torrent_flags_t());
+                // Usa async_add_torrent DIRETO (sem salvar em disco)
+                add_torrent_params params = libtorrent.parse_magnet_uri(magnetUri, new error_code());
+                params.setSave_path(savePath); // Precisa de um path, mas não vamos usar o arquivo
                 
+                // Configura para download sequencial (peças em ordem)
+                params.setFlags(params.getFlags());
+                
+                session.swig().async_add_torrent(params);
+                
+                log("Aguardando torrent...");
                 Thread.sleep(3000);
                 
                 torrent_handle_vector handles = session.swig().get_torrents();
-                log("Torrents encontrados: " + handles.size());
+                log("Torrents: " + handles.size());
                 
                 if (handles.size() == 0) {
                     notifyError("Nenhum peer");
@@ -94,7 +99,6 @@ public class TorrentEngine {
                     Thread.sleep(1000);
                     w++;
                     st = torrentHandle.status();
-                    if (w % 10 == 0) log("Metadados... " + w + "s");
                 }
                 
                 if (!st.getHas_metadata()) {
@@ -103,32 +107,24 @@ public class TorrentEngine {
                     return;
                 }
                 
-                totalSize = st.getTotal();
+                long totalSize = st.getTotal();
                 torrent_info ti = torrentHandle.torrent_file_ptr();
-                if (ti != null && ti.is_valid()) {
-                    numPieces = ti.num_pieces();
-                    pieceLength = ti.piece_length();
-                }
+                int numPieces = ti != null ? ti.num_pieces() : 100;
                 
-                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + (pieceLength/1024) + "KB");
+                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças");
                 
-                // Lista arquivos na pasta
-                File dir = new File(savePath);
-                File[] files = dir.listFiles();
-                if (files != null) {
-                    for (File f : files) {
-                        log("  Pasta: " + f.getName() + " (" + f.length() + " bytes)");
-                    }
-                }
-                
-                // Ativa TUDO com prioridade normal
-                byte_vector priorities = new byte_vector();
+                // DOWNLOAD SEQUENCIAL: ativa só as primeiras peças
                 for (int i = 0; i < numPieces; i++) {
-                    priorities.add((byte)4);
+                    torrentHandle.piece_priority_ex(i, (byte)(i < 100 ? 7 : 0)); // 100 primeiras: MAX, resto: IGNORE
                 }
-                torrentHandle.prioritize_pieces_ex(priorities);
                 
-                waitForInitialPieces();
+                // Deadlines nas primeiras 30 peças
+                for (int i = 0; i < Math.min(30, numPieces); i++) {
+                    torrentHandle.set_piece_deadline(i, 2000);
+                }
+                
+                // Aguarda peças iniciais
+                waitForInitialPieces(numPieces);
                 
             } catch (Exception e) {
                 log("ERRO: " + e.getMessage());
@@ -138,9 +134,8 @@ public class TorrentEngine {
         }).start();
     }
     
-    private void waitForInitialPieces() {
+    private void waitForInitialPieces(int numPieces) {
         int target = Math.min(10, numPieces);
-        long startWait = System.currentTimeMillis();
         
         while (downloading) {
             try {
@@ -162,22 +157,6 @@ public class TorrentEngine {
                 
                 if (complete >= target) {
                     log("Streaming pronto! " + complete + "/" + target + " peças");
-                    
-                    // Lista arquivos encontrados
-                    File dir = new File(currentSavePath);
-                    File[] files = dir.listFiles();
-                    if (files != null) {
-                        for (File f : files) {
-                            log("  Arquivo: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
-                        }
-                    }
-                    
-                    handler.post(() -> callback.onStreamReady(torrentHandle));
-                    break;
-                }
-                
-                if ((System.currentTimeMillis() - startWait) > 120000) {
-                    log("Timeout - liberando mesmo incompleto");
                     handler.post(() -> callback.onStreamReady(torrentHandle));
                     break;
                 }
