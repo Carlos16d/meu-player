@@ -8,10 +8,11 @@ import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
-import org.libtorrent4j.SettingsPack;
 import org.libtorrent4j.swig.*;
 
 import java.io.*;
+import java.text.SimpleDateFormat;
+import java.util.*;
 
 public class TorrentEngine {
     private static final String TAG = "TorrentEngine";
@@ -21,14 +22,17 @@ public class TorrentEngine {
     private boolean downloading = false;
     private Handler handler;
     private EngineCallback callback;
+    
+    // Estatísticas detalhadas
     private int numPieces = 0;
     private long totalSize = 0;
     private int pieceLength = 0;
+    private long downloadStartTime = 0;
+    private long totalBytesDownloaded = 0;
     private int currentStreamPiece = 0;
     
-    private static final int BUFFER_PIECES = 20;
-    private static final int DOWNLOAD_LIMIT = 2 * 1024 * 1024;
-    private static final int INITIAL_PIECES = 10;
+    private static final int BUFFER_PIECES_AHEAD = 30;
+    private static final int DOWNLOAD_LIMIT = 3 * 1024 * 1024; // 3 MB/s
     
     public interface EngineCallback {
         void onReady();
@@ -36,6 +40,7 @@ public class TorrentEngine {
         void onProgress(TorrentInfo info);
         void onStreamReady(File videoFile);
         void onStatus(String status);
+        void onLog(String log); // NOVO: log detalhado
     }
     
     public TorrentEngine(EngineCallback callback) {
@@ -43,182 +48,242 @@ public class TorrentEngine {
         this.handler = new Handler(Looper.getMainLooper());
     }
     
+    private void log(String msg) {
+        Log.d(TAG, msg);
+        handler.post(() -> callback.onLog(msg));
+    }
+    
     public void start() {
         new Thread(() -> {
             try {
-                Log.d(TAG, "Iniciando SessionManager...");
-                notifyStatus("Iniciando...");
+                log("🔧 Criando SessionManager...");
                 
                 session = new SessionManager();
+                SessionParams params = new SessionParams();
+                session.start(params);
                 
-                SettingsPack sp = new SettingsPack();
-                sp.setInteger(settings_pack.int_types.download_rate_limit.swigValue(), DOWNLOAD_LIMIT);
-                sp.setInteger(settings_pack.int_types.connections_limit.swigValue(), 20);
-                sp.setBoolean(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
+                // Verifica se a sessão está viva
+                boolean swigOk = session.swig() != null;
+                log("   session.swig() = " + (swigOk ? "OK" : "NULL!"));
                 
-                session.start(new SessionParams(sp));
-                
-                Log.d(TAG, "SessionManager pronto. swig=" + (session.swig() != null));
+                if (!swigOk) {
+                    log("❌ session.swig() retornou NULL - sessão não inicializou!");
+                    notifyError("Sessão P2P falhou ao inicializar");
+                    return;
+                }
                 
                 ready = true;
+                log("✅ Engine P2P pronto!");
                 notifyReady();
-                notifyStatus("Pronto!");
+                
             } catch (Exception e) {
+                log("❌ Erro ao iniciar: " + e.getMessage());
                 Log.e(TAG, "Erro start", e);
-                notifyError("Erro: " + e.getMessage());
+                notifyError(e.getMessage());
             }
         }).start();
     }
     
     public void startDownload(String magnetUri, String savePath) {
-        if (!ready) { notifyError("Aguarde..."); return; }
+        if (!ready) {
+            log("❌ Engine não está pronto!");
+            notifyError("Aguarde a engine iniciar...");
+            return;
+        }
+        
         downloading = true;
+        downloadStartTime = System.currentTimeMillis();
         
         new Thread(() -> {
             try {
-                Log.d(TAG, "Iniciando download: " + magnetUri.substring(0, Math.min(50, magnetUri.length())));
-                notifyStatus("Obtendo metadados...");
+                log("🔗 Iniciando download do magnet...");
+                log("   URI: " + magnetUri.substring(0, Math.min(80, magnetUri.length())) + "...");
+                log("   SavePath: " + savePath);
+                
                 File saveDir = new File(savePath);
                 
+                // PASSO 1: Adiciona o torrent
+                log("📥 Adicionando torrent à sessão...");
                 session.download(magnetUri, saveDir, new torrent_flags_t());
-                Thread.sleep(5000);
+                
+                // PASSO 2: Aguarda o torrent aparecer
+                log("⏳ Aguardando torrent aparecer na lista...");
+                Thread.sleep(3000);
                 
                 torrent_handle_vector handles = session.swig().get_torrents();
-                Log.d(TAG, "Torrents: " + handles.size());
+                log("   Torrents na sessão: " + handles.size());
                 
-                if (handles.size() > 0) {
-                    torrentHandle = handles.get(0);
-                    Log.d(TAG, "Handle válido: " + torrentHandle.is_valid());
-                    
-                    if (torrentHandle.is_valid()) {
-                        int w = 0;
-                        torrent_status st = torrentHandle.status();
-                        
-                        Log.d(TAG, "has_metadata inicial: " + st.getHas_metadata());
-                        
-                        while (!st.getHas_metadata() && w < 120 && downloading) {
-                            Thread.sleep(1000);
-                            w++;
-                            st = torrentHandle.status();
-                            if (w % 10 == 0) {
-                                Log.d(TAG, "Metadados... " + w + "s has_metadata=" + st.getHas_metadata());
-                            }
-                        }
-                        
-                        Log.d(TAG, "Metadados: " + st.getHas_metadata() + " após " + w + "s");
-                        
-                        if (st.getHas_metadata()) {
-                            numPieces = st.getNum_pieces();
-                            totalSize = st.getTotal();
-                            pieceLength = (int)(totalSize / Math.max(numPieces, 1));
-                            
-                            Log.d(TAG, "Peças: " + numPieces + " Tamanho: " + (totalSize/1048576) + "MB PieceLen: " + pieceLength);
-                            notifyStatus("Streaming: " + (totalSize/1048576) + "MB");
-                            
-                            // IGNORA tudo
-                            byte_vector priorities = new byte_vector();
-                            for (int i = 0; i < numPieces; i++) {
-                                priorities.add((byte)0);
-                            }
-                            torrentHandle.prioritize_pieces_ex(priorities);
-                            Log.d(TAG, "Todas peças IGNORADAS");
-                            
-                            // Ativa só as primeiras
-                            activatePieces(0, INITIAL_PIECES);
-                            
-                            waitForInitialBuffer(savePath);
-                        }
-                    }
-                } else {
-                    Log.e(TAG, "NENHUM TORRENT!");
-                    notifyError("Nenhum peer encontrado");
+                if (handles.size() == 0) {
+                    log("❌ Nenhum torrent encontrado após 3 segundos!");
+                    log("   Possíveis causas: tracker offline, sem peers, magnet inválido");
+                    notifyError("Nenhum peer encontrado. Tente outro magnet.");
                     downloading = false;
+                    return;
                 }
+                
+                // PASSO 3: Obtém o handle
+                torrentHandle = handles.get(0);
+                log("   Handle obtido: " + (torrentHandle.is_valid() ? "VÁLIDO" : "INVÁLIDO"));
+                
+                if (!torrentHandle.is_valid()) {
+                    log("❌ Handle do torrent é inválido!");
+                    notifyError("Torrent inválido");
+                    downloading = false;
+                    return;
+                }
+                
+                // PASSO 4: Aguarda metadados
+                log("⏳ Aguardando metadados (nome, tamanho, peças)...");
+                torrent_status st = torrentHandle.status();
+                int waitSeconds = 0;
+                
+                while (!st.getHas_metadata() && waitSeconds < 120 && downloading) {
+                    Thread.sleep(1000);
+                    waitSeconds++;
+                    st = torrentHandle.status();
+                    
+                    if (waitSeconds % 5 == 0) {
+                        log("   Aguardando metadados... " + waitSeconds + "s");
+                        log("   has_metadata=" + st.getHas_metadata() + 
+                            " state=" + st.getState() +
+                            " peers=" + st.getNum_peers());
+                    }
+                }
+                
+                log("   Metadados após " + waitSeconds + "s: " + (st.getHas_metadata() ? "RECEBIDOS" : "TIMEOUT"));
+                
+                if (!st.getHas_metadata()) {
+                    log("❌ Timeout ao obter metadados (120s)");
+                    notifyError("Timeout - não foi possível obter metadados");
+                    downloading = false;
+                    return;
+                }
+                
+                // PASSO 5: Extrai informações
+                numPieces = st.getNum_pieces();
+                totalSize = st.getTotal();
+                pieceLength = (int)(totalSize / Math.max(numPieces, 1));
+                
+                log("📊 INFORMAÇÕES DO TORRENT:");
+                log("   Nome: " + st.getName());
+                log("   Tamanho: " + (totalSize/1048576) + " MB");
+                log("   Peças: " + numPieces);
+                log("   Tamanho por peça: " + (pieceLength/1024) + " KB");
+                log("   Peers conectados: " + st.getNum_peers());
+                log("   Seeds: " + st.getNum_seeds());
+                log("   Download rate: " + (st.getDownload_rate()/1024) + " KB/s");
+                
+                // PASSO 6: Configura prioridades para streaming
+                log("🎯 Configurando prioridades para streaming...");
+                
+                // IGNORA todas as peças primeiro
+                byte_vector priorities = new byte_vector();
+                for (int i = 0; i < numPieces; i++) {
+                    priorities.add((byte)0);
+                }
+                torrentHandle.prioritize_pieces_ex(priorities);
+                log("   Todas as " + numPieces + " peças marcadas como IGNORE");
+                
+                // Ativa apenas as primeiras peças
+                int initialPieces = Math.min(20, numPieces);
+                for (int i = 0; i < initialPieces; i++) {
+                    torrentHandle.piece_priority_ex(i, (byte)7);
+                    torrentHandle.set_piece_deadline(i, 2000);
+                }
+                log("   Primeiras " + initialPieces + " peças ativadas com prioridade MÁXIMA");
+                
+                // PASSO 7: Aguarda buffer inicial
+                log("⏳ Aguardando buffer inicial (" + initialPieces + " peças)...");
+                waitForInitialBuffer(savePath, initialPieces);
+                
             } catch (Exception e) {
+                log("❌ ERRO FATAL: " + e.getMessage());
                 Log.e(TAG, "Erro download", e);
-                notifyError("Erro: " + e.getMessage());
+                notifyError(e.getMessage());
                 downloading = false;
             }
         }).start();
     }
     
-    private void activatePieces(int startPiece, int count) {
-        if (torrentHandle == null || !torrentHandle.is_valid()) {
-            Log.w(TAG, "activatePieces: handle inválido");
-            return;
-        }
-        
-        int endPiece = Math.min(startPiece + count, numPieces);
-        
-        for (int i = 0; i < numPieces; i++) {
-            if (i >= startPiece && i < endPiece) {
-                torrentHandle.piece_priority_ex(i, (byte)7);
-                torrentHandle.set_piece_deadline(i, 1000);
-            } else {
-                torrentHandle.piece_priority_ex(i, (byte)0);
-                torrentHandle.reset_piece_deadline(i);
-            }
-        }
-        
-        Log.d(TAG, "BUFFER: peças " + startPiece + "-" + endPiece + " (" + (count * pieceLength / 1048576) + "MB)");
-    }
-    
-    private void waitForInitialBuffer(String savePath) {
-        Log.d(TAG, "Aguardando buffer inicial de " + INITIAL_PIECES + " peças...");
-        int lastLogPct = -1;
+    private void waitForInitialBuffer(String savePath, int targetPieces) {
+        int lastLogPercent = -1;
+        long waitStart = System.currentTimeMillis();
         
         while (downloading) {
             try {
                 Thread.sleep(500);
                 
+                // Conta peças completas
                 int complete = 0;
-                for (int i = 0; i < INITIAL_PIECES; i++) {
+                for (int i = 0; i < targetPieces; i++) {
                     if (torrentHandle.have_piece(i)) complete++;
                 }
                 
-                int pct = (complete * 100) / INITIAL_PIECES;
+                int percent = (complete * 100) / targetPieces;
+                torrent_status st = torrentHandle.status();
                 
-                if (pct != lastLogPct) {
-                    lastLogPct = pct;
-                    Log.d(TAG, "Buffer inicial: " + pct + "% (" + complete + "/" + INITIAL_PIECES + " peças)");
+                // Log a cada 10% ou a cada 5 segundos
+                long elapsed = (System.currentTimeMillis() - waitStart) / 1000;
+                if (percent != lastLogPercent && (percent % 10 == 0 || elapsed % 5 == 0)) {
+                    lastLogPercent = percent;
+                    log("   Buffer: " + percent + "% (" + complete + "/" + targetPieces + " peças)" +
+                        " | Download: " + (st.getTotal_done()/1048576) + "MB" +
+                        " | Speed: " + (st.getDownload_rate()/1024) + "KB/s" +
+                        " | Peers: " + st.getNum_peers() +
+                        " | Tempo: " + elapsed + "s");
                 }
                 
-                if (complete >= INITIAL_PIECES * 0.7f) {
+                // Atualiza progresso na UI
+                TorrentInfo info = new TorrentInfo();
+                info.progress = percent;
+                info.downloaded = st.getTotal_done();
+                info.total = totalSize;
+                info.speed = st.getDownload_rate();
+                info.peers = st.getNum_peers();
+                info.seeds = st.getNum_seeds();
+                handler.post(() -> callback.onProgress(info));
+                
+                // 80% das peças iniciais = suficiente
+                if (complete >= targetPieces * 0.8f) {
+                    long bufferTime = (System.currentTimeMillis() - waitStart) / 1000;
+                    
                     File videoFile = findVideoFile(new File(savePath));
                     long fileLen = videoFile != null ? videoFile.length() : 0;
                     
-                    Log.d(TAG, "BUFFER OK! " + complete + "/" + INITIAL_PIECES + " peças, arquivo: " + (fileLen/1048576) + "MB");
+                    log("✅ BUFFER INICIAL COMPLETO!");
+                    log("   Peças: " + complete + "/" + targetPieces);
+                    log("   Tempo: " + bufferTime + "s");
+                    log("   Arquivo: " + (fileLen/1048576) + "MB");
+                    log("   Download total: " + (st.getTotal_done()/1048576) + "MB");
+                    log("   Velocidade média: " + (st.getTotal_done()/Math.max(bufferTime,1)/1024) + "KB/s");
                     
                     if (videoFile != null && fileLen > pieceLength * 5) {
-                        currentStreamPiece = INITIAL_PIECES;
-                        activatePieces(currentStreamPiece, BUFFER_PIECES);
+                        currentStreamPiece = targetPieces;
                         
-                        notifyStatus("Streaming pronto!");
+                        // Ativa mais peças à frente
+                        for (int i = targetPieces; i < Math.min(targetPieces + BUFFER_PIECES_AHEAD, numPieces); i++) {
+                            torrentHandle.piece_priority_ex(i, (byte)6);
+                            torrentHandle.set_piece_deadline(i, 3000);
+                        }
+                        log("   Buffer estendido para " + BUFFER_PIECES_AHEAD + " peças à frente");
+                        
                         File f = videoFile;
                         handler.post(() -> callback.onStreamReady(f));
                         
+                        // Continua gerenciando buffer
                         manageStreamBuffer();
                         break;
                     }
                 }
                 
-                // Atualiza progresso
-                torrent_status st = torrentHandle.status();
-                TorrentInfo info = new TorrentInfo();
-                info.progress = pct;
-                info.downloaded = st.getTotal_done();
-                info.speed = st.getDownload_rate();
-                info.peers = st.getNum_peers();
-                handler.post(() -> callback.onProgress(info));
-                
             } catch (Exception e) {
-                Log.e(TAG, "Erro buffer", e);
+                log("❌ Erro no buffer: " + e.getMessage());
             }
         }
     }
     
     private void manageStreamBuffer() {
-        Log.d(TAG, "Gerenciando buffer...");
+        log("🔄 Gerenciando buffer de streaming...");
         
         while (downloading) {
             try {
@@ -228,43 +293,35 @@ public class TorrentEngine {
                     torrent_status st = torrentHandle.status();
                     long downloaded = st.getTotal_done();
                     
-                    int newPiece = pieceLength > 0 ? (int)(downloaded / pieceLength) : currentStreamPiece;
+                    // Calcula peça atual
+                    int currentPiece = pieceLength > 0 ? (int)(downloaded / pieceLength) : currentStreamPiece;
                     
-                    if (newPiece > currentStreamPiece + 5) {
-                        Log.d(TAG, "Avançando: peça " + currentStreamPiece + " -> " + newPiece);
-                        currentStreamPiece = newPiece;
-                        activatePieces(currentStreamPiece, BUFFER_PIECES);
+                    // Move o buffer se avançou
+                    if (currentPiece > currentStreamPiece + 5) {
+                        log("   Buffer movendo: " + currentStreamPiece + " -> " + currentPiece);
+                        currentStreamPiece = currentPiece;
+                        
+                        // Ativa novas peças, desativa antigas
+                        for (int i = 0; i < numPieces; i++) {
+                            if (i >= currentStreamPiece && i < currentStreamPiece + BUFFER_PIECES_AHEAD) {
+                                torrentHandle.piece_priority_ex(i, (byte)7);
+                            } else if (i < currentStreamPiece - 10) {
+                                torrentHandle.piece_priority_ex(i, (byte)0);
+                            }
+                        }
                     }
                     
-                    int ahead = 0;
-                    for (int i = currentStreamPiece; i < Math.min(currentStreamPiece + BUFFER_PIECES, numPieces); i++) {
-                        if (torrentHandle.have_piece(i)) ahead++;
-                    }
-                    
+                    // Atualiza UI
                     TorrentInfo info = new TorrentInfo();
                     info.progress = (int)(st.getProgress() * 100);
                     info.downloaded = downloaded;
                     info.speed = st.getDownload_rate();
                     info.peers = st.getNum_peers();
                     handler.post(() -> callback.onProgress(info));
-                    
-                    if (ahead > BUFFER_PIECES * 0.9f) {
-                        Log.d(TAG, "Buffer cheio (" + ahead + "/" + BUFFER_PIECES + "), pausando...");
-                        Thread.sleep(3000);
-                    }
                 }
             } catch (Exception e) {
-                Log.e(TAG, "Erro streaming", e);
+                log("❌ Erro streaming: " + e.getMessage());
             }
-        }
-    }
-    
-    public void seekTo(long bytePosition) {
-        if (torrentHandle != null && pieceLength > 0) {
-            int targetPiece = (int)(bytePosition / pieceLength);
-            Log.d(TAG, "SEEK: byte " + bytePosition + " -> peça " + targetPiece);
-            currentStreamPiece = targetPiece;
-            activatePieces(targetPiece, BUFFER_PIECES);
         }
     }
     
