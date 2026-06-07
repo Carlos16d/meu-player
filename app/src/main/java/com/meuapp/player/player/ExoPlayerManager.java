@@ -5,7 +5,7 @@ import android.util.Log;
 import android.view.View;
 
 import com.google.android.exoplayer2.*;
-import com.google.android.exoplayer2.audio.AudioAttributes;
+import com.google.android.exoplayer2.audio.*;
 import com.google.android.exoplayer2.source.*;
 import com.google.android.exoplayer2.trackselection.*;
 import com.google.android.exoplayer2.ui.*;
@@ -28,13 +28,11 @@ public class ExoPlayerManager {
         this.playerView = view;
         this.player = p;
         
-        // Configuração mínima
         playerView.setPlayer(player);
         playerView.setUseController(true);
-        playerView.setControllerShowTimeoutMs(0); // Sempre visível
+        playerView.setControllerShowTimeoutMs(0);
         playerView.setKeepScreenOn(true);
         
-        // Listener
         player.addListener(new Player.Listener() {
             @Override
             public void onTracksChanged(Tracks tracks) {
@@ -44,18 +42,11 @@ public class ExoPlayerManager {
                 for (Tracks.Group group : tracks.getGroups()) {
                     if (group.getMediaTrackGroup().type == C.TRACK_TYPE_AUDIO) {
                         audioTracks += group.length;
-                        // Log das faixas de áudio
-                        for (int i = 0; i < group.length; i++) {
-                            Format f = group.getTrackFormat(i);
-                            Log.d(TAG, "Audio track " + i + ": " + f.sampleMimeType + " " + f.language + " " + f.codecs);
-                        }
                     }
                     if (group.getMediaTrackGroup().type == C.TRACK_TYPE_TEXT) {
                         subtitleTracks += group.length;
                     }
                 }
-                
-                Log.d(TAG, "Tracks: audio=" + audioTracks + " subs=" + subtitleTracks);
                 
                 if (playerListener != null) {
                     playerListener.onTracksAvailable(audioTracks, subtitleTracks);
@@ -64,16 +55,6 @@ public class ExoPlayerManager {
             
             @Override
             public void onPlaybackStateChanged(int state) {
-                String stateName;
-                switch (state) {
-                    case Player.STATE_IDLE: stateName = "IDLE"; break;
-                    case Player.STATE_BUFFERING: stateName = "BUFFERING"; break;
-                    case Player.STATE_READY: stateName = "READY"; break;
-                    case Player.STATE_ENDED: stateName = "ENDED"; break;
-                    default: stateName = "UNKNOWN"; break;
-                }
-                Log.d(TAG, "State: " + stateName);
-                
                 if (playerListener != null) {
                     playerListener.onBuffering(state == Player.STATE_BUFFERING);
                 }
@@ -81,43 +62,34 @@ public class ExoPlayerManager {
             
             @Override
             public void onPlayerError(PlaybackException error) {
-                Log.e(TAG, "Player error: " + error.getErrorCodeName(), error);
+                Log.e(TAG, "Player error", error);
                 if (playerListener != null) {
                     playerListener.onError(error.getMessage());
                 }
-            }
-            
-            @Override
-            public void onIsPlayingChanged(boolean isPlaying) {
-                Log.d(TAG, "IsPlaying: " + isPlaying);
             }
         });
     }
     
     public void play(String url) {
-        Log.d(TAG, "Play: " + url);
-        
         Uri videoUri = Uri.parse(url);
         
-        // Configura DataSource com buffer maior e timeout maior
+        // Configura renderers para suportar mais codecs
+        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(playerView.getContext())
+            .setEnableDecoderFallback(true)
+            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
+        
+        // DataSource
         DataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
             .setConnectTimeoutMs(10000)
             .setReadTimeoutMs(30000)
             .setAllowCrossProtocolRedirects(true);
         
-        // Configura o fonte de mídia progressiva
         ProgressiveMediaSource.Factory mediaSourceFactory = 
-            new ProgressiveMediaSource.Factory(dataSourceFactory)
-                .setContinueLoadingCheckIntervalBytes(524288); // 512KB
+            new ProgressiveMediaSource.Factory(dataSourceFactory);
         
-        MediaItem mediaItem = new MediaItem.Builder()
-            .setUri(videoUri)
-            .setMimeType("video/mp4") // Força MP4
-            .build();
-        
+        MediaItem mediaItem = MediaItem.fromUri(videoUri);
         MediaSource mediaSource = mediaSourceFactory.createMediaSource(mediaItem);
         
-        // Configura o player com loadControl para mais buffer
         player.setMediaSource(mediaSource);
         player.prepare();
         player.setPlayWhenReady(true);
