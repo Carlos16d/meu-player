@@ -19,13 +19,9 @@ public class StreamServer extends NanoHTTPD {
     private int numPieces = 0;
     private long lastSeekPosition = 0;
     
-    public StreamServer() { 
-        super(8080);
-    }
+    public StreamServer() { super(8080); }
     
-    public void setVideoFile(File f) {
-        this.videoFile = f;
-    }
+    public void setVideoFile(File f) { this.videoFile = f; }
     
     public void setTorrentInfo(torrent_handle handle) {
         this.torrentHandle = handle;
@@ -39,19 +35,15 @@ public class StreamServer extends NanoHTTPD {
         }
     }
     
-    public String getStats() {
-        return totalRequests + "req " + (bytesServed/1048576) + "MB";
-    }
+    public String getStats() { return totalRequests + "req " + (bytesServed/1048576) + "MB"; }
     
     @Override
     public Response serve(IHTTPSession session) {
         totalRequests++;
-        String uri = session.getUri();
         String rangeHeader = session.getHeaders().get("range");
         
-        if (videoFile == null || !videoFile.exists()) {
+        if (videoFile == null || !videoFile.exists())
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Video not ready");
-        }
         
         try {
             long fileSize = videoFile.length();
@@ -63,22 +55,20 @@ public class StreamServer extends NanoHTTPD {
                 if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
             }
             
-            // DETECTA SEEK: se pulou mais de 10MB
+            // SEEK: prioriza peças da nova posição
             if (torrentHandle != null && pieceLength > 0 && start > 0) {
                 long seekDiff = Math.abs(start - lastSeekPosition);
                 if (seekDiff > 10485760 || lastSeekPosition == 0) {
                     int targetPiece = (int)(start / pieceLength);
-                    Log.d(TAG, "🔥 SEEK: " + (start/1048576) + "MB, peça " + targetPiece);
-                    
                     int pStart = Math.max(0, targetPiece - 5);
                     int pEnd = Math.min(numPieces, targetPiece + 50);
                     for (int i = pStart; i < pEnd; i++) {
                         torrentHandle.piece_priority_ex(i, (byte)7);
                         torrentHandle.set_piece_deadline(i, 500);
                     }
-                    for (int i = 0; i < pStart - 10; i++) {
+                    for (int i = 0; i < pStart - 10; i++)
                         torrentHandle.piece_priority_ex(i, (byte)0);
-                    }
+                    Log.d(TAG, "SEEK: peças " + pStart + "-" + pEnd + " prioridade MAX");
                 }
                 lastSeekPosition = start;
             }
@@ -90,16 +80,13 @@ public class StreamServer extends NanoHTTPD {
             if (end >= fileSize) end = fileSize - 1;
             
             int chunkSize = Math.min((int)(end - start + 1), 524288);
-            
             byte[] data = new byte[chunkSize];
             int bytesRead = 0;
             int retries = 0;
             while (bytesRead < 4096 && retries < 15) {
                 if (videoFile.length() > start) {
                     RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                    raf.seek(start);
-                    bytesRead = raf.read(data);
-                    raf.close();
+                    raf.seek(start); bytesRead = raf.read(data); raf.close();
                 }
                 if (bytesRead < 4096 && retries < 14) { Thread.sleep(200); retries++; }
             }
@@ -117,12 +104,10 @@ public class StreamServer extends NanoHTTPD {
             Response response = newFixedLengthResponse(
                 bytesRead > 0 ? Response.Status.PARTIAL_CONTENT : Response.Status.NO_CONTENT,
                 mime, bais, bytesRead);
-            
             response.addHeader("Content-Range", "bytes " + start + "-" + (start + Math.max(0, bytesRead - 1)) + "/" + fileSize);
             response.addHeader("Content-Length", String.valueOf(bytesRead));
             response.addHeader("Accept-Ranges", "bytes");
             response.addHeader("Access-Control-Allow-Origin", "*");
-            
             return response;
             
         } catch (Exception e) {
