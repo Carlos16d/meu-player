@@ -3,8 +3,6 @@ package com.meuapp.player.server;
 import android.util.Log;
 
 import java.io.*;
-import java.text.SimpleDateFormat;
-import java.util.*;
 
 import fi.iki.elonen.NanoHTTPD;
 
@@ -21,11 +19,11 @@ public class StreamServer extends NanoHTTPD {
     
     public void setVideoFile(File f) {
         this.videoFile = f;
-        Log.d(TAG, "VIDEO: " + (f != null ? f.getName() + " " + f.length() : "NULL"));
+        Log.d(TAG, "VIDEO SET: " + (f != null ? f.getName() + " " + f.length() : "NULL"));
     }
     
     public String getStats() {
-        return "Requests: " + totalRequests + " OK, " + failedRequests + " FAIL, " + (bytesServed/1048576) + "MB";
+        return "SRV: " + totalRequests + " req, " + failedRequests + " fail, " + (bytesServed/1048576) + "MB";
     }
     
     @Override
@@ -36,7 +34,6 @@ public class StreamServer extends NanoHTTPD {
         
         if (!uri.contains("/video") || videoFile == null || !videoFile.exists()) {
             failedRequests++;
-            Log.w(TAG, "404 - videoFile=" + (videoFile != null ? videoFile.exists() : "null"));
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Not Found");
         }
         
@@ -53,11 +50,7 @@ public class StreamServer extends NanoHTTPD {
                 }
             }
             
-            // Ajusta ranges inválidos
-            if (start >= fileSize) {
-                Log.w(TAG, "Start " + start + " >= fileSize " + fileSize + " - ajustando");
-                start = Math.max(0, fileSize - 262144);
-            }
+            if (start >= fileSize) start = Math.max(0, fileSize - 262144);
             if (end >= fileSize) end = fileSize - 1;
             
             int chunkSize = Math.min((int)(end - start + 1), 524288);
@@ -65,38 +58,30 @@ public class StreamServer extends NanoHTTPD {
             byte[] data = new byte[chunkSize];
             int bytesRead = 0;
             int retries = 0;
-            long waitedMs = 0;
             
-            // Aguarda dados disponíveis
             while (bytesRead < 4096 && retries < 30) {
                 long currentSize = videoFile.length();
-                
                 if (currentSize > start) {
                     RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
                     raf.seek(start);
                     bytesRead = raf.read(data);
                     raf.close();
                 }
-                
                 if (bytesRead < 4096) {
                     Thread.sleep(200);
-                    waitedMs += 200;
                     retries++;
                 }
             }
             
             bytesServed += bytesRead;
             
-            // Log a cada 10 requisições ou se teve que esperar
-            if (totalRequests % 10 == 0 || waitedMs > 0) {
-                Log.d(TAG, "#" + totalRequests + " Range:" + start + "-" + end + 
-                      " bytes:" + bytesRead + " waited:" + waitedMs + "ms fileSize:" + fileSize);
+            if (totalRequests % 50 == 0 || retries > 5) {
+                Log.d(TAG, "#" + totalRequests + " Range:" + start + "+" + bytesRead + " file:" + fileSize + " retries:" + retries);
             }
             
             if (bytesRead <= 0) {
                 failedRequests++;
-                Log.w(TAG, "ZERO bytes after " + retries + " retries. FileSize:" + fileSize + " Start:" + start);
-                return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "No data yet");
+                return newFixedLengthResponse(Response.Status.SERVICE_UNAVAILABLE, "text/plain", "No data");
             }
             
             String mime = "video/mp4";
@@ -118,8 +103,7 @@ public class StreamServer extends NanoHTTPD {
             
         } catch (Exception e) {
             failedRequests++;
-            Log.e(TAG, "ERRO", e);
-            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error: " + e.getMessage());
+            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error");
         }
     }
 }
