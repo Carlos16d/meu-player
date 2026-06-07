@@ -1,6 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
@@ -9,18 +8,14 @@
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="35"
+        android:layout_weight="40"
         android:background="#000000">
         
-        <com.google.android.exoplayer2.ui.PlayerView
-            android:id="@+id/player_view"
+        <SurfaceView
+            android:id="@+id/video_surface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="gone"
-            app:show_buffering="when_playing"
-            app:use_controller="true"
-            app:surface_type="texture_view"
-            app:resize_mode="fit" />
+            android:visibility="gone" />
         
         <LinearLayout
             android:id="@+id/loading_overlay"
@@ -60,7 +55,7 @@
             android:id="@+id/title_text"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🎬 Torrent Streaming"
+            android:text="🎬 Torrent Stream VLC"
             android:textColor="#fff"
             android:textSize="13sp"
             android:textStyle="bold" />
@@ -96,7 +91,6 @@
                 android:background="@drawable/input_bg"
                 android:hint="Magnet link..."
                 android:textColorHint="#667788"
-                android:inputType="textMultiLine"
                 android:padding="4dp"
                 android:textColor="#fff"
                 android:textSize="10sp" />
@@ -109,7 +103,6 @@
                 android:background="@drawable/btn_primary"
                 android:text="GO"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="10sp" />
         </LinearLayout>
         
@@ -127,7 +120,6 @@
                 android:background="@drawable/btn_success"
                 android:text="▶ ASSISTIR"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="10sp"
                 android:visibility="gone" />
             
@@ -140,7 +132,6 @@
                 android:background="@drawable/btn_danger"
                 android:text="⏹ PARAR"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="10sp"
                 android:visibility="gone" />
         </LinearLayout>
@@ -149,7 +140,7 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="50"
+        android:layout_weight="45"
         android:background="#0d0d1a">
         
         <TextView
