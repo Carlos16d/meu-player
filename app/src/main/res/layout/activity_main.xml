@@ -3,9 +3,10 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0a0a0f">
+    android:background="#0a0a0f"
+    android:padding="6dp">
     
-    <!-- Player WebView (45%) -->
+    <!-- Player WebView -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -27,81 +28,24 @@
             android:visibility="gone" />
     </FrameLayout>
     
-    <!-- Painel de controle (15%) -->
+    <!-- Painel de controle -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="15"
         android:orientation="vertical"
         android:background="#1a1a2e"
-        android:padding="6dp">
-        
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginBottom="2dp">
-            
-            <EditText
-                android:id="@+id/magnet_input"
-                android:layout_width="0dp"
-                android:layout_height="30dp"
-                android:layout_weight="1"
-                android:background="@drawable/input_bg"
-                android:hint="Magnet link..."
-                android:textColorHint="#667788"
-                android:padding="4dp"
-                android:textColor="#fff"
-                android:textSize="10sp" />
-            
-            <Button
-                android:id="@+id/btn_play"
-                android:layout_width="45dp"
-                android:layout_height="30dp"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/btn_primary"
-                android:text="GO"
-                android:textColor="#fff"
-                android:textSize="10sp" />
-        </LinearLayout>
-        
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
-            
-            <Button
-                android:id="@+id/btn_watch"
-                android:layout_width="0dp"
-                android:layout_height="26dp"
-                android:layout_weight="1"
-                android:background="@drawable/btn_success"
-                android:text="▶ ASSISTIR"
-                android:textColor="#fff"
-                android:textSize="10sp"
-                android:visibility="gone" />
-            
-            <Button
-                android:id="@+id/btn_stop"
-                android:layout_width="0dp"
-                android:layout_height="26dp"
-                android:layout_weight="1"
-                android:layout_marginStart="4dp"
-                android:background="@drawable/btn_danger"
-                android:text="⏹ PARAR"
-                android:textColor="#fff"
-                android:textSize="10sp"
-                android:visibility="gone" />
-        </LinearLayout>
+        android:padding="4dp"
+        android:layout_marginTop="2dp">
         
         <TextView
             android:id="@+id/status_text"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Pronto"
-            android:textColor="#aabbcc"
-            android:textSize="10sp"
-            android:layout_marginTop="2dp" />
+            android:textColor="#fff"
+            android:textSize="11sp"
+            android:layout_marginBottom="2dp" />
         
         <ProgressBar
             android:id="@+id/buffer_bar"
@@ -111,14 +55,90 @@
             android:progressTint="#6c5ce7"
             android:progressBackgroundTint="#33ffffff"
             android:visibility="gone" />
+        
+        <!-- Linha: Input + Botões GO e 📁 -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+            
+            <EditText
+                android:id="@+id/magnet_input"
+                android:layout_width="0dp"
+                android:layout_height="36dp"
+                android:layout_weight="1"
+                android:background="@drawable/input_bg"
+                android:hint="Magnet link ou path do .torrent..."
+                android:textColorHint="#667788"
+                android:inputType="textMultiLine"
+                android:padding="6dp"
+                android:textColor="#fff"
+                android:textSize="10sp" />
+            
+            <Button
+                android:id="@+id/btn_play"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:background="@drawable/btn_primary"
+                android:text="GO"
+                android:textColor="#fff"
+                android:textStyle="bold"
+                android:textSize="11sp" />
+            
+            <Button
+                android:id="@+id/btn_torrent"
+                android:layout_width="40dp"
+                android:layout_height="36dp"
+                android:layout_marginStart="2dp"
+                android:background="@drawable/btn_primary"
+                android:text="📁"
+                android:textColor="#fff"
+                android:textSize="14sp" />
+        </LinearLayout>
+        
+        <!-- Linha: Botões ASSISTIR e PARAR -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="4dp">
+            
+            <Button
+                android:id="@+id/btn_watch"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_weight="1"
+                android:background="@drawable/btn_success"
+                android:text="▶ ASSISTIR"
+                android:textColor="#fff"
+                android:textStyle="bold"
+                android:textSize="11sp"
+                android:visibility="gone" />
+            
+            <Button
+                android:id="@+id/btn_stop"
+                android:layout_width="0dp"
+                android:layout_height="34dp"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/btn_danger"
+                android:text="⏹ PARAR"
+                android:textColor="#fff"
+                android:textStyle="bold"
+                android:textSize="11sp"
+                android:visibility="gone" />
+        </LinearLayout>
     </LinearLayout>
     
-    <!-- Logs (40%) -->
+    <!-- Logs -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="40"
-        android:background="#0d0d1a">
+        android:background="#0d0d1a"
+        android:layout_marginTop="2dp">
         
         <TextView
             android:id="@+id/debug_text"
