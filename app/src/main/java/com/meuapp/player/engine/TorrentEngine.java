@@ -8,6 +8,7 @@ import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
+import org.libtorrent4j.SettingsPack;
 import org.libtorrent4j.swig.*;
 
 import java.io.File;
@@ -46,24 +47,18 @@ public class TorrentEngine {
             try {
                 log("Iniciando engine...");
                 session = new SessionManager();
+                session.start(new SessionParams());
                 
-                // Usa os métodos corretos: set_int e set_bool
-                settings_pack sp = new settings_pack();
-                sp.set_bool(settings_pack.bool_types.auto_sequential.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.prioritize_partial_pieces.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.strict_end_game_mode.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.announce_to_all_trackers.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.announce_to_all_tiers.swigValue(), true);
-                sp.set_bool(settings_pack.bool_types.enable_dht.swigValue(), true);
-                sp.set_int(settings_pack.int_types.connections_limit.swigValue(), 30);
-                sp.set_int(settings_pack.int_types.download_rate_limit.swigValue(), 2097152);
-                sp.set_int(settings_pack.int_types.upload_rate_limit.swigValue(), 524288);
-                sp.set_int(settings_pack.int_types.active_downloads.swigValue(), 2);
-                sp.set_int(settings_pack.int_types.active_seeds.swigValue(), 2);
-                sp.set_int(settings_pack.int_types.request_timeout.swigValue(), 3);
-                sp.set_int(settings_pack.int_types.peer_timeout.swigValue(), 30);
+                // Aplica configurações DEPOIS de iniciar
+                SettingsPack sp = new SettingsPack();
+                sp.activeDownloads(2);
+                sp.activeSeeds(2);
+                sp.connectionsLimit(30);
+                sp.downloadRateLimit(2097152); // 2 MB/s
+                sp.uploadRateLimit(524288);    // 512 KB/s
                 
-                session.start(new SessionParams(sp));
+                session.applySettings(sp);
+                
                 ready = true;
                 log("Engine pronto! Limite: 2MB/s");
                 notifyReady();
@@ -120,6 +115,7 @@ public class TorrentEngine {
                 
                 log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
                 
+                // Download sequencial
                 for (int i = 0; i < numPieces; i++) {
                     torrentHandle.piece_priority_ex(i, (byte)(i < 200 ? 7 : 1));
                 }
@@ -127,8 +123,8 @@ public class TorrentEngine {
                     torrentHandle.set_piece_deadline(i, 2000);
                 }
                 
+                // Aguarda peças iniciais
                 int target = Math.min(10, numPieces);
-                long startWait = System.currentTimeMillis();
                 
                 while (downloading) {
                     Thread.sleep(500);
