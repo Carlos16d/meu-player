@@ -10,6 +10,8 @@ import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.SessionParams;
 import org.libtorrent4j.swig.*;
 
+import java.io.File;
+
 public class TorrentEngine {
     private static final String TAG = "TorrentEngine";
     private SessionManager session;
@@ -23,7 +25,6 @@ public class TorrentEngine {
     private long totalSize = 0;
     private int pieceLength = 0;
     
-    // SEM BUFFER - streaming imediato
     private static final int MIN_PIECES_TO_START = 5;
     
     public interface EngineCallback {
@@ -76,8 +77,6 @@ public class TorrentEngine {
                 log("Iniciando download...");
                 File saveDir = new File(savePath);
                 
-                // IMPORTANTE: saveDir é onde o torrent SALVA os arquivos
-                // Mas nos nao vamos usar o arquivo - vamos ler das pecas!
                 session.download(magnetUri, saveDir, new torrent_flags_t());
                 
                 log("Aguardando torrent aparecer...");
@@ -133,22 +132,18 @@ public class TorrentEngine {
                 log("TORRENT: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + (pieceLength/1024) + "KB cada");
                 log("Peers: " + st.getNum_peers() + " Seeds: " + st.getNum_seeds());
                 
-                // ATIVA TODAS as peças (sem IGNORE) - prioridade sequencial
                 byte_vector priorities = new byte_vector();
                 for (int i = 0; i < numPieces; i++) {
-                    // Primeiras 50 peças: MAX, resto: NORMAL
                     priorities.add((byte)(i < 50 ? 7 : 4));
                 }
                 torrentHandle.prioritize_pieces_ex(priorities);
                 
-                // Deadline nas primeiras peças
                 for (int i = 0; i < Math.min(50, numPieces); i++) {
                     torrentHandle.set_piece_deadline(i, 1000);
                 }
                 
                 log("Todas peças ativadas, primeiras 50 com deadline");
                 
-                // Espera SÓ as primeiras peças (rápido)
                 waitForInitialPieces();
                 
             } catch (Exception e) {
@@ -178,7 +173,6 @@ public class TorrentEngine {
                 torrent_status st = torrentHandle.status();
                 long elapsed = (System.currentTimeMillis() - waitStart) / 1000;
                 
-                // Progresso na UI
                 TorrentInfo info = new TorrentInfo();
                 info.progress = (complete * 100) / targetPieces;
                 info.downloaded = st.getTotal_done();
@@ -191,12 +185,10 @@ public class TorrentEngine {
                     log("Peças iniciais prontas! " + complete + "/" + targetPieces + " em " + elapsed + "s");
                     log("Passando handle para servidor HTTP...");
                     
-                    // PASSA O HANDLE DIRETO - SEM ARQUIVO!
                     handler.post(() -> callback.onStreamReady(torrentHandle));
                     break;
                 }
                 
-                // Timeout de 60s
                 if (elapsed > 60) {
                     log("Timeout aguardando peças iniciais");
                     break;
