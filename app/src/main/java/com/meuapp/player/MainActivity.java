@@ -41,7 +41,6 @@ public class MainActivity extends AppCompatActivity {
     private EditText magnetInput;
     private Button btnStream, btnStop, btnWatch;
     
-    private File videoFile;
     private String savePath;
     private StringBuilder logBuilder = new StringBuilder();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
@@ -71,9 +70,8 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         
         addLog("╔══════════════════════════════╗");
-        addLog("║   TORRENT STREAMING v6       ║");
+        addLog("║   TORRENT STREAMING v7       ║");
         addLog("╚══════════════════════════════╝");
-        addLog("Save: " + savePath);
         
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
@@ -100,11 +98,6 @@ public class MainActivity extends AppCompatActivity {
                 addLog("❌ PLAYER ERRO: " + error.getErrorCodeName());
                 addLog("   " + error.getMessage());
             }
-            
-            @Override
-            public void onIsPlayingChanged(boolean isPlaying) {
-                addLog("   Playing: " + isPlaying);
-            }
         });
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
@@ -114,14 +107,13 @@ public class MainActivity extends AppCompatActivity {
             public void onProgress(TorrentInfo info) {
                 runOnUiThread(() -> {
                     bufferBar.setProgress(info.progress);
-                    progressText.setText(info.progress + "% " + (info.speed/1024) + "KB/s " + info.peers + "p " + (info.downloaded/1048576) + "MB");
+                    progressText.setText(info.progress + "% " + (info.speed/1024) + "KB/s " + info.peers + "p");
                 });
             }
             
-            public void onStreamReady(File f) {
-                videoFile = f;
-                streamServer.setVideoFile(f);
-                addLog("✅ STREAM READY: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
+            public void onStreamReady(org.libtorrent4j.swig.torrent_handle handle) {
+                streamServer.setTorrent(handle);
+                addLog("✅ STREAM READY!");
                 runOnUiThread(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     loadingOverlay.setVisibility(View.GONE);
@@ -191,8 +183,6 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void watch() {
-        if (videoFile == null) { addLog("❌ videoFile NULL!"); return; }
-        
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
@@ -200,39 +190,6 @@ public class MainActivity extends AppCompatActivity {
         
         String url = "http://127.0.0.1:8080/video";
         addLog("▶ URL: " + url);
-        addLog("   Arquivo: " + videoFile.getName() + " (" + videoFile.length()/1048576 + "MB)");
-        addLog("   Existe: " + videoFile.exists() + " Tamanho: " + videoFile.length());
-        
-        // Teste HTTP
-        new Thread(() -> {
-            try {
-                java.net.URL testUrl = new java.net.URL(url);
-                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) testUrl.openConnection();
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("Range", "bytes=0-1023");
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                conn.connect();
-                
-                int code = conn.getResponseCode();
-                String type = conn.getContentType();
-                long len = conn.getContentLength();
-                String range = conn.getHeaderField("Content-Range");
-                
-                addLog("   Teste HTTP: " + code + " Type:" + type + " Len:" + len);
-                addLog("   Content-Range: " + range);
-                
-                InputStream is = conn.getInputStream();
-                byte[] buf = new byte[1024];
-                int read = is.read(buf);
-                is.close();
-                addLog("   Bytes lidos: " + read);
-                
-                conn.disconnect();
-            } catch (Exception e) {
-                addLog("   Teste HTTP ERRO: " + e.getClass().getSimpleName() + " - " + e.getMessage());
-            }
-        }).start();
         
         Uri videoUri = Uri.parse(url);
         
