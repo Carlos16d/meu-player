@@ -72,12 +72,13 @@ public class MainActivity extends AppCompatActivity {
         webView.setVisibility(View.GONE);
         
         debug("╔══════════════════════════════╗");
-        debug("║   TORRENT STREAM DASH        ║");
-        debug("║   Cache em RAM | Zero disco  ║");
+        debug("║   TORRENT DASH SEGMENTS      ║");
+        debug("║   Segmentos visíveis em:     ║");
+        debug("║   dash_segments/             ║");
         debug("╚══════════════════════════════╝");
         
         streamServer = new StreamServer();
-        try { streamServer.start(); debug("[SRV] ✅ HTTP:8080 DASH Server"); } 
+        try { streamServer.start(); debug("[SRV] ✅ HTTP:8080"); } 
         catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
@@ -92,18 +93,23 @@ public class MainActivity extends AppCompatActivity {
             }
             
             public void onStreamReady(torrent_handle handle, String sp) {
-                streamServer.setTorrent(handle);
-                File vf = findVideoFile(new File(sp));
-                if (vf != null) {
-                    videoFile = vf;
-                    debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                try {
+                    streamServer.setSavePath(sp);
+                    streamServer.setTorrent(handle);
+                    File vf = findVideoFile(new File(sp));
+                    if (vf != null) {
+                        videoFile = vf;
+                        debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
+                    }
+                    debug("[ENG] ✅ STREAM READY");
+                    debug("[ENG] 📁 Segmentos: " + sp + "/dash_segments/");
+                    handler.post(() -> {
+                        spinnerBar.setVisibility(View.GONE);
+                        btnWatch.setVisibility(View.VISIBLE);
+                    });
+                } catch (Exception e) {
+                    debug("[ENG] ❌ " + e.getMessage());
                 }
-                debug("[ENG] ✅ STREAM READY");
-                debug("[ENG] 📊 " + streamServer.getStats());
-                handler.post(() -> {
-                    spinnerBar.setVisibility(View.GONE);
-                    btnWatch.setVisibility(View.VISIBLE);
-                });
             }
             
             public void onStatus(String s) { debug("[ENG] " + s); }
@@ -162,6 +168,7 @@ public class MainActivity extends AppCompatActivity {
         
         debug("▶️ Iniciando DASH player...");
         debug("   📊 " + streamServer.getStats());
+        debug("   📁 Segmentos em: dash_segments/");
         
         handler.post(() -> { 
             webView.setVisibility(View.VISIBLE); 
@@ -179,26 +186,13 @@ public class MainActivity extends AppCompatActivity {
             "</video>" +
             "<script>" +
             "var v=document.getElementById('v');" +
-            "v.addEventListener('loadedmetadata',function(){" +
-            "  document.title='▶️ DASH ' + Math.floor(v.duration) + 's | Seek: OK';" +
-            "});" +
-            "v.addEventListener('error',function(e){" +
-            "  document.title='❌ Erro DASH';" +
-            "});" +
-            "v.addEventListener('waiting',function(){" +
-            "  document.title='⏳ Carregando segmento...';" +
-            "});" +
-            "v.addEventListener('playing',function(){" +
-            "  document.title='▶️ DASH Streaming';" +
-            "});" +
-            "v.addEventListener('seeked',function(){" +
-            "  document.title='⏩ Seek: ' + Math.floor(v.currentTime) + 's';" +
-            "});" +
+            "v.addEventListener('loadedmetadata',function(){document.title='▶️ DASH '+Math.floor(v.duration)+'s';});" +
+            "v.addEventListener('error',function(){document.title='❌ Erro';});" +
+            "v.addEventListener('seeked',function(){document.title='⏩ '+Math.floor(v.currentTime)+'s';});" +
             "</script></body></html>";
         
         webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-        debug("   ✅ Player DASH carregado");
-        debug("   📺 Seek disponível - pule para qualquer minuto!");
+        debug("   ✅ Player iniciado");
     }
     
     private void stop() {
