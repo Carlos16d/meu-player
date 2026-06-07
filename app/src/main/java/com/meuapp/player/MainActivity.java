@@ -71,7 +71,7 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         
         addLog("╔══════════════════════════════╗");
-        addLog("║   TORRENT STREAMING v5       ║");
+        addLog("║   TORRENT STREAMING v6       ║");
         addLog("╚══════════════════════════════╝");
         addLog("Save: " + savePath);
         
@@ -201,21 +201,38 @@ public class MainActivity extends AppCompatActivity {
         String url = "http://127.0.0.1:8080/video";
         addLog("▶ URL: " + url);
         addLog("   Arquivo: " + videoFile.getName() + " (" + videoFile.length()/1048576 + "MB)");
+        addLog("   Existe: " + videoFile.exists() + " Tamanho: " + videoFile.length());
         
-        // Teste de conectividade
-        try {
-            java.net.HttpURLConnection conn = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
-            conn.setRequestMethod("HEAD");
-            conn.setConnectTimeout(5000);
-            conn.setReadTimeout(5000);
-            int code = conn.getResponseCode();
-            long len = conn.getContentLength();
-            String type = conn.getContentType();
-            addLog("   Teste HTTP: " + code + " Type:" + type + " Len:" + len);
-            conn.disconnect();
-        } catch (Exception e) {
-            addLog("   Teste HTTP FALHOU: " + e.getMessage());
-        }
+        // Teste HTTP
+        new Thread(() -> {
+            try {
+                java.net.URL testUrl = new java.net.URL(url);
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) testUrl.openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Range", "bytes=0-1023");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.connect();
+                
+                int code = conn.getResponseCode();
+                String type = conn.getContentType();
+                long len = conn.getContentLength();
+                String range = conn.getHeaderField("Content-Range");
+                
+                addLog("   Teste HTTP: " + code + " Type:" + type + " Len:" + len);
+                addLog("   Content-Range: " + range);
+                
+                InputStream is = conn.getInputStream();
+                byte[] buf = new byte[1024];
+                int read = is.read(buf);
+                is.close();
+                addLog("   Bytes lidos: " + read);
+                
+                conn.disconnect();
+            } catch (Exception e) {
+                addLog("   Teste HTTP ERRO: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            }
+        }).start();
         
         Uri videoUri = Uri.parse(url);
         
