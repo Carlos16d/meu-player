@@ -49,14 +49,12 @@ public class TorrentEngine {
                 session = new SessionManager();
                 session.start(new SessionParams());
                 
-                // Aplica configurações DEPOIS de iniciar
                 SettingsPack sp = new SettingsPack();
                 sp.activeDownloads(2);
                 sp.activeSeeds(2);
                 sp.connectionsLimit(30);
                 sp.downloadRateLimit(2097152); // 2 MB/s
-                sp.uploadRateLimit(524288);    // 512 KB/s
-                
+                sp.uploadRateLimit(524288);
                 session.applySettings(sp);
                 
                 ready = true;
