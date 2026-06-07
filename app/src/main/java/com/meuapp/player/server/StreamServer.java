@@ -12,6 +12,8 @@ public class StreamServer extends NanoHTTPD {
     private File videoFile;
     private long totalRequests = 0;
     private long bytesServed = 0;
+    private File segmentsDir;
+    private int segmentCount = 0;
     
     public StreamServer() { 
         super(8080);
@@ -19,11 +21,16 @@ public class StreamServer extends NanoHTTPD {
     
     public void setVideoFile(File f) {
         this.videoFile = f;
-        Log.d(TAG, "Video: " + (f != null ? f.getName() + " " + f.length() : "null"));
+        // Cria pasta de segmentos ao lado do arquivo
+        if (f != null && f.getParentFile() != null) {
+            segmentsDir = new File(f.getParentFile(), "dash_segments");
+            segmentsDir.mkdirs();
+            Log.d(TAG, "DASH Segments dir: " + segmentsDir.getAbsolutePath());
+        }
     }
     
     public String getStats() {
-        return totalRequests + "req " + (bytesServed/1048576) + "MB";
+        return totalRequests + "req " + (bytesServed/1048576) + "MB seg:" + segmentCount;
     }
     
     @Override
@@ -69,6 +76,27 @@ public class StreamServer extends NanoHTTPD {
             
             bytesServed += Math.max(0, bytesRead);
             if (bytesRead <= 0) bytesRead = 0;
+            
+            // SALVA SEGMENTO DASH NA PASTA
+            if (segmentsDir != null && bytesRead > 0) {
+                int segNum = (int)(start / 500000);
+                File segFile = new File(segmentsDir, 
+                    String.format("seg_%04d_%d_%d.m4s", segNum, start, start + bytesRead));
+                
+                if (!segFile.exists()) {
+                    try {
+                        FileOutputStream fos = new FileOutputStream(segFile);
+                        fos.write(data, 0, bytesRead);
+                        fos.close();
+                        segmentCount++;
+                        if (segmentCount % 10 == 0) {
+                            Log.d(TAG, "📁 " + segmentCount + " segmentos criados");
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Erro salvando segmento: " + e.getMessage());
+                    }
+                }
+            }
             
             String mime = "video/mp4";
             if (videoFile.getName().toLowerCase().endsWith(".mkv")) mime = "video/x-matroska";
