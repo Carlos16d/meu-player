@@ -8,7 +8,6 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.text.method.ScrollingMovementMethod;
 import android.util.Log;
-import android.view.SurfaceView;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
@@ -22,6 +21,7 @@ import com.meuapp.player.model.TorrentInfo;
 import org.libtorrent4j.swig.torrent_handle;
 import org.videolan.libvlc.*;
 import org.videolan.libvlc.interfaces.*;
+import org.videolan.libvlc.util.VLCVideoLayout;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
@@ -30,7 +30,7 @@ import java.util.*;
 public class MainActivity extends AppCompatActivity {
     private static final String TAG = "MainActivity";
     
-    private SurfaceView videoSurface;
+    private VLCVideoLayout videoLayout;
     private LibVLC libVLC;
     private MediaPlayer vlcPlayer;
     private TorrentEngine torrentEngine;
@@ -53,7 +53,7 @@ public class MainActivity extends AppCompatActivity {
         
         requestPermissions();
         
-        videoSurface = findViewById(R.id.video_surface);
+        videoLayout = findViewById(R.id.video_surface);
         statusText = findViewById(R.id.status_text);
         progressText = findViewById(R.id.progress_text);
         titleText = findViewById(R.id.title_text);
@@ -81,6 +81,8 @@ public class MainActivity extends AppCompatActivity {
         options.add("--clock-synchro=0");
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
+        
+        vlcPlayer.attachViews(videoLayout, null, false, false);
         
         vlcPlayer.setEventListener(new MediaPlayer.EventListener() {
             @Override
@@ -164,26 +166,23 @@ public class MainActivity extends AppCompatActivity {
         loadingOverlay.setVisibility(View.VISIBLE);
         btnStop.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
-        videoSurface.setVisibility(View.GONE);
+        videoLayout.setVisibility(View.GONE);
         torrentEngine.startDownload(magnet, savePath);
     }
     
     private void watch() {
         btnWatch.setVisibility(View.GONE);
-        videoSurface.setVisibility(View.VISIBLE);
+        videoLayout.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
         
         String url = "http://127.0.0.1:8080/video";
         addLog("[VLC] Playing: " + url);
-        
-        vlcPlayer.attachViews(videoSurface, null, false, false);
         
         Media media = new Media(libVLC, Uri.parse(url));
         media.setHWDecoderEnabled(true, true);
         media.addOption(":network-caching=3000");
         media.addOption(":file-caching=2000");
         media.addOption(":http-reconnect");
-        media.addOption(":clock-synchro=0");
         
         vlcPlayer.setMedia(media);
         media.release();
@@ -193,7 +192,7 @@ public class MainActivity extends AppCompatActivity {
     private void stop() {
         torrentEngine.stop();
         if (vlcPlayer != null) vlcPlayer.stop();
-        videoSurface.setVisibility(View.GONE);
+        videoLayout.setVisibility(View.GONE);
         spinnerBar.setVisibility(View.GONE);
         loadingOverlay.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
