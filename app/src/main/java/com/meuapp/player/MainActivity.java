@@ -71,8 +71,9 @@ public class MainActivity extends AppCompatActivity {
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         
-        addLog("=== TORRENT STREAMING v8 ===");
-        addLog("Modo: SEM ARQUIVO EM DISCO");
+        addLog("╔══════════════════════════════╗");
+        addLog("║  TORRENT STREAM CACHE MEM   ║");
+        addLog("╚══════════════════════════════╝");
         
         exoPlayer = new SimpleExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
@@ -91,7 +92,7 @@ public class MainActivity extends AppCompatActivity {
             
             @Override
             public void onPlayerError(PlaybackException error) {
-                addLog("ERRO PLAYER: " + error.getErrorCodeName() + " - " + error.getMessage());
+                addLog("ERRO: " + error.getErrorCodeName() + " - " + error.getMessage());
             }
         });
         
@@ -108,7 +109,7 @@ public class MainActivity extends AppCompatActivity {
             
             public void onStreamReady(torrent_handle handle) {
                 streamServer.setTorrent(handle);
-                addLog("STREAM READY - handle passado ao servidor");
+                addLog("STREAM READY - cache em memória ativado");
                 runOnUiThread(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     loadingOverlay.setVisibility(View.GONE);
