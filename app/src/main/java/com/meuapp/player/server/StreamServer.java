@@ -7,13 +7,17 @@ import java.util.*;
 
 import fi.iki.elonen.NanoHTTPD;
 
+import org.libtorrent4j.swig.*;
+
 public class StreamServer extends NanoHTTPD {
     private static final String TAG = "StreamServer";
     private File videoFile;
+    private torrent_handle torrentHandle;
     private long totalRequests = 0;
     private long bytesServed = 0;
-    private File segmentsDir;
-    private int segmentCount = 0;
+    private int pieceLength = 0;
+    private int numPieces = 0;
+    private long lastSeekPosition = 0;
     
     public StreamServer() { 
         super(8080);
@@ -21,16 +25,22 @@ public class StreamServer extends NanoHTTPD {
     
     public void setVideoFile(File f) {
         this.videoFile = f;
-        // Cria pasta de segmentos ao lado do arquivo
-        if (f != null && f.getParentFile() != null) {
-            segmentsDir = new File(f.getParentFile(), "dash_segments");
-            segmentsDir.mkdirs();
-            Log.d(TAG, "DASH Segments dir: " + segmentsDir.getAbsolutePath());
+    }
+    
+    public void setTorrentInfo(torrent_handle handle) {
+        this.torrentHandle = handle;
+        if (handle != null && handle.is_valid()) {
+            torrent_info ti = handle.torrent_file_ptr();
+            if (ti != null && ti.is_valid()) {
+                this.pieceLength = ti.piece_length();
+                this.numPieces = ti.num_pieces();
+                Log.d(TAG, "Torrent: " + numPieces + " peças, " + (pieceLength/1024) + "KB");
+            }
         }
     }
     
     public String getStats() {
-        return totalRequests + "req " + (bytesServed/1048576) + "MB seg:" + segmentCount;
+        return totalRequests + "req " + (bytesServed/1048576) + "MB";
     }
     
     @Override
@@ -53,6 +63,26 @@ public class StreamServer extends NanoHTTPD {
                 if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
             }
             
+            // DETECTA SEEK: se pulou mais de 10MB
+            if (torrentHandle != null && pieceLength > 0 && start > 0) {
+                long seekDiff = Math.abs(start - lastSeekPosition);
+                if (seekDiff > 10485760 || lastSeekPosition == 0) {
+                    int targetPiece = (int)(start / pieceLength);
+                    Log.d(TAG, "🔥 SEEK: " + (start/1048576) + "MB, peça " + targetPiece);
+                    
+                    int pStart = Math.max(0, targetPiece - 5);
+                    int pEnd = Math.min(numPieces, targetPiece + 50);
+                    for (int i = pStart; i < pEnd; i++) {
+                        torrentHandle.piece_priority_ex(i, (byte)7);
+                        torrentHandle.set_piece_deadline(i, 500);
+                    }
+                    for (int i = 0; i < pStart - 10; i++) {
+                        torrentHandle.piece_priority_ex(i, (byte)0);
+                    }
+                }
+                lastSeekPosition = start;
+            }
+            
             if (start < 0) start = 0;
             if (start >= fileSize) start = Math.max(0, fileSize - 524288);
             if (end >= fileSize) end = fileSize - 1;
@@ -63,40 +93,19 @@ public class StreamServer extends NanoHTTPD {
             
             byte[] data = new byte[chunkSize];
             int bytesRead = 0;
-            
-            for (int retry = 0; retry < 10 && bytesRead < 4096; retry++) {
+            int retries = 0;
+            while (bytesRead < 4096 && retries < 15) {
                 if (videoFile.length() > start) {
                     RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
                     raf.seek(start);
                     bytesRead = raf.read(data);
                     raf.close();
                 }
-                if (bytesRead < 4096 && retry < 9) Thread.sleep(300);
+                if (bytesRead < 4096 && retries < 14) { Thread.sleep(200); retries++; }
             }
             
             bytesServed += Math.max(0, bytesRead);
             if (bytesRead <= 0) bytesRead = 0;
-            
-            // SALVA SEGMENTO DASH NA PASTA
-            if (segmentsDir != null && bytesRead > 0) {
-                int segNum = (int)(start / 500000);
-                File segFile = new File(segmentsDir, 
-                    String.format("seg_%04d_%d_%d.m4s", segNum, start, start + bytesRead));
-                
-                if (!segFile.exists()) {
-                    try {
-                        FileOutputStream fos = new FileOutputStream(segFile);
-                        fos.write(data, 0, bytesRead);
-                        fos.close();
-                        segmentCount++;
-                        if (segmentCount % 10 == 0) {
-                            Log.d(TAG, "📁 " + segmentCount + " segmentos criados");
-                        }
-                    } catch (Exception e) {
-                        Log.e(TAG, "Erro salvando segmento: " + e.getMessage());
-                    }
-                }
-            }
             
             String mime = "video/mp4";
             if (videoFile.getName().toLowerCase().endsWith(".mkv")) mime = "video/x-matroska";
