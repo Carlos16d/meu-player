@@ -24,6 +24,7 @@ public class TorrentEngine {
     private int numPieces = 0;
     private long totalSize = 0;
     private int pieceLength = 0;
+    private String currentSavePath;
     
     public interface EngineCallback {
         void onReady();
@@ -63,16 +64,21 @@ public class TorrentEngine {
     public void startDownload(String magnetUri, String savePath) {
         if (!ready) { notifyError("Aguarde..."); return; }
         downloading = true;
+        currentSavePath = savePath;
         
         new Thread(() -> {
             try {
                 log("Conectando ao tracker...");
+                log("SavePath: " + savePath);
+                
                 File saveDir = new File(savePath);
                 session.download(magnetUri, saveDir, new torrent_flags_t());
                 
                 Thread.sleep(3000);
                 
                 torrent_handle_vector handles = session.swig().get_torrents();
+                log("Torrents encontrados: " + handles.size());
+                
                 if (handles.size() == 0) {
                     notifyError("Nenhum peer");
                     downloading = false;
@@ -88,6 +94,7 @@ public class TorrentEngine {
                     Thread.sleep(1000);
                     w++;
                     st = torrentHandle.status();
+                    if (w % 10 == 0) log("Metadados... " + w + "s");
                 }
                 
                 if (!st.getHas_metadata()) {
@@ -103,7 +110,16 @@ public class TorrentEngine {
                     pieceLength = ti.piece_length();
                 }
                 
-                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças");
+                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + (pieceLength/1024) + "KB");
+                
+                // Lista arquivos na pasta
+                File dir = new File(savePath);
+                File[] files = dir.listFiles();
+                if (files != null) {
+                    for (File f : files) {
+                        log("  Pasta: " + f.getName() + " (" + f.length() + " bytes)");
+                    }
+                }
                 
                 // Ativa TUDO com prioridade normal
                 byte_vector priorities = new byte_vector();
@@ -112,7 +128,6 @@ public class TorrentEngine {
                 }
                 torrentHandle.prioritize_pieces_ex(priorities);
                 
-                // Aguarda primeiras 10 peças
                 waitForInitialPieces();
                 
             } catch (Exception e) {
@@ -147,6 +162,16 @@ public class TorrentEngine {
                 
                 if (complete >= target) {
                     log("Streaming pronto! " + complete + "/" + target + " peças");
+                    
+                    // Lista arquivos encontrados
+                    File dir = new File(currentSavePath);
+                    File[] files = dir.listFiles();
+                    if (files != null) {
+                        for (File f : files) {
+                            log("  Arquivo: " + f.getName() + " (" + (f.length()/1048576) + "MB)");
+                        }
+                    }
+                    
                     handler.post(() -> callback.onStreamReady(torrentHandle));
                     break;
                 }
