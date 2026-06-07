@@ -16,6 +16,7 @@ import androidx.core.content.ContextCompat;
 
 import com.google.android.exoplayer2.*;
 import com.google.android.exoplayer2.source.*;
+import com.google.android.exoplayer2.trackselection.*;
 import com.google.android.exoplayer2.ui.*;
 import com.google.android.exoplayer2.upstream.*;
 import com.google.android.exoplayer2.util.*;
@@ -78,14 +79,13 @@ public class MainActivity extends AppCompatActivity {
         addLog("╔══════════════════════════════════════╗");
         addLog("║   TORRENT STREAM v12 - LOGS FULL    ║");
         addLog("╚══════════════════════════════════════╝");
-        addLog("Android: " + Build.VERSION.SDK_INT + " | Fabricante: " + Build.MANUFACTURER + " | Modelo: " + Build.MODEL);
+        addLog("Android: " + Build.VERSION.SDK_INT + " | " + Build.MANUFACTURER + " | " + Build.MODEL);
         addLog("SavePath: " + savePath);
         addLog("SavePath existe: " + new File(savePath).exists());
         
         // ========== EXOPLAYER COM LOGS ==========
         addLog("[EXO] Criando ExoPlayer...");
         
-        // RenderersFactory para ver codecs disponíveis
         DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(this)
             .setEnableDecoderFallback(true)
             .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
@@ -101,7 +101,6 @@ public class MainActivity extends AppCompatActivity {
         playerView.setControllerShowTimeoutMs(0);
         playerView.setKeepScreenOn(true);
         
-        // Listener ABSURDAMENTE detalhado
         exoPlayer.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
@@ -126,7 +125,6 @@ public class MainActivity extends AppCompatActivity {
                     addLog("[EXO] VideoFormat: " + exoPlayer.getVideoFormat());
                     addLog("[EXO] AudioFormat: " + exoPlayer.getAudioFormat());
                     addLog("[EXO] PlayWhenReady: " + exoPlayer.getPlayWhenReady());
-                    addLog("[EXO] PlaybackSuppressionReason: " + exoPlayer.getPlaybackSuppressionReason());
                 }
             }
             
@@ -139,7 +137,6 @@ public class MainActivity extends AppCompatActivity {
                 
                 if (error.getCause() != null) {
                     addLog("[EXO]   Cause: " + error.getCause().getClass().getName() + " - " + error.getCause().getMessage());
-                    // Stack trace completo
                     StringWriter sw = new StringWriter();
                     PrintWriter pw = new PrintWriter(sw);
                     error.getCause().printStackTrace(pw);
@@ -181,13 +178,6 @@ public class MainActivity extends AppCompatActivity {
             public void onPlayWhenReadyChanged(boolean playWhenReady, int reason) {
                 addLog("[EXO] PlayWhenReady: " + playWhenReady + " reason=" + reason);
             }
-            
-            @Override
-            public void onPlayerErrorChanged(PlaybackException error) {
-                if (error != null) {
-                    addLog("[EXO] ErrorChanged: " + error.getErrorCodeName());
-                }
-            }
         });
         
         // ========== TORRENT ENGINE ==========
@@ -227,10 +217,6 @@ public class MainActivity extends AppCompatActivity {
             addLog("[SRV] isAlive: " + streamServer.isAlive());
         } catch (Exception e) {
             addLog("[SRV] ERRO ao iniciar: " + e.getMessage());
-            StringWriter sw = new StringWriter();
-            e.printStackTrace(new PrintWriter(sw));
-            String[] lines = sw.toString().split("\n");
-            for (String line : lines) addLog("[SRV]   " + line.trim());
         }
         
         torrentEngine.start();
@@ -266,10 +252,7 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void startStream(String magnet) {
-        addLog("[UI] startStream chamado");
-        addLog("[UI] Magnet: " + magnet.substring(0, Math.min(60, magnet.length())) + "...");
-        addLog("[UI] SavePath: " + savePath);
-        
+        addLog("[UI] startStream: " + magnet.substring(0, Math.min(60, magnet.length())) + "...");
         bufferBar.setVisibility(View.VISIBLE);
         spinnerBar.setVisibility(View.VISIBLE);
         loadingOverlay.setVisibility(View.VISIBLE);
@@ -277,7 +260,6 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setVisibility(View.GONE);
         playerView.setVisibility(View.GONE);
         titleText.setText("Preparando...");
-        
         torrentEngine.startDownload(magnet, savePath);
     }
     
@@ -285,52 +267,43 @@ public class MainActivity extends AppCompatActivity {
         addLog("[UI] ========== WATCH ==========");
         addLog("[UI] Server stats: " + streamServer.getStats());
         addLog("[UI] isAlive: " + streamServer.isAlive());
-        addLog("[UI] isListening: " + (streamServer.wasStarted()));
         
-        // Teste de conectividade DETALHADO
-        addLog("[UI] --- Teste HTTP ---");
         String url = "http://127.0.0.1:8080/video";
         
+        // Teste HTTP detalhado
         new Thread(() -> {
-            for (int port : new int[]{8080}) {
-                try {
-                    java.net.HttpURLConnection conn = (java.net.HttpURLConnection) 
-                        new java.net.URL("http://127.0.0.1:" + port + "/video").openConnection();
-                    conn.setRequestMethod("GET");
-                    conn.setRequestProperty("Range", "bytes=0-1023");
-                    conn.setConnectTimeout(5000);
-                    conn.setReadTimeout(5000);
-                    conn.connect();
-                    
-                    int code = conn.getResponseCode();
-                    String type = conn.getContentType();
-                    long len = conn.getContentLength();
-                    String range = conn.getHeaderField("Content-Range");
-                    
-                    addLog("[UI] Porta " + port + ": HTTP " + code);
-                    addLog("[UI]   Content-Type: " + type);
-                    addLog("[UI]   Content-Length: " + len);
-                    addLog("[UI]   Content-Range: " + range);
-                    
-                    // Lê bytes
-                    InputStream is = conn.getInputStream();
-                    byte[] buf = new byte[1024];
-                    int read = is.read(buf);
-                    is.close();
-                    addLog("[UI]   Bytes lidos: " + read);
-                    if (read > 4) {
-                        addLog("[UI]   Magic: " + String.format("%02X %02X %02X %02X", 
-                            buf[0] & 0xFF, buf[1] & 0xFF, buf[2] & 0xFF, buf[3] & 0xFF));
-                    }
-                    
-                    conn.disconnect();
-                } catch (Exception e) {
-                    addLog("[UI] Porta " + port + ": ERRO - " + e.getClass().getSimpleName() + ": " + e.getMessage());
+            try {
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) 
+                    new java.net.URL(url).openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Range", "bytes=0-1023");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.connect();
+                
+                int code = conn.getResponseCode();
+                String type = conn.getContentType();
+                long len = conn.getContentLength();
+                String range = conn.getHeaderField("Content-Range");
+                
+                addLog("[UI] Teste HTTP: " + code + " Type:" + type + " Len:" + len);
+                addLog("[UI] Content-Range: " + range);
+                
+                InputStream is = conn.getInputStream();
+                byte[] buf = new byte[1024];
+                int read = is.read(buf);
+                is.close();
+                addLog("[UI] Bytes lidos: " + read);
+                if (read > 4) {
+                    addLog("[UI] Magic: " + String.format("%02X %02X %02X %02X", 
+                        buf[0] & 0xFF, buf[1] & 0xFF, buf[2] & 0xFF, buf[3] & 0xFF));
                 }
+                conn.disconnect();
+            } catch (Exception e) {
+                addLog("[UI] Teste HTTP ERRO: " + e.getClass().getSimpleName() + " - " + e.getMessage());
             }
         }).start();
         
-        addLog("[UI] --- Iniciando ExoPlayer ---");
         addLog("[UI] URL: " + url);
         
         btnWatch.setVisibility(View.GONE);
@@ -339,20 +312,15 @@ public class MainActivity extends AppCompatActivity {
         titleText.setText("Reproduzindo");
         
         Uri videoUri = Uri.parse(url);
-        
         DataSource.Factory factory = new DefaultHttpDataSource.Factory()
-            .setConnectTimeoutMs(15000)
-            .setReadTimeoutMs(60000)
-            .setAllowCrossProtocolRedirects(true);
-        
+            .setConnectTimeoutMs(15000).setReadTimeoutMs(60000).setAllowCrossProtocolRedirects(true);
         ProgressiveMediaSource.Factory mediaFactory = new ProgressiveMediaSource.Factory(factory);
         MediaSource source = mediaFactory.createMediaSource(MediaItem.fromUri(videoUri));
         
-        addLog("[UI] MediaSource criado, preparando player...");
+        addLog("[UI] Preparando player...");
         exoPlayer.setMediaSource(source);
         exoPlayer.prepare();
         exoPlayer.setPlayWhenReady(true);
-        
         addLog("[UI] Player iniciado");
     }
     
