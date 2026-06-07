@@ -2,7 +2,6 @@ package com.meuapp.player.player;
 
 import android.net.Uri;
 import android.util.Log;
-import android.view.View;
 
 import com.google.android.exoplayer2.*;
 import com.google.android.exoplayer2.audio.*;
@@ -11,6 +10,7 @@ import com.google.android.exoplayer2.trackselection.*;
 import com.google.android.exoplayer2.ui.*;
 import com.google.android.exoplayer2.upstream.*;
 import com.google.android.exoplayer2.util.*;
+import com.google.android.exoplayer2.video.*;
 
 public class ExoPlayerManager {
     private static final String TAG = "ExoPlayer";
@@ -62,7 +62,7 @@ public class ExoPlayerManager {
             
             @Override
             public void onPlayerError(PlaybackException error) {
-                Log.e(TAG, "Player error", error);
+                Log.e(TAG, "Player error: " + error.getErrorCodeName(), error);
                 if (playerListener != null) {
                     playerListener.onError(error.getMessage());
                 }
@@ -71,19 +71,17 @@ public class ExoPlayerManager {
     }
     
     public void play(String url) {
+        Log.d(TAG, "Playing: " + url);
+        
         Uri videoUri = Uri.parse(url);
         
-        // Configura renderers para suportar mais codecs
-        DefaultRenderersFactory renderersFactory = new DefaultRenderersFactory(playerView.getContext())
-            .setEnableDecoderFallback(true)
-            .setExtensionRendererMode(DefaultRenderersFactory.EXTENSION_RENDERER_MODE_ON);
-        
-        // DataSource
+        // DataSource com timeouts longos
         DataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
-            .setConnectTimeoutMs(10000)
-            .setReadTimeoutMs(30000)
+            .setConnectTimeoutMs(15000)
+            .setReadTimeoutMs(60000)
             .setAllowCrossProtocolRedirects(true);
         
+        // MediaSource progressivo
         ProgressiveMediaSource.Factory mediaSourceFactory = 
             new ProgressiveMediaSource.Factory(dataSourceFactory);
         
@@ -93,6 +91,8 @@ public class ExoPlayerManager {
         player.setMediaSource(mediaSource);
         player.prepare();
         player.setPlayWhenReady(true);
+        
+        Log.d(TAG, "Player started");
     }
     
     public void stop() {
