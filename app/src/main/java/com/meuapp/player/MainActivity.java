@@ -103,7 +103,12 @@ public class MainActivity extends AppCompatActivity {
             @Override public void surfaceDestroyed(SurfaceHolder h) { surfaceReady = false; surfaceHolder = null; }
         });
         
-        libVLC = new LibVLC(this, Arrays.asList("--network-caching=3000", "--http-reconnect", "--file-caching=2000"));
+        // CORRIGIDO: ArrayList mutável
+        ArrayList<String> options = new ArrayList<>();
+        options.add("--network-caching=3000");
+        options.add("--http-reconnect");
+        options.add("--file-caching=2000");
+        libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
         
         vlcPlayer.setEventListener(event -> {
