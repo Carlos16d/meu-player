@@ -20,7 +20,6 @@ public class StreamServer extends NanoHTTPD {
     private long lastSeekPosition = 0;
     
     public StreamServer() { super(8080); }
-    
     public void setVideoFile(File f) { this.videoFile = f; }
     
     public void setTorrentInfo(torrent_handle handle) {
@@ -40,52 +39,34 @@ public class StreamServer extends NanoHTTPD {
     @Override
     public Response serve(IHTTPSession session) {
         totalRequests++;
-        String uri = session.getUri();
         String rangeHeader = session.getHeaders().get("range");
-        String method = session.getMethod().name();
         
-        // LOG sempre
-        Log.d(TAG, "REQ #" + totalRequests + " | " + method + " " + uri + " | Range: " + rangeHeader);
+        Log.d(TAG, "REQ #" + totalRequests + " | Range: " + rangeHeader);
         
-        if (videoFile == null || !videoFile.exists()) {
-            Log.w(TAG, "  -> 404 Video not ready");
+        if (videoFile == null || !videoFile.exists())
             return newFixedLengthResponse(Response.Status.NOT_FOUND, "text/plain", "Video not ready");
-        }
         
         try {
             long fileSize = videoFile.length();
             long start = 0, end = fileSize - 1;
-            boolean isRangeRequest = (rangeHeader != null && rangeHeader.startsWith("bytes="));
+            boolean isRange = (rangeHeader != null && rangeHeader.startsWith("bytes="));
             
-            if (isRangeRequest) {
+            if (isRange) {
                 String[] parts = rangeHeader.substring(6).split("-");
                 start = Long.parseLong(parts[0]);
                 if (parts.length > 1 && !parts[1].isEmpty()) end = Long.parseLong(parts[1]);
-                
-                Log.d(TAG, "  Range: bytes " + start + "-" + end);
-            } else {
-                Log.d(TAG, "  Request inicial (sem Range) - enviando headers para habilitar seek");
             }
             
-            // SEEK: download sequencial no range alvo
-            if (torrentHandle != null && pieceLength > 0 && isRangeRequest && start > 0) {
+            // SEEK
+            if (torrentHandle != null && pieceLength > 0 && isRange && start > 0) {
                 long seekDiff = Math.abs(start - lastSeekPosition);
                 if (seekDiff > 5242880 || lastSeekPosition == 0) {
-                    int targetPiece = (int)(start / pieceLength);
-                    int rangeStart = Math.max(0, targetPiece - 5);
-                    int rangeEnd = Math.min(numPieces, targetPiece + 60);
-                    
-                    torrentHandle.set_sequential_range(rangeStart, rangeEnd);
-                    
-                    for (int i = 0; i < numPieces; i++)
-                        torrentHandle.piece_priority_ex(i, (byte)0);
-                    
-                    for (int i = rangeStart; i < rangeEnd; i++) {
-                        torrentHandle.piece_priority_ex(i, (byte)7);
-                        torrentHandle.set_piece_deadline(i, 500);
-                    }
-                    
-                    Log.d(TAG, "  🔥 SEEK DETECTADO! Pos: " + (start/1048576) + "MB | Peças: " + rangeStart + "-" + rangeEnd + " (sequencial)");
+                    int tp = (int)(start / pieceLength);
+                    int rs = Math.max(0, tp - 5), re = Math.min(numPieces, tp + 60);
+                    torrentHandle.set_sequential_range(rs, re);
+                    for (int i = 0; i < numPieces; i++) torrentHandle.piece_priority_ex(i, (byte)0);
+                    for (int i = rs; i < re; i++) { torrentHandle.piece_priority_ex(i, (byte)7); torrentHandle.set_piece_deadline(i, 500); }
+                    Log.d(TAG, "🔥 SEEK: " + (start/1048576) + "MB | peças " + rs + "-" + re);
                 }
                 lastSeekPosition = start;
             }
@@ -96,19 +77,13 @@ public class StreamServer extends NanoHTTPD {
             if (end < start) end = start + 524287;
             if (end >= fileSize) end = fileSize - 1;
             
-            int chunkSize = isRangeRequest ? Math.min((int)(end - start + 1), 524288) : 1048576;
-            
+            int chunkSize = Math.min((int)(end - start + 1), 524288);
             byte[] data = new byte[chunkSize];
-            int bytesRead = 0;
-            int retries = 0;
+            int bytesRead = 0, retries = 0;
             while (bytesRead < 4096 && retries < 15) {
-                if (videoFile.length() > start) {
-                    RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                    raf.seek(start); bytesRead = raf.read(data); raf.close();
-                }
+                if (videoFile.length() > start) { RandomAccessFile raf = new RandomAccessFile(videoFile, "r"); raf.seek(start); bytesRead = raf.read(data); raf.close(); }
                 if (bytesRead < 4096 && retries < 14) { Thread.sleep(200); retries++; }
             }
-            
             bytesServed += Math.max(0, bytesRead);
             if (bytesRead <= 0) bytesRead = 0;
             
@@ -117,31 +92,20 @@ public class StreamServer extends NanoHTTPD {
             
             byte[] respData = new byte[bytesRead];
             if (bytesRead > 0) System.arraycopy(data, 0, respData, 0, bytesRead);
-            
             ByteArrayInputStream bais = new ByteArrayInputStream(respData);
-            Response response;
             
-            if (isRangeRequest) {
+            Response response;
+            if (isRange) {
                 response = newFixedLengthResponse(Response.Status.PARTIAL_CONTENT, mime, bais, bytesRead);
                 response.addHeader("Content-Range", "bytes " + start + "-" + (start + Math.max(0, bytesRead - 1)) + "/" + fileSize);
-                Log.d(TAG, "  <- 206 Partial Content (" + bytesRead + " bytes)");
             } else {
                 response = newFixedLengthResponse(Response.Status.OK, mime, bais, bytesRead);
-                response.addHeader("Accept-Ranges", "bytes");
-                Log.d(TAG, "  <- 200 OK (" + bytesRead + " bytes) + Accept-Ranges: bytes");
             }
-            
             response.addHeader("Content-Length", String.valueOf(bytesRead));
             response.addHeader("Accept-Ranges", "bytes");
             response.addHeader("Access-Control-Allow-Origin", "*");
-            response.addHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-            response.addHeader("Pragma", "no-cache");
-            
+            response.addHeader("Cache-Control", "no-cache");
             return response;
-            
-        } catch (Exception e) {
-            Log.e(TAG, "Error", e);
-            return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error");
-        }
+        } catch (Exception e) { return newFixedLengthResponse(Response.Status.INTERNAL_ERROR, "text/plain", "Error"); }
     }
 }
