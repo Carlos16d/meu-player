@@ -37,7 +37,6 @@ public class MainActivity extends AppCompatActivity {
     private String savePath;
     private TorrentEngine torrentEngine;
     private StreamServer streamServer;
-    private TorrentDataSource torrentDataSource;
     private volatile File videoFile;
     private Handler handler;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
@@ -64,8 +63,6 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        torrentDataSource = new TorrentDataSource();
-        
         exoPlayer = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
         playerView.setUseController(true);
@@ -75,20 +72,26 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int state) {
                 String s = state == Player.STATE_BUFFERING ? "BUFFERING" : 
-                          state == Player.STATE_READY ? "READY" : "IDLE";
+                          state == Player.STATE_READY ? "READY" : 
+                          state == Player.STATE_ENDED ? "ENDED" : "IDLE";
                 debug("[EXO] " + s);
                 handler.post(() -> spinnerBar.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE));
+                if (state == Player.STATE_READY) {
+                    debug("[EXO] ✅ READY! Duration: " + exoPlayer.getDuration() + "ms");
+                }
             }
             @Override
             public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 debug("[EXO] ❌ " + error.getErrorCodeName() + ": " + error.getMessage());
+                debug("[EXO]   Code: " + error.errorCode);
             }
         });
         
         debug("=== TORRENT STREAM ===");
         
         streamServer = new StreamServer();
-        try { streamServer.start(); debug("[SRV] ✅"); } catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
+        try { streamServer.start(); debug("[SRV] ✅ HTTP:8080"); } 
+        catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
             public void onReady() { debug("[ENG] ✅"); }
@@ -102,8 +105,6 @@ public class MainActivity extends AppCompatActivity {
                     videoFile = vf; 
                     streamServer.setVideoFile(vf); 
                     streamServer.setTorrentInfo(handle);
-                    torrentDataSource.setTorrentHandle(handle);
-                    torrentDataSource.setVideoFile(vf);
                     debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)"); 
                 }
                 debug("[ENG] ✅ STREAM READY");
@@ -146,19 +147,53 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Video nao encontrado"); return; }
-        debug("▶️ " + (videoFile.length()/1048576) + "MB");
+        
+        debug("══════════════════════════════════");
+        debug("▶️ INICIANDO EXOPLAYER");
+        debug("   Arquivo: " + videoFile.getAbsolutePath());
+        debug("   Tamanho: " + videoFile.length() + " bytes (" + (videoFile.length()/1048576) + "MB)");
+        debug("   Existe: " + videoFile.exists());
+        debug("   Pode ler: " + videoFile.canRead());
+        debug("══════════════════════════════════");
+        
         handler.post(() -> {
-            playerView.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); spinnerBar.setVisibility(View.VISIBLE);
+            playerView.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE);
+            spinnerBar.setVisibility(View.VISIBLE);
+            
+            // Cria NOVA instância do TorrentDataSource
+            TorrentDataSource dataSource = new TorrentDataSource();
+            dataSource.setVideoFile(videoFile);
+            
             Uri videoUri = Uri.parse("http://127.0.0.1:8080/video");
             MediaItem mediaItem = MediaItem.fromUri(videoUri);
-            ProgressiveMediaSource.Factory f = new ProgressiveMediaSource.Factory(() -> torrentDataSource);
-            exoPlayer.setMediaSource(f.createMediaSource(mediaItem));
+            
+            ProgressiveMediaSource.Factory mediaSourceFactory = 
+                new ProgressiveMediaSource.Factory(() -> dataSource);
+            
+            exoPlayer.setMediaSource(mediaSourceFactory.createMediaSource(mediaItem));
             exoPlayer.prepare();
             exoPlayer.setPlayWhenReady(true);
-            debug("✅ prepare()");
+            
+            debug("✅ prepare() chamado com TorrentDataSource");
         });
     }
     
-    private void stop() { debug("⏹"); torrentEngine.stop(); if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); } playerView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); }
-    @Override protected void onDestroy() { stop(); if (streamServer != null) streamServer.stop(); if (exoPlayer != null) exoPlayer.release(); super.onDestroy(); }
+    private void stop() { 
+        debug("⏹ Parado");
+        torrentEngine.stop(); 
+        if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); } 
+        playerView.setVisibility(View.GONE); 
+        btnStop.setVisibility(View.GONE); 
+        btnWatch.setVisibility(View.GONE); 
+        bufferBar.setVisibility(View.GONE); 
+        spinnerBar.setVisibility(View.GONE); 
+    }
+    
+    @Override protected void onDestroy() { 
+        stop(); 
+        if (streamServer != null) streamServer.stop(); 
+        if (exoPlayer != null) exoPlayer.release(); 
+        super.onDestroy(); 
+    }
 }
