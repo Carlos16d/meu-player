@@ -10,9 +10,10 @@ import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
+import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
-import androidx.media3.exoplayer.upstream.DefaultHttpDataSource;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.ui.PlayerView;
 
 import com.meuapp.player.engine.TorrentEngine;
@@ -68,14 +69,14 @@ public class MainActivity extends AppCompatActivity {
         playerView.setUseController(true);
         playerView.setKeepScreenOn(true);
         
-        exoPlayer.addListener(new androidx.media3.common.Player.Listener() {
+        exoPlayer.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
-                String s = state == ExoPlayer.STATE_BUFFERING ? "BUFFERING" : 
-                          state == ExoPlayer.STATE_READY ? "READY" : 
-                          state == ExoPlayer.STATE_ENDED ? "ENDED" : "IDLE";
+                String s = state == Player.STATE_BUFFERING ? "BUFFERING" : 
+                          state == Player.STATE_READY ? "READY" : 
+                          state == Player.STATE_ENDED ? "ENDED" : "IDLE";
                 debug("[EXO] " + s);
-                handler.post(() -> spinnerBar.setVisibility(state == ExoPlayer.STATE_BUFFERING ? View.VISIBLE : View.GONE));
+                handler.post(() -> spinnerBar.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE));
             }
         });
         
