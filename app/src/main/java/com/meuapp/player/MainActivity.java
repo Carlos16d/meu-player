@@ -66,10 +66,7 @@ public class MainActivity extends AppCompatActivity {
         
         torrentDataSource = new TorrentDataSource();
         
-        // ExoPlayer com software decoding
-        exoPlayer = new ExoPlayer.Builder(this)
-            .setUsePlatformDiagnostics(false)
-            .build();
+        exoPlayer = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
         playerView.setUseController(true);
         playerView.setKeepScreenOn(true);
@@ -78,27 +75,17 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onPlaybackStateChanged(int state) {
                 String s = state == Player.STATE_BUFFERING ? "BUFFERING" : 
-                          state == Player.STATE_READY ? "READY" : 
-                          state == Player.STATE_ENDED ? "ENDED" : "IDLE";
+                          state == Player.STATE_READY ? "READY" : "IDLE";
                 debug("[EXO] " + s);
                 handler.post(() -> spinnerBar.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE));
-                if (state == Player.STATE_READY) {
-                    debug("[EXO] ✅ READY! Duration: " + exoPlayer.getDuration() + "ms");
-                    debug("[EXO] VideoFormat: " + exoPlayer.getVideoFormat());
-                    debug("[EXO] AudioFormat: " + exoPlayer.getAudioFormat());
-                }
             }
             @Override
             public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 debug("[EXO] ❌ " + error.getErrorCodeName() + ": " + error.getMessage());
-                debug("[EXO]   Code: " + error.errorCode);
-                if (error.getCause() != null) {
-                    debug("[EXO]   Cause: " + error.getCause().toString());
-                }
             }
         });
         
-        debug("=== TORRENT STREAM EXOPLAYER ===");
+        debug("=== TORRENT STREAM ===");
         
         streamServer = new StreamServer();
         try { streamServer.start(); debug("[SRV] ✅"); } catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
@@ -159,28 +146,16 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Video nao encontrado"); return; }
-        
-        debug("▶️ EXOPLAYER: " + (videoFile.length()/1048576) + "MB");
-        
+        debug("▶️ " + (videoFile.length()/1048576) + "MB");
         handler.post(() -> {
-            playerView.setVisibility(View.VISIBLE); 
-            btnWatch.setVisibility(View.GONE);
-            spinnerBar.setVisibility(View.VISIBLE);
-            
+            playerView.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); spinnerBar.setVisibility(View.VISIBLE);
             Uri videoUri = Uri.parse("http://127.0.0.1:8080/video");
-            MediaItem mediaItem = new MediaItem.Builder()
-                .setUri(videoUri)
-                .setMimeType("video/x-matroska") // Força MKV
-                .build();
-            
-            ProgressiveMediaSource.Factory mediaSourceFactory = 
-                new ProgressiveMediaSource.Factory(() -> torrentDataSource);
-            
-            exoPlayer.setMediaSource(mediaSourceFactory.createMediaSource(mediaItem));
+            MediaItem mediaItem = MediaItem.fromUri(videoUri);
+            ProgressiveMediaSource.Factory f = new ProgressiveMediaSource.Factory(() -> torrentDataSource);
+            exoPlayer.setMediaSource(f.createMediaSource(mediaItem));
             exoPlayer.prepare();
             exoPlayer.setPlayWhenReady(true);
-            
-            debug("✅ prepare() chamado");
+            debug("✅ prepare()");
         });
     }
     
