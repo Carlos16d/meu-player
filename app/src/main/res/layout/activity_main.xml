@@ -38,8 +38,7 @@
         android:layout_weight="15"
         android:orientation="vertical"
         android:background="#1a1a2e"
-        android:padding="4dp"
-        android:layout_marginTop="2dp">
+        android:padding="4dp">
         
         <TextView
             android:id="@+id/status_text"
@@ -47,8 +46,7 @@
             android:layout_height="wrap_content"
             android:text="Pronto"
             android:textColor="#fff"
-            android:textSize="11sp"
-            android:layout_marginBottom="2dp" />
+            android:textSize="11sp" />
         
         <ProgressBar
             android:id="@+id/buffer_bar"
@@ -73,7 +71,6 @@
                 android:background="@drawable/input_bg"
                 android:hint="Magnet link..."
                 android:textColorHint="#667788"
-                android:inputType="textMultiLine"
                 android:padding="6dp"
                 android:textColor="#fff"
                 android:textSize="10sp" />
@@ -86,7 +83,6 @@
                 android:background="@drawable/btn_primary"
                 android:text="GO"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="11sp" />
             
             <Button
@@ -114,7 +110,6 @@
                 android:background="@drawable/btn_success"
                 android:text="▶ ASSISTIR"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="11sp"
                 android:visibility="gone" />
             
@@ -127,7 +122,6 @@
                 android:background="@drawable/btn_danger"
                 android:text="⏹ PARAR"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="11sp"
                 android:visibility="gone" />
         </LinearLayout>
