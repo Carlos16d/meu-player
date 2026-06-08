@@ -39,7 +39,6 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private long lastSeekTime = 0;
     private long videoStartTime = 0;
-    private Set<Integer> downloadedPieces = new HashSet<>();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     private StringBuilder debugLog = new StringBuilder();
 
@@ -169,7 +168,7 @@ public class MainActivity extends AppCompatActivity {
                 int read = raf.read(data);
                 if (read > 0) out.write(data, 0, read);
                 raf.close(); out.flush(); client.close();
-                if (videoStartTime == 0) { videoStartTime = System.currentTimeMillis(); }
+                if (videoStartTime == 0) videoStartTime = System.currentTimeMillis();
                 return;
             }
             
@@ -261,8 +260,7 @@ public class MainActivity extends AppCompatActivity {
                     int np = info.numPieces(), pl = info.pieceLength();
                     debug("📊 " + (info.totalSize()/1048576) + "MB, " + np + " peças de " + (pl/1024) + "KB");
                     
-                    // 30 peças de metadados = ~30MB (áudio, legendas, índice)
-                    int metaPieces = Math.min(30, np);
+                    int metaPieces = Math.min(100, np);
                     debug("📋 Metadados: " + metaPieces + " peças (~" + (metaPieces*pl/1048576) + "MB)");
                     
                     for (int i = 0; i < metaPieces; i++) {
@@ -272,36 +270,78 @@ public class MainActivity extends AppCompatActivity {
                         try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE); } catch (Exception e) {}
                     }
                     
+                    int minForButton = Math.min(15, metaPieces);
                     int complete = 0, wt = 0;
-                    while (complete < metaPieces && wt < 120 && downloading) {
+                    boolean buttonShown = false;
+                    
+                    while (wt < 300 && downloading) {
                         Thread.sleep(500); complete = 0; wt++;
                         for (int i = 0; i < metaPieces; i++) if (torrentHandle.havePiece(i)) complete++;
+                        
                         if (wt % 4 == 0) debug("   📋 " + complete + "/" + metaPieces + " (" + (wt/2) + "s)");
-                    }
-                    
-                    if (complete >= metaPieces) {
-                        debug("✅ Metadados OK! 🎵Áudio 📝Legendas 📊Índice (" + (metaPieces*pl/1048576) + "MB)");
-                    }
-                    
-                    // Ativa o resto
-                    for (int i = metaPieces; i < np; i++) {
-                        try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.DEFAULT); } catch (Exception e) {}
-                    }
-                }
-                
-                for (int i = 0; i < 120 && downloading; i++) {
-                    File f = find(new File(savePath));
-                    if (f != null && f.length() > 1048576) {
-                        byte[] hdr = new byte[8];
-                        try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; }
-                        if ((hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
-                            ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3)) {
-                            videoFile = f;
-                            handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); });
+                        
+                        if (!buttonShown && complete >= minForButton) {
+                            buttonShown = true;
+                            debug("🔓 Botão liberado! " + complete + "/" + metaPieces + " peças");
+                            for (int i = 0; i < 30; i++) {
+                                File f = find(new File(savePath));
+                                if (f != null && f.length() > 1048576) {
+                                    byte[] hdr = new byte[8];
+                                    try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; }
+                                    if ((hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
+                                        ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3)) {
+                                        videoFile = f;
+                                        handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); });
+                                        break;
+                                    }
+                                }
+                                Thread.sleep(500);
+                            }
+                        }
+                        
+                        if (complete >= metaPieces) {
+                            debug("✅ Metadados 100%! (" + (metaPieces*pl/1048576) + "MB)");
+                            
+                            // ANÁLISE DOS METADADOS
+                            if (videoFile != null && videoFile.exists()) {
+                                debug("══════════════════════════════════");
+                                debug("📊 ANÁLISE DOS METADADOS:");
+                                debug("   Tamanho: " + (videoFile.length()/1048576) + "MB");
+                                debug("   Peças: " + complete + "/" + metaPieces);
+                                
+                                try {
+                                    byte[] header = new byte[8192];
+                                    RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
+                                    raf.read(header); raf.close();
+                                    String hs = new String(header, 0, Math.min(500, header.length));
+                                    
+                                    if (header[0]==0x1A && header[1]==0x45 && header[2]==(byte)0xDF && header[3]==(byte)0xA3)
+                                        debug("   📦 Container: MKV/WebM");
+                                    else if (header[4]=='f' && header[5]=='t' && header[6]=='y' && header[7]=='p')
+                                        debug("   📦 Container: MP4");
+                                    
+                                    String lh = hs.toLowerCase();
+                                    if (lh.contains("hvc1") || lh.contains("hev1")) debug("   🎬 Codec: HEVC/H.265");
+                                    else if (lh.contains("avc1")) debug("   🎬 Codec: H.264");
+                                    
+                                    int ac = 0, sc = 0, idx = 0;
+                                    while ((idx = lh.indexOf("audio", idx)) != -1) { ac++; idx += 5; }
+                                    idx = 0;
+                                    while ((idx = lh.indexOf("subtitle", idx)) != -1) { sc++; idx += 8; }
+                                    
+                                    debug("   🎵 Áudio: ~" + Math.max(1, ac/3) + " faixas");
+                                    debug("   📝 Legendas: ~" + Math.max(0, sc/3) + " faixas");
+                                    debug("   📊 Índice seek: " + (lh.contains("seek") || lh.contains("cue") ? "✅" : "⚠️"));
+                                    debug("══════════════════════════════════");
+                                } catch (Exception e) {}
+                            }
                             break;
                         }
                     }
-                    Thread.sleep(1000);
+                    
+                    for (int i = metaPieces; i < np; i++) {
+                        try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.DEFAULT); } catch (Exception e) {}
+                    }
                 }
             } catch (Exception e2) { debug("❌ " + e2.getMessage()); downloading = false; }
         }).start();
