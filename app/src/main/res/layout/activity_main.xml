@@ -6,7 +6,6 @@
     android:background="#0a0a1a"
     android:padding="6dp">
     
-    <!-- Player com controles sobrepostos -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -20,65 +19,134 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
         
-        <!-- Controles do player -->
+        <!-- Controles centrais (Play/Pause grande) -->
+        <LinearLayout
+            android:id="@+id/center_controls"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:visibility="gone">
+            
+            <Button
+                android:id="@+id/btn_seek_back"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@android:color/transparent"
+                android:text="⏪"
+                android:textColor="#fff"
+                android:textSize="22sp" />
+            
+            <Button
+                android:id="@+id/btn_play_pause"
+                android:layout_width="64dp"
+                android:layout_height="64dp"
+                android:layout_marginStart="16dp"
+                android:layout_marginEnd="16dp"
+                android:background="@drawable/btn_primary"
+                android:text="⏸"
+                android:textColor="#fff"
+                android:textSize="28sp" />
+            
+            <Button
+                android:id="@+id/btn_seek_forward"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@android:color/transparent"
+                android:text="⏩"
+                android:textColor="#fff"
+                android:textSize="22sp" />
+        </LinearLayout>
+        
+        <!-- Barra inferior -->
         <LinearLayout
             android:id="@+id/player_controls"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom"
-            android:orientation="horizontal"
-            android:gravity="center"
+            android:orientation="vertical"
             android:background="#80000000"
-            android:padding="6dp"
+            android:padding="8dp"
             android:visibility="gone">
             
-            <Button
-                android:id="@+id/btn_seek_back"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@android:color/transparent"
-                android:text="⏪"
-                android:textColor="#fff"
-                android:textSize="16sp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+                
+                <TextView
+                    android:id="@+id/time_text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="0:00 / 0:00"
+                    android:textColor="#fff"
+                    android:textSize="10sp"
+                    android:layout_marginEnd="8dp" />
+                
+                <SeekBar
+                    android:id="@+id/seek_bar"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:progressTint="#6c5ce7"
+                    android:thumbTint="#fff"
+                    android:progressBackgroundTint="#33FFFFFF" />
+            </LinearLayout>
             
-            <Button
-                android:id="@+id/btn_pause"
-                android:layout_width="44dp"
-                android:layout_height="36dp"
-                android:background="@android:color/transparent"
-                android:text="⏸"
-                android:textColor="#fff"
-                android:textSize="20sp" />
-            
-            <Button
-                android:id="@+id/btn_seek_forward"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@android:color/transparent"
-                android:text="⏩"
-                android:textColor="#fff"
-                android:textSize="16sp" />
-            
-            <View android:layout_width="16dp" android:layout_height="1dp" />
-            
-            <Button
-                android:id="@+id/btn_audio"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@android:color/transparent"
-                android:text="🎵"
-                android:textColor="#fff"
-                android:textSize="14sp" />
-            
-            <Button
-                android:id="@+id/btn_subtitle"
-                android:layout_width="36dp"
-                android:layout_height="36dp"
-                android:background="@android:color/transparent"
-                android:text="📝"
-                android:textColor="#fff"
-                android:textSize="14sp" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center"
+                android:layout_marginTop="4dp">
+                
+                <Button
+                    android:id="@+id/btn_audio"
+                    android:layout_width="0dp"
+                    android:layout_height="30dp"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:text="🎵 Áudio"
+                    android:textColor="#fff"
+                    android:textSize="11sp" />
+                
+                <Button
+                    android:id="@+id/btn_subtitle"
+                    android:layout_width="0dp"
+                    android:layout_height="30dp"
+                    android:layout_weight="1"
+                    android:background="@android:color/transparent"
+                    android:text="📝 Legenda"
+                    android:textColor="#fff"
+                    android:textSize="11sp" />
+            </LinearLayout>
         </LinearLayout>
+        
+        <!-- Menu de áudio -->
+        <LinearLayout
+            android:id="@+id/audio_menu"
+            android:layout_width="180dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginBottom="80dp"
+            android:layout_marginEnd="8dp"
+            android:orientation="vertical"
+            android:background="#E0000000"
+            android:visibility="gone" />
+        
+        <!-- Menu de legenda -->
+        <LinearLayout
+            android:id="@+id/subtitle_menu"
+            android:layout_width="180dp"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|end"
+            android:layout_marginBottom="80dp"
+            android:layout_marginEnd="8dp"
+            android:orientation="vertical"
+            android:background="#E0000000"
+            android:visibility="gone" />
         
         <ProgressBar
             android:id="@+id/spinner_bar"
@@ -89,7 +157,6 @@
             android:visibility="gone" />
     </FrameLayout>
     
-    <!-- Controles do app -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -191,7 +258,6 @@
         </LinearLayout>
     </LinearLayout>
     
-    <!-- Logs -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
