@@ -6,40 +6,46 @@
     android:background="#0a0a1a"
     android:padding="6dp">
     
-    <!-- Player 20% -->
-    <FrameLayout
+    <!-- Player com aspect ratio 16:9 -->
+    <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="20"
-        android:layout_marginBottom="4dp"
-        android:background="@drawable/glass_bg"
-        android:elevation="4dp">
+        android:layout_weight="25"
+        android:layout_marginBottom="4dp">
         
         <SurfaceView
             android:id="@+id/video_surface"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone" />
+            android:layout_width="0dp"
+            android:layout_height="0dp"
+            android:visibility="gone"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintDimensionRatio="16:9" />
         
         <ProgressBar
             android:id="@+id/spinner_bar"
             android:layout_width="24dp"
             android:layout_height="24dp"
-            android:layout_gravity="center"
             android:indeterminateTint="#6c5ce7"
-            android:visibility="gone" />
-    </FrameLayout>
+            android:visibility="gone"
+            app:layout_constraintTop_toTopOf="parent"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintStart_toStartOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
+            
+    </androidx.constraintlayout.widget.ConstraintLayout>
     
-    <!-- Controles 22% -->
+    <!-- Controles -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="22"
+        android:layout_weight="20"
         android:orientation="vertical"
         android:background="@drawable/glass_bg"
         android:padding="8dp"
-        android:layout_marginBottom="4dp"
-        android:elevation="4dp">
+        android:layout_marginBottom="4dp">
         
         <TextView
             android:id="@+id/status_text"
@@ -105,8 +111,7 @@
             android:layout_width="match_parent"
             android:layout_height="36dp"
             android:orientation="horizontal"
-            android:layout_marginTop="6dp"
-            android:gravity="center_vertical">
+            android:layout_marginTop="6dp">
             
             <Button
                 android:id="@+id/btn_watch"
@@ -135,13 +140,12 @@
         </LinearLayout>
     </LinearLayout>
     
-    <!-- Logs 58% -->
+    <!-- Logs -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="58"
-        android:background="@drawable/glass_bg"
-        android:elevation="4dp">
+        android:layout_weight="55"
+        android:background="@drawable/glass_bg">
         
         <TextView
             android:id="@+id/debug_text"
