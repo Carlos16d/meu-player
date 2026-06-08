@@ -289,7 +289,7 @@ public class MainActivity extends AppCompatActivity {
             try {
                 add_torrent_params p; if (source.startsWith("magnet:")) p = libtorrent.parse_magnet_uri(source, new error_code()); else p = add_torrent_params.load_torrent_file(source, new error_code());
                 p.setSave_path(savePath); p.setFlags(torrent_flags_t.from_int(9)); p.setDownload_limit(3*1024*1024);
-                byte_vector pr = new byte_vector(); pr.add((byte)7); p.set_file_priorities(pr);
+                byte_vector pr = new byte_vector(); pr.add((byte)7); p.setFile_priorities(pr);
                 session.swig().async_add_torrent(p); Thread.sleep(3000);
                 torrent_handle_vector h = session.swig().get_torrents(); if (h.size() > 0) torrentHandle = new TorrentHandle(h.get(0));
                 
@@ -318,7 +318,7 @@ public class MainActivity extends AppCompatActivity {
                         while (downloading && videoFile != null) {
                             try { Thread.sleep(5000);
                                 if (torrentHandle != null && torrentHandle.isValid()) {
-                                    long dl = torrentHandle.status().getTotal_done();
+                                    long dl = torrentHandle.swig().status().getTotal_done();
                                     if (dl - lastDownloadLog > 10485760) { lastDownloadLog = dl; debug("📥 Download: " + (dl/1048576) + "MB / " + (totalSize/1048576) + "MB (" + (dl*100/totalSize) + "%)"); }
                                 }
                             } catch (Exception e) {}
