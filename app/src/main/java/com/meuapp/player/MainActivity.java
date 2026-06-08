@@ -13,11 +13,12 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.Player;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.source.ProgressiveMediaSource;
-import androidx.media3.datasource.DefaultHttpDataSource;
+import androidx.media3.datasource.DataSource;
 import androidx.media3.ui.PlayerView;
 
 import com.meuapp.player.engine.TorrentEngine;
 import com.meuapp.player.server.StreamServer;
+import com.meuapp.player.server.TorrentDataSource;
 import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.swig.torrent_handle;
@@ -37,6 +38,7 @@ public class MainActivity extends AppCompatActivity {
     private String savePath;
     private TorrentEngine torrentEngine;
     private StreamServer streamServer;
+    private TorrentDataSource torrentDataSource;
     private volatile File videoFile;
     private Handler handler;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
@@ -63,6 +65,9 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
+        // TorrentDataSource customizado
+        torrentDataSource = new TorrentDataSource();
+        
         exoPlayer = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
         playerView.setUseController(true);
@@ -71,31 +76,23 @@ public class MainActivity extends AppCompatActivity {
         exoPlayer.addListener(new Player.Listener() {
             @Override
             public void onPlaybackStateChanged(int state) {
-                String s;
-                switch (state) {
-                    case Player.STATE_IDLE: s = "IDLE"; break;
-                    case Player.STATE_BUFFERING: s = "BUFFERING"; break;
-                    case Player.STATE_READY: s = "READY"; break;
-                    case Player.STATE_ENDED: s = "ENDED"; break;
-                    default: s = "STATE_" + state; break;
-                }
+                String s = state == Player.STATE_BUFFERING ? "BUFFERING" : 
+                          state == Player.STATE_READY ? "READY" : 
+                          state == Player.STATE_ENDED ? "ENDED" : "IDLE";
                 debug("[EXO] " + s);
                 handler.post(() -> spinnerBar.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE));
-                
                 if (state == Player.STATE_READY) {
                     debug("[EXO] ✅ READY! Duration: " + exoPlayer.getDuration() + "ms");
                 }
             }
-            
             @Override
             public void onPlayerError(androidx.media3.common.PlaybackException error) {
-                debug("[EXO] ❌ ERRO: " + error.getErrorCodeName());
-                debug("[EXO]   Msg: " + error.getMessage());
-                debug("[EXO]   Code: " + error.errorCode);
+                debug("[EXO] ❌ " + error.getErrorCodeName() + ": " + error.getMessage());
             }
         });
         
-        debug("=== TORRENT STREAM EXOPLAYER v2 ===");
+        debug("=== TORRENT STREAM EXOPLAYER CUSTOM ===");
+        debug("TorrentDataSource integrado!");
         
         streamServer = new StreamServer();
         try { streamServer.start(); debug("[SRV] ✅ HTTP:8080"); } 
@@ -109,7 +106,14 @@ public class MainActivity extends AppCompatActivity {
             }
             public void onStreamReady(torrent_handle handle, String sp) {
                 File vf = findVideoFile(new File(sp));
-                if (vf != null) { videoFile = vf; streamServer.setVideoFile(vf); streamServer.setTorrentInfo(handle); debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)"); }
+                if (vf != null) { 
+                    videoFile = vf; 
+                    streamServer.setVideoFile(vf); 
+                    streamServer.setTorrentInfo(handle);
+                    torrentDataSource.setTorrentHandle(handle);
+                    torrentDataSource.setVideoFile(vf);
+                    debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)"); 
+                }
                 debug("[ENG] ✅ STREAM READY");
                 handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnWatch.setVisibility(View.VISIBLE); });
             }
@@ -151,67 +155,8 @@ public class MainActivity extends AppCompatActivity {
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Video nao encontrado"); return; }
         
-        debug("══════════════════════════════════");
-        debug("▶️ INICIANDO EXOPLAYER");
-        debug("   Arquivo: " + videoFile.getAbsolutePath());
-        debug("   Tamanho: " + (videoFile.length()/1048576) + "MB");
-        debug("   URL: http://127.0.0.1:8080/video");
-        debug("   Server: " + streamServer.getStats());
-        
-        // TESTE DE CONEXÃO DETALHADO
-        new Thread(() -> {
-            // Teste 1: Socket
-            try {
-                java.net.Socket s = new java.net.Socket("127.0.0.1", 8080);
-                debug("   ✅ Teste Socket: OK");
-                s.close();
-            } catch (Exception e) {
-                debug("   ❌ Teste Socket FALHOU: " + e.getMessage());
-            }
-            
-            // Teste 2: HTTP
-            try {
-                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) 
-                    new java.net.URL("http://127.0.0.1:8080/video").openConnection();
-                conn.setRequestMethod("GET");
-                conn.setRequestProperty("Range", "bytes=0-1023");
-                conn.setConnectTimeout(5000);
-                conn.setReadTimeout(5000);
-                conn.connect();
-                int code = conn.getResponseCode();
-                String type = conn.getContentType();
-                long len = conn.getContentLength();
-                String range = conn.getHeaderField("Content-Range");
-                debug("   ✅ Teste HTTP: " + code + " Type:" + type + " Len:" + len);
-                debug("   Content-Range: " + range);
-                
-                InputStream is = conn.getInputStream();
-                byte[] buf = new byte[1024];
-                int read = is.read(buf);
-                is.close();
-                debug("   Bytes lidos: " + read);
-                if (read > 4) {
-                    debug("   Magic: " + String.format("0x%02X 0x%02X 0x%02X 0x%02X", 
-                        buf[0] & 0xFF, buf[1] & 0xFF, buf[2] & 0xFF, buf[3] & 0xFF));
-                }
-                conn.disconnect();
-            } catch (Exception e) {
-                debug("   ❌ Teste HTTP FALHOU: " + e.getClass().getSimpleName() + " - " + e.getMessage());
-            }
-            
-            // Teste 3: Acesso direto ao arquivo
-            try {
-                RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                byte[] buf = new byte[1024];
-                raf.read(buf);
-                raf.close();
-                debug("   ✅ Acesso direto ao arquivo: OK");
-            } catch (Exception e) {
-                debug("   ❌ Acesso direto FALHOU: " + e.getMessage());
-            }
-        }).start();
-        
-        debug("══════════════════════════════════");
+        debug("▶️ EXOPLAYER CUSTOM: TorrentDataSource");
+        debug("   Arquivo: " + (videoFile.length()/1048576) + "MB");
         
         handler.post(() -> {
             playerView.setVisibility(View.VISIBLE); 
@@ -221,16 +166,15 @@ public class MainActivity extends AppCompatActivity {
             Uri videoUri = Uri.parse("http://127.0.0.1:8080/video");
             MediaItem mediaItem = MediaItem.fromUri(videoUri);
             
-            DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15000).setReadTimeoutMs(60000).setAllowCrossProtocolRedirects(true);
-            
-            ProgressiveMediaSource.Factory mediaSourceFactory = new ProgressiveMediaSource.Factory(dataSourceFactory);
+            // Usa ProgressiveMediaSource com DataSource customizado
+            ProgressiveMediaSource.Factory mediaSourceFactory = 
+                new ProgressiveMediaSource.Factory(() -> torrentDataSource);
             
             exoPlayer.setMediaSource(mediaSourceFactory.createMediaSource(mediaItem));
             exoPlayer.prepare();
             exoPlayer.setPlayWhenReady(true);
             
-            debug("✅ prepare() chamado");
+            debug("✅ prepare() com TorrentDataSource");
         });
     }
     
