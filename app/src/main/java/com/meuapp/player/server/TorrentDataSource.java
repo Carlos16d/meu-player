@@ -1,5 +1,6 @@
 package com.meuapp.player.server;
 
+import android.net.Uri;
 import android.util.Log;
 
 import androidx.media3.datasource.DataSource;
@@ -18,6 +19,7 @@ public class TorrentDataSource implements DataSource {
     private DataSpec dataSpec;
     private long bytesRemaining;
     private boolean opened;
+    private Uri uri;
     
     public TorrentDataSource() {}
     
@@ -36,19 +38,20 @@ public class TorrentDataSource implements DataSource {
     public long open(DataSpec dataSpec) throws IOException {
         this.dataSpec = dataSpec;
         this.opened = true;
+        this.uri = dataSpec.uri;
         
         long position = dataSpec.position;
         long length = dataSpec.length;
         
-        if (length == DataSpec.LENGTH_UNSET) {
+        if (length == -1) { // C.LENGTH_UNSET = -1
             length = videoFile != null ? videoFile.length() - position : 0;
         }
         
         this.bytesRemaining = length;
         
-        Log.d(TAG, "open() position=" + position + " length=" + length + " fileSize=" + (videoFile != null ? videoFile.length() : 0));
+        Log.d(TAG, "open() pos=" + position + " len=" + length);
         
-        // Força prioridade nas peças necessárias
+        // Força prioridade
         if (torrentHandle != null && torrentHandle.is_valid() && position > 0) {
             try {
                 torrent_info ti = torrentHandle.torrent_file_ptr();
@@ -56,24 +59,18 @@ public class TorrentDataSource implements DataSource {
                     int pieceLength = ti.piece_length();
                     int numPieces = ti.num_pieces();
                     int targetPiece = (int)(position / pieceLength);
-                    int rangeStart = Math.max(0, targetPiece - 5);
-                    int rangeEnd = Math.min(numPieces, targetPiece + 60);
+                    int rs = Math.max(0, targetPiece - 5);
+                    int re = Math.min(numPieces, targetPiece + 60);
                     
-                    torrentHandle.set_sequential_range(rangeStart, rangeEnd);
-                    
-                    for (int i = 0; i < numPieces; i++) {
-                        torrentHandle.piece_priority_ex(i, (byte)0);
-                    }
-                    for (int i = rangeStart; i < rangeEnd; i++) {
+                    torrentHandle.set_sequential_range(rs, re);
+                    for (int i = 0; i < numPieces; i++) torrentHandle.piece_priority_ex(i, (byte)0);
+                    for (int i = rs; i < re; i++) {
                         torrentHandle.piece_priority_ex(i, (byte)7);
                         torrentHandle.set_piece_deadline(i, 500);
                     }
-                    
-                    Log.d(TAG, "🔥 Prioridade: peças " + rangeStart + "-" + rangeEnd + " (pos " + (position/1048576) + "MB)");
+                    Log.d(TAG, "🔥 Peças " + rs + "-" + re);
                 }
-            } catch (Exception e) {
-                Log.e(TAG, "Erro prioridade: " + e.getMessage());
-            }
+            } catch (Exception e) {}
         }
         
         return length;
@@ -82,26 +79,20 @@ public class TorrentDataSource implements DataSource {
     @Override
     public int read(byte[] buffer, int offset, int length) throws IOException {
         if (!opened || videoFile == null || !videoFile.exists()) {
-            return DataSource.RESULT_END_OF_INPUT;
+            return -1; // C.RESULT_END_OF_INPUT
         }
         
         long position = dataSpec.position + (dataSpec.length - bytesRemaining);
         
-        // Aguarda dados se necessário
+        // Aguarda dados
         int retries = 0;
         while (videoFile.length() <= position && retries < 20) {
-            try {
-                Thread.sleep(200);
-                retries++;
-            } catch (InterruptedException e) {
-                break;
-            }
+            try { Thread.sleep(200); retries++; } 
+            catch (InterruptedException e) { break; }
         }
         
         int bytesToRead = (int) Math.min(length, Math.min(bytesRemaining, videoFile.length() - position));
-        if (bytesToRead <= 0) {
-            return DataSource.RESULT_END_OF_INPUT;
-        }
+        if (bytesToRead <= 0) return -1;
         
         try {
             RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
@@ -109,26 +100,21 @@ public class TorrentDataSource implements DataSource {
             int bytesRead = raf.read(buffer, offset, bytesToRead);
             raf.close();
             
-            if (bytesRead > 0) {
-                bytesRemaining -= bytesRead;
-            }
+            if (bytesRead > 0) bytesRemaining -= bytesRead;
             
-            if (bytesRead > 0 && position < 1048576) {
-                Log.d(TAG, "read() pos=" + position + " bytes=" + bytesRead + " remaining=" + bytesRemaining);
+            if (position < 1048576) {
+                Log.d(TAG, "read() pos=" + position + " bytes=" + bytesRead);
             }
             
             return bytesRead;
-            
         } catch (Exception e) {
             Log.e(TAG, "Erro read: " + e.getMessage());
-            return DataSource.RESULT_END_OF_INPUT;
+            return -1;
         }
     }
     
     @Override
-    public Uri getUri() {
-        return dataSpec != null ? dataSpec.uri : null;
-    }
+    public Uri getUri() { return uri; }
     
     @Override
     public void close() throws IOException {
