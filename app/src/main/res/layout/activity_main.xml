@@ -3,14 +3,17 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#0a0a0f"
-    android:padding="6dp">
+    android:background="#0a0a1a"
+    android:padding="8dp">
     
+    <!-- Player -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="45"
-        android:background="#000000">
+        android:layout_marginBottom="8dp"
+        android:background="@drawable/glass_bg"
+        android:elevation="8dp">
         
         <SurfaceView
             android:id="@+id/video_surface"
@@ -27,107 +30,132 @@
             android:visibility="gone" />
     </FrameLayout>
     
+    <!-- Painel de controle Glass -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="15"
         android:orientation="vertical"
-        android:background="#1a1a2e"
-        android:padding="4dp">
+        android:background="@drawable/glass_bg"
+        android:padding="12dp"
+        android:layout_marginBottom="8dp"
+        android:elevation="8dp">
         
         <TextView
             android:id="@+id/status_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Pronto"
-            android:textColor="#fff"
-            android:textSize="11sp" />
+            android:text="🎬 Torrent Stream"
+            android:textColor="#FFFFFF"
+            android:textSize="14sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.5"
+            android:layout_marginBottom="4dp" />
         
         <ProgressBar
             android:id="@+id/buffer_bar"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="3dp"
+            android:layout_height="2dp"
             android:progressTint="#6c5ce7"
-            android:progressBackgroundTint="#33ffffff"
-            android:visibility="gone" />
+            android:progressBackgroundTint="#33FFFFFF"
+            android:visibility="gone"
+            android:layout_marginBottom="8dp" />
         
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:layout_marginTop="4dp">
+            android:orientation="horizontal">
             
             <EditText
                 android:id="@+id/magnet_input"
                 android:layout_width="0dp"
-                android:layout_height="36dp"
+                android:layout_height="40dp"
                 android:layout_weight="1"
                 android:background="@drawable/input_bg"
-                android:hint="Magnet link..."
-                android:textColorHint="#667788"
-                android:padding="6dp"
-                android:textColor="#fff"
-                android:textSize="10sp" />
+                android:hint="Colar magnet link..."
+                android:textColorHint="#80FFFFFF"
+                android:inputType="textMultiLine"
+                android:padding="10dp"
+                android:textColor="#FFFFFF"
+                android:textSize="11sp" />
             
             <Button
                 android:id="@+id/btn_play"
-                android:layout_width="40dp"
-                android:layout_height="36dp"
-                android:layout_marginStart="2dp"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
                 android:text="GO"
                 android:textColor="#fff"
-                android:textSize="11sp" />
+                android:textStyle="bold"
+                android:textSize="11sp"
+                android:elevation="4dp" />
+            
+            <Button
+                android:id="@+id/btn_torrent"
+                android:layout_width="44dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="4dp"
+                android:background="@drawable/btn_primary"
+                android:text="📁"
+                android:textColor="#fff"
+                android:textSize="16sp"
+                android:elevation="4dp" />
         </LinearLayout>
         
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="4dp">
+            android:layout_marginTop="8dp">
             
             <Button
                 android:id="@+id/btn_watch"
                 android:layout_width="0dp"
-                android:layout_height="34dp"
+                android:layout_height="38dp"
                 android:layout_weight="1"
                 android:background="@drawable/btn_success"
                 android:text="▶ ASSISTIR"
                 android:textColor="#fff"
-                android:textSize="11sp"
-                android:visibility="gone" />
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:elevation="4dp" />
             
             <Button
                 android:id="@+id/btn_stop"
                 android:layout_width="0dp"
-                android:layout_height="34dp"
+                android:layout_height="38dp"
                 android:layout_weight="1"
-                android:layout_marginStart="4dp"
+                android:layout_marginStart="6dp"
                 android:background="@drawable/btn_danger"
                 android:text="⏹ PARAR"
                 android:textColor="#fff"
-                android:textSize="11sp"
-                android:visibility="gone" />
+                android:textStyle="bold"
+                android:textSize="12sp"
+                android:visibility="gone"
+                android:elevation="4dp" />
         </LinearLayout>
     </LinearLayout>
     
+    <!-- Logs Glass -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="40"
-        android:background="#0d0d1a"
-        android:layout_marginTop="2dp">
+        android:background="@drawable/glass_bg"
+        android:elevation="8dp">
         
         <TextView
             android:id="@+id/debug_text"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Logs:"
-            android:textColor="#00ff00"
-            android:textSize="9sp"
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp"
             android:fontFamily="monospace"
-            android:padding="4dp" />
+            android:padding="8dp" />
     </ScrollView>
     
 </LinearLayout>
