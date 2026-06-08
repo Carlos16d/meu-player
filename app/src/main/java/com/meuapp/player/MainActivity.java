@@ -6,12 +6,11 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
 import android.view.ViewGroup;
+import android.webkit.WebChromeClient;
+import android.webkit.WebView;
+import android.webkit.WebViewClient;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
-import androidx.media3.common.MediaItem;
-import androidx.media3.common.Player;
-import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.ui.PlayerView;
 
 import org.libtorrent4j.SessionManager;
 import org.libtorrent4j.TorrentHandle;
@@ -24,14 +23,11 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    private PlayerView playerView;
-    private ExoPlayer player;
-    private TextView statusText, logText;
+    private WebView webView;
+    private TextView statusText, debugText;
     private ProgressBar bufferBar, spinnerBar;
-    private FrameLayout loadingOverlay;
     private EditText magnetInput;
-    private Button btnPlay, btnStop, btnWatch, btnTorrent;
-    private ScrollView logScroll;
+    private Button btnPlay, btnStop, btnWatch;
     
     private String savePath;
     private SessionManager session;
@@ -42,101 +38,66 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private int pieceLength;
     private int numPieces;
-    private StringBuilder fullLog = new StringBuilder();
-    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss.SSS");
+    private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
+    private StringBuilder debugLog = new StringBuilder();
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        playerView = findViewById(R.id.player_view);
+        webView = findViewById(R.id.webview);
         statusText = findViewById(R.id.status_text);
-        logText = findViewById(R.id.debug_text);
-        logScroll = findViewById(R.id.log_scroll);
+        debugText = findViewById(R.id.debug_text);
         bufferBar = findViewById(R.id.buffer_bar);
         spinnerBar = findViewById(R.id.spinner_bar);
-        loadingOverlay = findViewById(R.id.loading_overlay);
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
-        btnTorrent = findViewById(R.id.btn_torrent);
         
-        playerView.post(() -> {
-            int width = (int)(getResources().getDisplayMetrics().widthPixels * 0.92);
-            int height = (int)(width * 9.0 / 16.0);
-            ViewGroup.LayoutParams p = playerView.getLayoutParams();
-            p.width = width; p.height = height;
-            playerView.setLayoutParams(p);
+        webView.post(() -> {
+            int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
+            int h = (int)(w * 9.0 / 16.0);
+            ViewGroup.LayoutParams p = webView.getLayoutParams();
+            p.width = w; p.height = h;
+            webView.setLayoutParams(p);
         });
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        player = new ExoPlayer.Builder(this).build();
-        playerView.setPlayer(player);
-        playerView.setVisibility(View.GONE);
+        webView.getSettings().setJavaScriptEnabled(true);
+        webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
+        webView.getSettings().setAllowFileAccess(true);
+        webView.getSettings().setDomStorageEnabled(true);
+        webView.setWebChromeClient(new WebChromeClient());
+        webView.setWebViewClient(new WebViewClient());
+        webView.setVisibility(View.GONE);
         
-        player.addListener(new Player.Listener() {
-            @Override public void onPlaybackStateChanged(int state) {
-                if (state == Player.STATE_READY) {
-                    loadingOverlay.setVisibility(View.GONE);
-                    spinnerBar.setVisibility(View.GONE);
-                } else if (state == Player.STATE_BUFFERING) {
-                    loadingOverlay.setVisibility(View.VISIBLE);
-                    spinnerBar.setVisibility(View.VISIBLE);
-                }
-            }
-            @Override public void onPlayerError(androidx.media3.common.PlaybackException error) {
-                log("❌ " + error.getErrorCodeName() + ": " + error.getMessage());
-            }
-        });
+        debug("=== TORRENT STREAM PRO ===");
         
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); log("✅ Sessão OK"); } 
-            catch (Exception e) { log("❌ " + e.getMessage()); }
+            try { session = new SessionManager(); session.start(); debug("✅ OK"); } 
+            catch (Exception e) { debug("❌ " + e.getMessage()); }
         }).start();
         
         startServer();
         
         btnPlay.setOnClickListener(v -> start());
-        btnTorrent.setOnClickListener(v -> {
-            android.content.Intent i = new android.content.Intent(android.content.Intent.ACTION_OPEN_DOCUMENT);
-            i.addCategory(android.content.Intent.CATEGORY_OPENABLE);
-            i.setType("*/*");
-            startActivityForResult(i, 100);
-        });
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         
-        log("📱 Pronto");
+        debug("📱 Pronto");
     }
     
-    @Override protected void onActivityResult(int r, int res, android.content.Intent data) {
-        super.onActivityResult(r, res, data);
-        if (r == 100 && res == RESULT_OK && data != null) {
-            android.net.Uri uri = data.getData();
-            if (uri != null) try {
-                InputStream is = getContentResolver().openInputStream(uri);
-                File tf = new File(savePath, "torrent_file.torrent");
-                FileOutputStream fos = new FileOutputStream(tf);
-                byte[] b = new byte[8192]; int l;
-                while ((l = is.read(b)) > 0) fos.write(b, 0, l);
-                fos.close(); is.close();
-                startDownload(tf.getAbsolutePath());
-            } catch (Exception e) { log("❌ " + e.getMessage()); }
-        }
-    }
-    
-    private void log(String msg) {
+    private void debug(String msg) {
         String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
-        fullLog.append(line);
+        debugLog.append(line);
         handler.post(() -> {
             statusText.setText(msg);
-            logText.setText(fullLog.toString());
-            logScroll.post(() -> logScroll.fullScroll(View.FOCUS_DOWN));
+            debugText.setText(debugLog.toString());
         });
     }
     
@@ -145,18 +106,17 @@ public class MainActivity extends AppCompatActivity {
             try {
                 ServerSocket server = new ServerSocket(8080, 5);
                 server.setReuseAddress(true);
-                log("🌐 HTTP:8080");
                 while (!Thread.interrupted()) {
-                    try { Socket client = server.accept(); handleHttpClient(client); } catch (IOException e) {}
+                    try { Socket client = server.accept(); handleHttp(client); } catch (IOException e) {}
                 }
                 server.close();
-            } catch (IOException e) { log("❌ " + e.getMessage()); }
+            } catch (IOException e) {}
         });
         serverThread.setDaemon(true);
         serverThread.start();
     }
     
-    private void handleHttpClient(Socket client) {
+    private void handleHttp(Socket client) {
         try {
             BufferedReader in = new BufferedReader(new InputStreamReader(client.getInputStream()));
             OutputStream out = client.getOutputStream();
@@ -184,27 +144,20 @@ public class MainActivity extends AppCompatActivity {
             if (rangeEnd == -1) rangeEnd = totalLength - 1;
             long contentLength = rangeEnd - rangeStart + 1;
             
-            // 🚀 PRIORIZAÇÃO (COM TRY-CATCH PARA NÃO CRASHAR)
             try {
                 if (torrentHandle != null && torrentHandle.isValid()) {
                     TorrentInfo info = torrentHandle.torrentFile();
                     if (info != null) {
                         pieceLength = info.pieceLength();
                         numPieces = info.numPieces();
-                        
                         int startPiece = (int)(rangeStart / pieceLength);
                         int endPiece = Math.min(startPiece + 20, numPieces - 1);
-                        
-                        torrentHandle.setSequentialRange(Math.max(0, startPiece - 5), Math.min(endPiece + 40, numPieces - 1));
-                        
                         for (int i = startPiece; i <= endPiece; i++) {
                             try { torrentHandle.setPieceDeadline(i, 1000); } catch (Exception e) {}
                         }
                     }
                 }
-            } catch (Exception e) {
-                // Ignora erros de priorização - não crasha
-            }
+            } catch (Exception e) {}
             
             String mime = videoFile.getName().toLowerCase().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
             
@@ -243,10 +196,7 @@ public class MainActivity extends AppCompatActivity {
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
-        startDownload(magnet);
-    }
-    
-    private void startDownload(String source) {
+        
         downloading = true;
         videoFile = null;
         torrentHandle = null;
@@ -257,16 +207,11 @@ public class MainActivity extends AppCompatActivity {
             btnWatch.setVisibility(View.GONE);
         });
         
-        log("⏳ Conectando...");
+        debug("⏳ Baixando...");
         
         new Thread(() -> {
             try {
-                add_torrent_params p;
-                if (source.startsWith("magnet:")) {
-                    p = libtorrent.parse_magnet_uri(source, new error_code());
-                } else {
-                    p = add_torrent_params.load_torrent_file(source, new error_code());
-                }
+                add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(torrent_flags_t.from_int(9));
                 p.setDownload_limit(3 * 1024 * 1024);
@@ -278,26 +223,18 @@ public class MainActivity extends AppCompatActivity {
                 Thread.sleep(3000);
                 
                 torrent_handle_vector h = session.swig().get_torrents();
-                if (h.size() > 0) {
-                    torrentHandle = new TorrentHandle(h.get(0));
-                    log("✅ Torrent adicionado");
-                }
+                if (h.size() > 0) torrentHandle = new TorrentHandle(h.get(0));
                 
-                // Aguarda arquivo (MP4 E MKV)
                 for (int i = 0; i < 120 && downloading; i++) {
                     File f = find(new File(savePath));
                     if (f != null && f.length() > 65536) {
-                        // Verifica magic bytes
                         byte[] hdr = new byte[8];
                         try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; }
-                        
-                        boolean isMP4 = (hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p');
-                        boolean isMKV = ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3);
-                        
-                        if (isMP4 || isMKV) {
+                        if ((hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
+                            ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3)) {
                             videoFile = f;
                             long mb = f.length()/1048576;
-                            log("📁 " + f.getName() + " (" + mb + "MB) " + (isMKV ? "[MKV]" : "[MP4]"));
+                            debug("📁 " + f.getName() + " (" + mb + "MB)");
                             handler.post(() -> {
                                 btnWatch.setText("🎬 ASSISTIR (" + mb + "MB)");
                                 btnWatch.setVisibility(View.VISIBLE);
@@ -308,30 +245,205 @@ public class MainActivity extends AppCompatActivity {
                     }
                     Thread.sleep(1000);
                 }
-            } catch (Exception e2) { log("❌ " + e2.getMessage()); downloading = false; }
+            } catch (Exception e2) { debug("❌ " + e2.getMessage()); }
         }).start();
     }
     
     private void watch() {
-        if (videoFile == null || !videoFile.exists()) { log("❌ Arquivo não encontrado"); return; }
-        log("▶️ " + videoFile.getName());
-        handler.post(() -> { playerView.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); });
-        player.setMediaItem(MediaItem.fromUri("http://127.0.0.1:8080/video"));
-        player.prepare();
-        player.play();
+        if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
+        debug("▶️ " + videoFile.getName());
+        
+        handler.post(() -> { 
+            webView.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE); 
+        });
+        
+        // PLAYER PROFISSIONAL ESTILO NETFLIX
+        String html = "<!DOCTYPE html><html><head>"
+            + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no'>"
+            + "<style>"
+            + "*{margin:0;padding:0;box-sizing:border-box;}"
+            + "body{background:#000;overflow:hidden;font-family:Arial,sans-serif;}"
+            + "video{width:100%;height:100vh;display:block;}"
+            
+            // Container principal
+            + "#player-container{position:relative;width:100%;height:100vh;}"
+            
+            // Controles overlay
+            + "#controls{position:absolute;bottom:0;left:0;right:0;"
+            + "background:linear-gradient(transparent,rgba(0,0,0,0.9));"
+            + "padding:40px 16px 16px 16px;opacity:0;transition:opacity 0.3s;z-index:10;}"
+            + "#controls:hover,#controls.active{opacity:1;}"
+            
+            // Barra de progresso
+            + "#progress-bar{width:100%;height:4px;background:rgba(255,255,255,0.2);"
+            + "border-radius:2px;cursor:pointer;margin-bottom:12px;position:relative;}"
+            + "#progress-filled{height:100%;background:#6c5ce7;border-radius:2px;"
+            + "width:0%;transition:width 0.1s linear;}"
+            + "#progress-thumb{width:14px;height:14px;background:#fff;border-radius:50%;"
+            + "position:absolute;top:-5px;left:0%;transform:translateX(-50%);display:none;}"
+            + "#progress-bar:hover #progress-thumb{display:block;}"
+            
+            // Botões
+            + "#buttons-row{display:flex;align-items:center;justify-content:space-between;}"
+            + "#left-buttons,#right-buttons{display:flex;align-items:center;gap:16px;}"
+            + ".btn{background:none;border:none;color:#fff;cursor:pointer;"
+            + "font-size:20px;padding:8px;border-radius:50%;width:40px;height:40px;"
+            + "display:flex;align-items:center;justify-content:center;transition:background 0.2s;}"
+            + ".btn:hover{background:rgba(255,255,255,0.1);}"
+            + ".btn:active{background:rgba(255,255,255,0.2);}"
+            + ".btn svg{width:20px;height:20px;fill:#fff;}"
+            
+            // Tempo
+            + "#time-display{color:#fff;font-size:13px;font-weight:500;font-variant-numeric:tabular-nums;}"
+            
+            // Menu de áudio/legendas
+            + "#track-menu{position:absolute;bottom:70px;right:16px;"
+            + "background:rgba(20,20,30,0.95);border-radius:12px;padding:8px 0;"
+            + "min-width:180px;display:none;z-index:20;backdrop-filter:blur(10px);}"
+            + "#track-menu.show{display:block;}"
+            + ".track-item{color:#fff;padding:10px 16px;font-size:13px;cursor:pointer;"
+            + "display:flex;align-items:center;justify-content:space-between;}"
+            + ".track-item:hover{background:rgba(255,255,255,0.1);}"
+            + ".track-item.active{color:#6c5ce7;}"
+            + ".track-item .check{color:#6c5ce7;display:none;}"
+            + ".track-item.active .check{display:inline;}"
+            
+            // Título
+            + "#video-title{position:absolute;top:16px;left:16px;color:#fff;"
+            + "font-size:16px;font-weight:bold;text-shadow:0 1px 3px rgba(0,0,0,0.8);"
+            + "opacity:0;transition:opacity 0.3s;z-index:10;}"
+            + "#player-container:hover #video-title{opacity:1;}"
+            
+            // Loading
+            + "#loading-indicator{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);"
+            + "color:#fff;font-size:14px;display:none;z-index:5;text-align:center;}"
+            + "#loading-indicator.show{display:block;}"
+            + ".spinner{width:40px;height:40px;border:3px solid rgba(255,255,255,0.3);"
+            + "border-top-color:#fff;border-radius:50%;animation:spin 0.8s linear infinite;"
+            + "margin:0 auto 12px auto;}"
+            + "@keyframes spin{to{transform:rotate(360deg);}}"
+            + "</style></head><body>"
+            
+            + "<div id='player-container'>"
+            + "<video id='v' playsinline crossorigin='anonymous'>"
+            + "<source src='http://127.0.0.1:8080/video' type='video/mp4'>"
+            + "</video>"
+            
+            + "<div id='video-title'></div>"
+            
+            + "<div id='loading-indicator'>"
+            + "<div class='spinner'></div><div id='loading-text'>Carregando...</div>"
+            + "</div>"
+            
+            + "<div id='controls'>"
+            + "<div id='progress-bar' onmousedown='startSeek(event)' onmousemove='moveSeek(event)' onmouseup='endSeek(event)' ontouchstart='startSeek(event)' ontouchmove='moveSeek(event)' ontouchend='endSeek(event)'>"
+            + "<div id='progress-filled'></div><div id='progress-thumb'></div>"
+            + "</div>"
+            
+            + "<div id='buttons-row'>"
+            + "<div id='left-buttons'>"
+            + "<button class='btn' onclick='togglePlay()' id='btn-play'>"
+            + "<svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg>"
+            + "</button>"
+            + "<button class='btn' onclick='skip(-10)'>"
+            + "<svg viewBox='0 0 24 24'><path d='M11.99 5V1l-5 5 5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6h-2c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z'/>"
+            + "<text x='13' y='17' font-size='9' fill='#fff' font-weight='bold'>10</text></svg>"
+            + "</button>"
+            + "<button class='btn' onclick='skip(10)'>"
+            + "<svg viewBox='0 0 24 24'><path d='M12.01 5V1l5 5-5 5V7c-3.31 0-6 2.69-6 6s2.69 6 6 6 6-2.69 6-6h2c0 4.42-3.58 8-8 8s-8-3.58-8-8 3.58-8 8-8z'/>"
+            + "<text x='7' y='17' font-size='9' fill='#fff' font-weight='bold'>10</text></svg>"
+            + "</button>"
+            + "<span id='time-display'>0:00 / 0:00</span>"
+            + "</div>"
+            
+            + "<div id='right-buttons'>"
+            + "<button class='btn' id='btn-audio' onclick='toggleTrackMenu(\"audio\")' style='font-size:11px;font-weight:bold;width:auto;padding:8px 12px;border-radius:20px;'>🎵 Áudio</button>"
+            + "<button class='btn' id='btn-subs' onclick='toggleTrackMenu(\"subs\")' style='font-size:11px;font-weight:bold;width:auto;padding:8px 12px;border-radius:20px;'>📝 Legendas</button>"
+            + "<button class='btn' onclick='toggleFullscreen()'>"
+            + "<svg viewBox='0 0 24 24'><path d='M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z'/></svg>"
+            + "</button>"
+            + "</div>"
+            + "</div>"
+            + "</div>"
+            
+            + "<div id='track-menu'></div>"
+            + "</div>"
+            
+            + "<script>"
+            + "var v=document.getElementById('v');"
+            + "var controls=document.getElementById('controls');"
+            + "var progressFilled=document.getElementById('progress-filled');"
+            + "var progressThumb=document.getElementById('progress-thumb');"
+            + "var progressBar=document.getElementById('progress-bar');"
+            + "var timeDisplay=document.getElementById('time-display');"
+            + "var loading=document.getElementById('loading-indicator');"
+            + "var loadingText=document.getElementById('loading-text');"
+            + "var trackMenu=document.getElementById('track-menu');"
+            + "var videoTitle=document.getElementById('video-title');"
+            + "var btnPlay=document.getElementById('btn-play');"
+            + "var isSeeking=false;var hideTimeout;"
+            
+            + "v.addEventListener('timeupdate',function(){if(!isSeeking){var pct=(v.currentTime/v.duration)*100;progressFilled.style.width=pct+'%';progressThumb.style.left=pct+'%';timeDisplay.textContent=formatTime(v.currentTime)+' / '+formatTime(v.duration);}});"
+            + "v.addEventListener('waiting',function(){loading.classList.add('show');loadingText.textContent='Carregando...';});"
+            + "v.addEventListener('canplay',function(){loading.classList.remove('show');});"
+            + "v.addEventListener('playing',function(){loading.classList.remove('show');btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M6 19h4V5H6v14zm8-14v14h4V5h-4z'/></svg>\";});"
+            + "v.addEventListener('pause',function(){btnPlay.innerHTML=\"<svg viewBox='0 0 24 24'><path d='M8 5v14l11-7z'/></svg>\";});"
+            + "v.addEventListener('seeked',function(){videoTitle.textContent='⏩ '+formatTime(v.currentTime);videoTitle.style.opacity='1';setTimeout(function(){videoTitle.style.opacity='0';},2000);});"
+            + "v.addEventListener('loadedmetadata',function(){videoTitle.textContent='▶️ '+Math.floor(v.duration)+'s';videoTitle.style.opacity='1';setTimeout(function(){videoTitle.style.opacity='0';},3000);"
+            
+            // Atualiza botões de áudio/legendas
+            + "var audioTracks=v.audioTracks;var textTracks=v.textTracks;"
+            + "if(audioTracks&&audioTracks.length>1){document.getElementById('btn-audio').style.display='flex';}"
+            + "if(textTracks&&textTracks.length>0){document.getElementById('btn-subs').style.display='flex';}"
+            + "});"
+            
+            + "document.addEventListener('click',function(){controls.classList.add('active');clearTimeout(hideTimeout);hideTimeout=setTimeout(function(){controls.classList.remove('active');},3000);});"
+            + "function togglePlay(){if(v.paused){v.play();}else{v.pause();}}"
+            + "function skip(s){v.currentTime=Math.max(0,Math.min(v.duration,v.currentTime+s));}"
+            + "function formatTime(t){if(isNaN(t))return'0:00';var m=Math.floor(t/60);var s=Math.floor(t%60);return m+':'+(s<10?'0':'')+s;}"
+            
+            + "function startSeek(e){isSeeking=true;updateSeek(e);}"
+            + "function moveSeek(e){if(isSeeking)updateSeek(e);}"
+            + "function endSeek(e){if(isSeeking){updateSeek(e);isSeeking=false;}}"
+            + "function updateSeek(e){var rect=progressBar.getBoundingClientRect();var x=(e.touches?e.touches[0].clientX:e.clientX)-rect.left;var pct=Math.max(0,Math.min(100,(x/rect.width)*100));progressFilled.style.width=pct+'%';progressThumb.style.left=pct+'%';if(e.type=='mouseup'||e.type=='touchend'){v.currentTime=(pct/100)*v.duration;}}"
+            
+            + "function toggleTrackMenu(type){"
+            + "var tracks=type=='audio'?v.audioTracks:v.textTracks;"
+            + "var html='';"
+            + "if(tracks&&tracks.length>0){"
+            + "for(var i=0;i<tracks.length;i++){"
+            + "var t=tracks[i];var label=t.label||t.language||('Track '+(i+1));"
+            + "var active=(type=='audio'?v.audioTrack:i)==i;"
+            + "html+=\"<div class='track-item\"+(active?\" active\":\"\")+\"' onclick='selectTrack(\\\"\"+type+\"\\\",\"+i+\")'>\"+label+\"<span class='check'>✓</span></div>\";"
+            + "}}else{html=\"<div class='track-item'>Nenhum disponível</div>\";}"
+            + "trackMenu.innerHTML=html;trackMenu.classList.toggle('show');"
+            + "}"
+            
+            + "function selectTrack(type,index){"
+            + "if(type=='audio'){for(var i=0;i<v.audioTracks.length;i++)v.audioTracks[i].enabled=(i==index);}"
+            + "else{for(var i=0;i<v.textTracks.length;i++)v.textTracks[i].mode=(i==index?'showing':'hidden');}"
+            + "trackMenu.classList.remove('show');"
+            + "}"
+            
+            + "function toggleFullscreen(){if(document.fullscreenElement){document.exitFullscreen();}else{document.getElementById('player-container').requestFullscreen();}}"
+            + "</script></body></html>";
+        
+        webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        debug("✅ Player PRO carregado");
     }
     
     private void stop() {
         downloading = false;
         handler.removeCallbacksAndMessages(null);
-        if (player != null) { player.stop(); player.clearMediaItems(); }
-        playerView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
-        bufferBar.setVisibility(View.GONE); loadingOverlay.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
+        webView.loadUrl("about:blank");
+        webView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
+        bufferBar.setVisibility(View.GONE);
         if (torrentHandle != null && session != null) {
             try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {}
             torrentHandle = null;
         }
-        log("⏹️ Parado");
+        debug("⏹️ Parado");
     }
     
     private File find(File dir) {
@@ -346,7 +458,6 @@ public class MainActivity extends AppCompatActivity {
     @Override protected void onDestroy() {
         stop();
         if (serverThread != null) serverThread.interrupt();
-        if (player != null) player.release();
         if (session != null) session.stop();
         super.onDestroy();
     }
