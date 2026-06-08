@@ -6,19 +6,18 @@
     android:background="#0a0a1a"
     android:padding="6dp">
     
-    <!-- Player com aspect ratio 16:9 usando FrameLayout -->
+    <!-- Player -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="25"
         android:layout_marginBottom="4dp"
-        android:background="@drawable/glass_bg">
+        android:background="#000000">
         
         <SurfaceView
             android:id="@+id/video_surface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:layout_gravity="center"
             android:visibility="gone" />
         
         <ProgressBar
@@ -38,8 +37,7 @@
         android:orientation="vertical"
         android:background="@drawable/glass_bg"
         android:padding="8dp"
-        android:layout_marginBottom="4dp"
-        android:gravity="center_vertical">
+        android:layout_marginBottom="4dp">
         
         <TextView
             android:id="@+id/status_text"
@@ -47,25 +45,24 @@
             android:layout_height="wrap_content"
             android:text="🎬 Torrent Stream"
             android:textColor="#FFFFFF"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="2dp" />
+            android:textSize="11sp"
+            android:textStyle="bold" />
         
         <ProgressBar
             android:id="@+id/buffer_bar"
             style="?android:attr/progressBarStyleHorizontal"
             android:layout_width="match_parent"
-            android:layout_height="3dp"
+            android:layout_height="2dp"
             android:progressTint="#6c5ce7"
             android:progressBackgroundTint="#33FFFFFF"
             android:visibility="gone"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginTop="2dp" />
         
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="40dp"
+            android:layout_height="38dp"
             android:orientation="horizontal"
-            android:gravity="center_vertical">
+            android:layout_marginTop="4dp">
             
             <EditText
                 android:id="@+id/magnet_input"
@@ -75,13 +72,13 @@
                 android:background="@drawable/input_bg"
                 android:hint="Magnet link..."
                 android:textColorHint="#80FFFFFF"
-                android:padding="8dp"
+                android:padding="6dp"
                 android:textColor="#FFFFFF"
                 android:textSize="10sp" />
             
             <Button
                 android:id="@+id/btn_play"
-                android:layout_width="42dp"
+                android:layout_width="40dp"
                 android:layout_height="match_parent"
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
@@ -92,7 +89,7 @@
             
             <Button
                 android:id="@+id/btn_torrent"
-                android:layout_width="42dp"
+                android:layout_width="40dp"
                 android:layout_height="match_parent"
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
@@ -103,9 +100,9 @@
         
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="36dp"
+            android:layout_height="34dp"
             android:orientation="horizontal"
-            android:layout_marginTop="6dp">
+            android:layout_marginTop="4dp">
             
             <Button
                 android:id="@+id/btn_watch"
