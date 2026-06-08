@@ -7,10 +7,6 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.View;
-import android.view.ViewGroup;
-import android.webkit.WebChromeClient;
-import android.webkit.WebView;
-import android.webkit.WebViewClient;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 
@@ -19,13 +15,18 @@ import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.swig.torrent_handle;
+import org.videolan.libvlc.*;
+import org.videolan.libvlc.interfaces.*;
+import org.videolan.libvlc.util.VLCVideoLayout;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    private WebView webView;
+    private VLCVideoLayout videoLayout;
+    private LibVLC libVLC;
+    private MediaPlayer vlcPlayer;
     private TextView statusText, debugText;
     private ProgressBar bufferBar, spinnerBar;
     private EditText magnetInput;
@@ -45,7 +46,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        webView = findViewById(R.id.webview);
+        videoLayout = findViewById(R.id.video_surface);
         statusText = findViewById(R.id.status_text);
         debugText = findViewById(R.id.debug_text);
         bufferBar = findViewById(R.id.buffer_bar);
@@ -56,217 +57,79 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
-        webView.post(() -> {
-            try {
-                int w = (int)(getResources().getDisplayMetrics().widthPixels * 0.94);
-                int h = (int)(w * 9.0 / 16.0);
-                ViewGroup.LayoutParams p = webView.getLayoutParams();
-                if (p != null) { p.width = w; p.height = h; webView.setLayoutParams(p); }
-            } catch (Exception e) {}
-        });
-        
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        try {
-            webView.getSettings().setJavaScriptEnabled(true);
-            webView.getSettings().setMediaPlaybackRequiresUserGesture(false);
-            webView.getSettings().setAllowFileAccess(true);
-            webView.getSettings().setDomStorageEnabled(true);
-            webView.setWebChromeClient(new WebChromeClient());
-            webView.setWebViewClient(new WebViewClient());
-        } catch (Exception e) {}
-        webView.setVisibility(View.GONE);
+        libVLC = new LibVLC(this, new ArrayList<>());
+        vlcPlayer = new MediaPlayer(libVLC);
+        vlcPlayer.attachViews(videoLayout, null, false, false);
         
-        debug("╔══════════════════════════════╗");
-        debug("║   TORRENT STREAM vFinal      ║");
-        debug("║   Magnet + 📁 .Torrent       ║");
-        debug("╚══════════════════════════════╝");
+        debug("=== TORRENT STREAM VLC ===");
         
         streamServer = new StreamServer();
-        try { streamServer.start(); debug("[SRV] ✅ HTTP:8080"); } 
-        catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
+        try { streamServer.start(); debug("[SRV] OK"); } catch (Exception e) { debug("[SRV] " + e.getMessage()); }
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { debug("[ENG] ✅ Pronto"); }
-            public void onError(String e) { debug("[ENG] ❌ " + e); }
-            
+            public void onReady() { debug("[ENG] OK"); }
+            public void onError(String e) { debug("[ENG] " + e); }
             public void onProgress(TorrentInfo info) {
-                handler.post(() -> {
-                    try {
-                        bufferBar.setProgress(info.progress);
-                        statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s");
-                    } catch (Exception e) {}
-                });
+                handler.post(() -> { bufferBar.setProgress(info.progress); statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s"); });
             }
-            
             public void onStreamReady(torrent_handle handle, String sp) {
-                try {
-                    File vf = findVideoFile(new File(sp));
-                    if (vf != null) {
-                        videoFile = vf;
-                        streamServer.setVideoFile(vf);
-                        streamServer.setTorrentInfo(handle);
-                        debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)");
-                    }
-                    debug("[ENG] ✅ STREAM READY");
-                    handler.post(() -> {
-                        try {
-                            spinnerBar.setVisibility(View.GONE);
-                            btnWatch.setVisibility(View.VISIBLE);
-                        } catch (Exception e) {}
-                    });
-                } catch (Exception e) {
-                    debug("[ENG] ❌ " + e.getMessage());
-                }
+                File vf = findVideoFile(new File(sp));
+                if (vf != null) { videoFile = vf; streamServer.setVideoFile(vf); streamServer.setTorrentInfo(handle); debug("[ENG] Video: " + vf.getName() + " (" + (vf.length()/1048576) + "MB)"); }
+                debug("[ENG] STREAM READY");
+                handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnWatch.setVisibility(View.VISIBLE); });
             }
-            
             public void onStatus(String s) { debug("[ENG] " + s); }
             public void onLog(String log) { debug("[ENG] " + log); }
         });
-        
         torrentEngine.start();
         
-        btnPlay.setOnClickListener(v -> {
-            String m = magnetInput.getText().toString().trim();
-            if (!m.isEmpty()) {
-                debug("🔗 Iniciando: " + m.substring(0, Math.min(50, m.length())));
-                startStream(m);
-            }
-        });
-        
-        btnTorrent.setOnClickListener(v -> {
-            debug("📁 Abrindo seletor de arquivo .torrent...");
-            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            intent.addCategory(Intent.CATEGORY_OPENABLE);
-            intent.setType("*/*");
-            startActivityForResult(intent, PICK_TORRENT_FILE);
-        });
-        
+        btnPlay.setOnClickListener(v -> { String m = magnetInput.getText().toString().trim(); if (!m.isEmpty()) startStream(m); });
+        btnTorrent.setOnClickListener(v -> { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, PICK_TORRENT_FILE); });
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
-        
-        debug("📱 Pronto");
+        debug("Pronto");
     }
     
-    @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        
-        if (requestCode == PICK_TORRENT_FILE && resultCode == RESULT_OK && data != null) {
+    @Override protected void onActivityResult(int r, int res, Intent data) {
+        super.onActivityResult(r, res, data);
+        if (r == PICK_TORRENT_FILE && res == RESULT_OK && data != null) {
             Uri uri = data.getData();
-            if (uri != null) {
-                debug("📁 Arquivo selecionado: " + uri.getPath());
-                
-                try {
-                    InputStream is = getContentResolver().openInputStream(uri);
-                    File torrentFile = new File(savePath, "torrent_file.torrent");
-                    FileOutputStream fos = new FileOutputStream(torrentFile);
-                    byte[] buffer = new byte[8192];
-                    int len;
-                    while ((len = is.read(buffer)) > 0) {
-                        fos.write(buffer, 0, len);
-                    }
-                    fos.close();
-                    is.close();
-                    
-                    debug("📁 Copiado: " + torrentFile.getAbsolutePath());
-                    debug("📁 Tamanho: " + torrentFile.length() + " bytes");
-                    
-                    startStream(torrentFile.getAbsolutePath());
-                    
-                } catch (Exception e) {
-                    debug("❌ Erro: " + e.getMessage());
-                }
-            }
+            if (uri != null) try {
+                InputStream is = getContentResolver().openInputStream(uri);
+                File tf = new File(savePath, "torrent_file.torrent");
+                FileOutputStream fos = new FileOutputStream(tf); byte[] b = new byte[8192]; int l; while ((l = is.read(b)) > 0) fos.write(b, 0, l);
+                fos.close(); is.close(); startStream(tf.getAbsolutePath());
+            } catch (Exception e) { debug("Erro: " + e.getMessage()); }
         }
     }
     
-    private void debug(String msg) {
-        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
-        debugLog.append(line);
-        handler.post(() -> {
-            try { debugText.setText(debugLog.toString()); } catch (Exception e) {}
-        });
-    }
+    private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; debugLog.append(line); handler.post(() -> debugText.setText(debugLog.toString())); }
     
     private File findVideoFile(File dir) {
-        try {
-            if (dir == null || !dir.exists()) return null;
-            File[] files = dir.listFiles();
-            if (files != null) {
-                for (File f : files) {
-                    if (f.isDirectory()) {
-                        File found = findVideoFile(f);
-                        if (found != null) return found;
-                    } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) {
-                        return f;
-                    }
-                }
-            }
-        } catch (Exception e) {}
+        if (dir == null || !dir.exists()) return null;
+        File[] files = dir.listFiles(); if (files != null) for (File f : files) { if (f.isDirectory()) { File found = findVideoFile(f); if (found != null) return found; } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) return f; }
         return null;
     }
     
-    private void startStream(String source) {
-        bufferBar.setVisibility(View.VISIBLE);
-        spinnerBar.setVisibility(View.VISIBLE);
-        btnStop.setVisibility(View.VISIBLE);
-        btnWatch.setVisibility(View.GONE);
-        webView.setVisibility(View.GONE);
-        debugLog.setLength(0);
-        torrentEngine.startDownload(source, savePath);
-    }
+    private void startStream(String source) { bufferBar.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); btnStop.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); videoLayout.setVisibility(View.GONE); debugLog.setLength(0); torrentEngine.startDownload(source, savePath); }
     
     private void watch() {
-        if (videoFile == null || !videoFile.exists()) { 
-            debug("❌ Video nao encontrado"); 
-            return; 
-        }
-        
-        debug("▶️ Iniciando player...");
-        debug("   " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)");
-        debug("   🌐 http://127.0.0.1:8080/video");
-        debug("   ⏩ Seek: pule para qualquer minuto");
-        
-        handler.post(() -> { 
-            try {
-                webView.setVisibility(View.VISIBLE); 
-                btnWatch.setVisibility(View.GONE);
-                
-                String html = "<!DOCTYPE html><html><head>"
-                    + "<meta name='viewport' content='width=device-width,initial-scale=1,maximum-scale=1'>"
-                    + "<style>body{margin:0;background:#000;}"
-                    + "video{width:100%;height:100vh;display:block;}</style></head><body>"
-                    + "<video controls autoplay playsinline>"
-                    + "<source src='http://127.0.0.1:8080/video' type='video/mp4'>"
-                    + "</video></body></html>";
-                
-                webView.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
-                debug("✅ Player carregado");
-            } catch (Exception e) {
-                debug("❌ ERRO: " + e.getMessage());
-            }
+        if (videoFile == null || !videoFile.exists()) { debug("Video nao encontrado"); return; }
+        debug("VLC: http://127.0.0.1:8080/video");
+        handler.post(() -> {
+            videoLayout.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE);
+            Media media = new Media(libVLC, Uri.parse("http://127.0.0.1:8080/video"));
+            media.setHWDecoderEnabled(true, true); media.addOption(":network-caching=3000"); media.addOption(":http-reconnect");
+            vlcPlayer.setMedia(media); media.release(); vlcPlayer.play();
+            debug("VLC iniciado!");
         });
     }
     
-    private void stop() {
-        debug("⏹ Parado");
-        torrentEngine.stop();
-        try {
-            webView.loadUrl("about:blank");
-            webView.setVisibility(View.GONE);
-        } catch (Exception e) {}
-        btnStop.setVisibility(View.GONE); 
-        btnWatch.setVisibility(View.GONE);
-        bufferBar.setVisibility(View.GONE);
-        spinnerBar.setVisibility(View.GONE);
-    }
+    private void stop() { torrentEngine.stop(); if (vlcPlayer != null) vlcPlayer.stop(); videoLayout.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); debug("Parado"); }
     
-    @Override protected void onDestroy() {
-        stop();
-        if (streamServer != null) streamServer.stop();
-        super.onDestroy();
-    }
+    @Override protected void onDestroy() { stop(); if (streamServer != null) streamServer.stop(); if (vlcPlayer != null) vlcPlayer.release(); if (libVLC != null) libVLC.release(); super.onDestroy(); }
 }
