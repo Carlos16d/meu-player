@@ -9,24 +9,25 @@ import android.os.Looper;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.media3.common.MediaItem;
+import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
+import androidx.media3.exoplayer.upstream.DefaultHttpDataSource;
+import androidx.media3.ui.PlayerView;
 
 import com.meuapp.player.engine.TorrentEngine;
 import com.meuapp.player.server.StreamServer;
 import com.meuapp.player.model.TorrentInfo;
 
 import org.libtorrent4j.swig.torrent_handle;
-import org.videolan.libvlc.*;
-import org.videolan.libvlc.interfaces.*;
-import org.videolan.libvlc.util.VLCVideoLayout;
 
 import java.io.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    private VLCVideoLayout videoLayout;
-    private LibVLC libVLC;
-    private MediaPlayer vlcPlayer;
+    private PlayerView playerView;
+    private ExoPlayer exoPlayer;
     private TextView statusText, debugText;
     private ProgressBar bufferBar, spinnerBar;
     private EditText magnetInput;
@@ -46,7 +47,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        videoLayout = findViewById(R.id.video_surface);
+        playerView = findViewById(R.id.player_view);
         statusText = findViewById(R.id.status_text);
         debugText = findViewById(R.id.debug_text);
         bufferBar = findViewById(R.id.buffer_bar);
@@ -61,11 +62,24 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        libVLC = new LibVLC(this, new ArrayList<>());
-        vlcPlayer = new MediaPlayer(libVLC);
-        vlcPlayer.attachViews(videoLayout, null, false, false);
+        // ExoPlayer
+        exoPlayer = new ExoPlayer.Builder(this).build();
+        playerView.setPlayer(exoPlayer);
+        playerView.setUseController(true);
+        playerView.setKeepScreenOn(true);
         
-        debug("=== TORRENT STREAM VLC ===");
+        exoPlayer.addListener(new androidx.media3.common.Player.Listener() {
+            @Override
+            public void onPlaybackStateChanged(int state) {
+                String s = state == ExoPlayer.STATE_BUFFERING ? "BUFFERING" : 
+                          state == ExoPlayer.STATE_READY ? "READY" : 
+                          state == ExoPlayer.STATE_ENDED ? "ENDED" : "IDLE";
+                debug("[EXO] " + s);
+                handler.post(() -> spinnerBar.setVisibility(state == ExoPlayer.STATE_BUFFERING ? View.VISIBLE : View.GONE));
+            }
+        });
+        
+        debug("=== TORRENT STREAM EXOPLAYER ===");
         
         streamServer = new StreamServer();
         try { streamServer.start(); debug("[SRV] OK"); } catch (Exception e) { debug("[SRV] " + e.getMessage()); }
@@ -115,21 +129,30 @@ public class MainActivity extends AppCompatActivity {
         return null;
     }
     
-    private void startStream(String source) { bufferBar.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); btnStop.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); videoLayout.setVisibility(View.GONE); debugLog.setLength(0); torrentEngine.startDownload(source, savePath); }
+    private void startStream(String source) { bufferBar.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); btnStop.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); playerView.setVisibility(View.GONE); debugLog.setLength(0); torrentEngine.startDownload(source, savePath); }
     
     private void watch() {
         if (videoFile == null || !videoFile.exists()) { debug("Video nao encontrado"); return; }
-        debug("VLC: http://127.0.0.1:8080/video");
+        debug("EXO: http://127.0.0.1:8080/video");
         handler.post(() -> {
-            videoLayout.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE);
-            Media media = new Media(libVLC, Uri.parse("http://127.0.0.1:8080/video"));
-            media.setHWDecoderEnabled(true, true); media.addOption(":network-caching=3000"); media.addOption(":http-reconnect");
-            vlcPlayer.setMedia(media); media.release(); vlcPlayer.play();
-            debug("VLC iniciado!");
+            playerView.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE);
+            
+            Uri videoUri = Uri.parse("http://127.0.0.1:8080/video");
+            MediaItem mediaItem = MediaItem.fromUri(videoUri);
+            
+            DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(15000).setReadTimeoutMs(60000);
+            ProgressiveMediaSource.Factory mediaSourceFactory = new ProgressiveMediaSource.Factory(dataSourceFactory);
+            
+            exoPlayer.setMediaSource(mediaSourceFactory.createMediaSource(mediaItem));
+            exoPlayer.prepare();
+            exoPlayer.setPlayWhenReady(true);
+            
+            debug("ExoPlayer iniciado!");
         });
     }
     
-    private void stop() { torrentEngine.stop(); if (vlcPlayer != null) vlcPlayer.stop(); videoLayout.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); debug("Parado"); }
+    private void stop() { torrentEngine.stop(); if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); } playerView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); debug("Parado"); }
     
-    @Override protected void onDestroy() { stop(); if (streamServer != null) streamServer.stop(); if (vlcPlayer != null) vlcPlayer.release(); if (libVLC != null) libVLC.release(); super.onDestroy(); }
+    @Override protected void onDestroy() { stop(); if (streamServer != null) streamServer.stop(); if (exoPlayer != null) exoPlayer.release(); super.onDestroy(); }
 }
