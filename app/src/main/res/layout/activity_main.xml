@@ -6,36 +6,29 @@
     android:background="#0a0a1a"
     android:padding="6dp">
     
-    <!-- Player com aspect ratio 16:9 -->
-    <androidx.constraintlayout.widget.ConstraintLayout
+    <!-- Player com aspect ratio 16:9 usando FrameLayout -->
+    <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="25"
-        android:layout_marginBottom="4dp">
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/glass_bg">
         
         <SurfaceView
             android:id="@+id/video_surface"
-            android:layout_width="0dp"
-            android:layout_height="0dp"
-            android:visibility="gone"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintDimensionRatio="16:9" />
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:layout_gravity="center"
+            android:visibility="gone" />
         
         <ProgressBar
             android:id="@+id/spinner_bar"
             android:layout_width="24dp"
             android:layout_height="24dp"
+            android:layout_gravity="center"
             android:indeterminateTint="#6c5ce7"
-            android:visibility="gone"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintStart_toStartOf="parent"
-            app:layout_constraintEnd_toEndOf="parent" />
-            
-    </androidx.constraintlayout.widget.ConstraintLayout>
+            android:visibility="gone" />
+    </FrameLayout>
     
     <!-- Controles -->
     <LinearLayout
@@ -45,7 +38,8 @@
         android:orientation="vertical"
         android:background="@drawable/glass_bg"
         android:padding="8dp"
-        android:layout_marginBottom="4dp">
+        android:layout_marginBottom="4dp"
+        android:gravity="center_vertical">
         
         <TextView
             android:id="@+id/status_text"
