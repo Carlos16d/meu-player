@@ -37,8 +37,8 @@ public class MainActivity extends AppCompatActivity {
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
-    private long lastSeekByte = 0;
     private long lastSeekTime = 0;
+    private Set<Integer> downloadedPieces = new HashSet<>();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     private StringBuilder debugLog = new StringBuilder();
 
@@ -79,7 +79,7 @@ public class MainActivity extends AppCompatActivity {
         debug("=== TORRENT STREAM ===");
         
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); debug("✅ OK"); } 
+            try { session = new SessionManager(); session.start(); debug("✅ Sessão OK"); } 
             catch (Exception e) { debug("❌ " + e.getMessage()); }
         }).start();
         
@@ -175,35 +175,64 @@ public class MainActivity extends AppCompatActivity {
             if (rangeEnd == -1 || rangeEnd >= fileSize) rangeEnd = fileSize - 1;
             long contentLength = rangeEnd - rangeStart + 1;
             
-            // 🔥 SEEK: FOCA apenas no último seek
+            // 🔥 SEEK com debounce de 3s + log detalhado
             if (hasRange && rangeStart > 0) {
-                final long seekByte = rangeStart;
                 final long now = System.currentTimeMillis();
                 
-                if (Math.abs(seekByte - lastSeekByte) > 1048576 || (now - lastSeekTime) > 2000) {
-                    lastSeekByte = seekByte;
+                if ((now - lastSeekTime) > 3000) {
                     lastSeekTime = now;
                     
                     try {
                         if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) {
                             TorrentInfo info = torrentHandle.torrentFile();
                             int pl = info.pieceLength(), np = info.numPieces();
-                            int targetPiece = (int)(seekByte / pl);
-                            int rs = Math.max(0, targetPiece - 10);
-                            int re = Math.min(targetPiece + 70, np - 1);
+                            int tp = (int)(rangeStart / pl);
+                            int rs = Math.max(0, tp - 2);
+                            int re = Math.min(tp + 7, np - 1);
                             
                             torrentHandle.setSequentialRange(rs, re);
                             
                             for (int i = 0; i < np; i++) {
-                                if (i >= rs && i <= re) {
-                                    torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY);
-                                    torrentHandle.setPieceDeadline(i, 500);
-                                } else {
-                                    torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE);
-                                }
+                                torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE);
+                            }
+                            for (int i = rs; i <= re; i++) {
+                                torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY);
+                                torrentHandle.setPieceDeadline(i, 300);
                             }
                             
-                            debug("🔥 SEEK: " + (seekByte/1048576) + "MB → peças " + rs + "-" + re + " (80 peças)");
+                            final int totalPieces = re - rs + 1;
+                            debug("🔥 SEEK: " + (rangeStart/1048576) + "MB → " + totalPieces + " peças (" + rs + "-" + re + ")");
+                            
+                            // Monitora download das peças
+                            final int mStart = rs, mEnd = re;
+                            new Thread(() -> {
+                                try {
+                                    Thread.sleep(2000);
+                                    int done = 0, missing = 0;
+                                    StringBuilder sb = new StringBuilder();
+                                    
+                                    for (int i = mStart; i <= mEnd; i++) {
+                                        if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) {
+                                            done++;
+                                            if (!downloadedPieces.contains(i)) {
+                                                downloadedPieces.add(i);
+                                                sb.append(" ✅").append(i);
+                                            }
+                                        } else {
+                                            missing++;
+                                            if (done < 5) sb.append(" ❌").append(i);
+                                        }
+                                    }
+                                    
+                                    int pct = (done * 100) / totalPieces;
+                                    debug("📊 Resultado: " + done + "/" + totalPieces + " peças (" + pct + "%)" + sb.toString());
+                                    
+                                    if (pct >= 50) debug("✅ Já pode reproduzir!");
+                                    else if (pct > 0) debug("⏳ Baixando... " + done + " de " + totalPieces);
+                                    else debug("⏳ Aguardando peers...");
+                                    
+                                } catch (Exception e) {}
+                            }).start();
                         }
                     } catch (Exception e) {}
                 }
@@ -232,7 +261,7 @@ public class MainActivity extends AppCompatActivity {
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
-        downloading = true; videoFile = null; torrentHandle = null;
+        downloading = true; videoFile = null; torrentHandle = null; downloadedPieces.clear();
         handler.post(() -> { btnStop.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); });
         debug("⏳ Conectando...");
         
@@ -257,9 +286,6 @@ public class MainActivity extends AppCompatActivity {
                     
                     for (int i = 0; i < Math.min(50, np); i++) {
                         try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY); torrentHandle.setPieceDeadline(i, 1000); } catch (Exception e) {}
-                    }
-                    for (int i = 50; i < Math.min(200, np); i++) {
-                        try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.SIX); } catch (Exception e) {}
                     }
                     
                     int target = Math.min(10, np), complete = 0, wt = 0;
