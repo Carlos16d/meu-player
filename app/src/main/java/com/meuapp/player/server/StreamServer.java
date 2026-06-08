@@ -20,6 +20,7 @@ public class StreamServer extends NanoHTTPD {
     private long lastSeekPosition = 0;
     
     public StreamServer() { super(8080); }
+    
     public void setVideoFile(File f) { 
         this.videoFile = f;
         Log.d(TAG, "========================================");
@@ -32,16 +33,22 @@ public class StreamServer extends NanoHTTPD {
     public void setTorrentInfo(torrent_handle handle) {
         this.torrentHandle = handle;
         if (handle != null && handle.is_valid()) {
-            torrent_info ti = handle.torrent_file_ptr();
-            if (ti != null && ti.is_valid()) {
-                this.pieceLength = ti.piece_length();
-                this.numPieces = ti.num_pieces();
-                Log.d(TAG, "TORRENT INFO: " + numPieces + " peças de " + (pieceLength/1024) + "KB");
+            try {
+                torrent_info ti = handle.torrent_file_ptr();
+                if (ti != null && ti.is_valid()) {
+                    this.pieceLength = ti.piece_length();
+                    this.numPieces = ti.num_pieces();
+                    Log.d(TAG, "TORRENT INFO: " + numPieces + " peças de " + (pieceLength/1024) + "KB");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Erro setTorrentInfo: " + e.getMessage());
             }
         }
     }
     
-    public String getStats() { return totalRequests + "req " + (bytesServed/1048576) + "MB"; }
+    public String getStats() { 
+        return totalRequests + "req " + (bytesServed/1048576) + "MB"; 
+    }
     
     @Override
     public Response serve(IHTTPSession session) {
@@ -50,7 +57,7 @@ public class StreamServer extends NanoHTTPD {
         String rangeHeader = session.getHeaders().get("range");
         String method = session.getMethod().name();
         
-        // LOG SEMPRE - cada requisição
+        // LOG SEMPRE
         Log.d(TAG, "══════════════════════════════════");
         Log.d(TAG, "REQ #" + totalRequests + " | " + method + " " + uri);
         Log.d(TAG, "  Range: " + rangeHeader);
@@ -86,7 +93,10 @@ public class StreamServer extends NanoHTTPD {
                     int rs = Math.max(0, tp - 5), re = Math.min(numPieces, tp + 60);
                     torrentHandle.set_sequential_range(rs, re);
                     for (int i = 0; i < numPieces; i++) torrentHandle.piece_priority_ex(i, (byte)0);
-                    for (int i = rs; i < re; i++) { torrentHandle.piece_priority_ex(i, (byte)7); torrentHandle.set_piece_deadline(i, 500); }
+                    for (int i = rs; i < re; i++) { 
+                        torrentHandle.piece_priority_ex(i, (byte)7); 
+                        torrentHandle.set_piece_deadline(i, 500); 
+                    }
                     Log.d(TAG, "  🔥 SEEK: " + (start/1048576) + "MB | peças " + rs + "-" + re);
                 }
                 lastSeekPosition = start;
@@ -104,7 +114,6 @@ public class StreamServer extends NanoHTTPD {
             byte[] data = new byte[chunkSize];
             int bytesRead = 0;
             
-            // Tenta ler com retry
             for (int retry = 0; retry < 5 && bytesRead < 4096; retry++) {
                 if (videoFile.length() > start) {
                     RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
