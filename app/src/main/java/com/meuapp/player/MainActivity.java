@@ -38,6 +38,7 @@ public class MainActivity extends AppCompatActivity {
     private Handler handler;
     private Thread serverThread;
     private long lastSeekTime = 0;
+    private long videoStartTime = 0;
     private Set<Integer> downloadedPieces = new HashSet<>();
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     private StringBuilder debugLog = new StringBuilder();
@@ -79,7 +80,7 @@ public class MainActivity extends AppCompatActivity {
         debug("=== TORRENT STREAM ===");
         
         new Thread(() -> {
-            try { session = new SessionManager(); session.start(); debug("✅ Sessão OK"); } 
+            try { session = new SessionManager(); session.start(); debug("✅ OK"); } 
             catch (Exception e) { debug("❌ " + e.getMessage()); }
         }).start();
         
@@ -163,74 +164,50 @@ public class MainActivity extends AppCompatActivity {
                 String resp = "HTTP/1.1 200 OK\r\nContent-Type: video/mp4\r\nAccept-Ranges: bytes\r\n" +
                     "Content-Length: " + fileSize + "\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
                 out.write(resp.getBytes());
-                byte[] data = new byte[65536];
+                byte[] data = new byte[1048576];
                 RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
                 int read = raf.read(data);
                 if (read > 0) out.write(data, 0, read);
-                raf.close();
-                out.flush(); client.close();
+                raf.close(); out.flush(); client.close();
+                if (videoStartTime == 0) { videoStartTime = System.currentTimeMillis(); }
                 return;
             }
             
             if (rangeEnd == -1 || rangeEnd >= fileSize) rangeEnd = fileSize - 1;
             long contentLength = rangeEnd - rangeStart + 1;
             
-            // 🔥 SEEK com debounce de 3s + log detalhado
             if (hasRange && rangeStart > 0) {
                 final long now = System.currentTimeMillis();
+                boolean isAutoSeek = (videoStartTime > 0) && (now - videoStartTime) < 5000;
                 
-                if ((now - lastSeekTime) > 3000) {
+                if (!isAutoSeek && (now - lastSeekTime) > 3000) {
                     lastSeekTime = now;
-                    
                     try {
                         if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) {
                             TorrentInfo info = torrentHandle.torrentFile();
                             int pl = info.pieceLength(), np = info.numPieces();
                             int tp = (int)(rangeStart / pl);
-                            int rs = Math.max(0, tp - 2);
-                            int re = Math.min(tp + 7, np - 1);
+                            int rs = Math.max(0, tp - 2), re = Math.min(tp + 7, np - 1);
                             
                             torrentHandle.setSequentialRange(rs, re);
-                            
-                            for (int i = 0; i < np; i++) {
-                                torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE);
-                            }
+                            for (int i = 0; i < np; i++) torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE);
                             for (int i = rs; i <= re; i++) {
                                 torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY);
                                 torrentHandle.setPieceDeadline(i, 300);
                             }
                             
-                            final int totalPieces = re - rs + 1;
-                            debug("🔥 SEEK: " + (rangeStart/1048576) + "MB → " + totalPieces + " peças (" + rs + "-" + re + ")");
+                            final int total = re - rs + 1;
+                            debug("🔥 SEEK: " + (rangeStart/1048576) + "MB → " + total + " peças (" + rs + "-" + re + ")");
                             
-                            // Monitora download das peças
-                            final int mStart = rs, mEnd = re;
+                            final int ms = rs, me = re;
                             new Thread(() -> {
-                                try {
-                                    Thread.sleep(2000);
-                                    int done = 0, missing = 0;
-                                    StringBuilder sb = new StringBuilder();
-                                    
-                                    for (int i = mStart; i <= mEnd; i++) {
-                                        if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) {
-                                            done++;
-                                            if (!downloadedPieces.contains(i)) {
-                                                downloadedPieces.add(i);
-                                                sb.append(" ✅").append(i);
-                                            }
-                                        } else {
-                                            missing++;
-                                            if (done < 5) sb.append(" ❌").append(i);
-                                        }
+                                try { Thread.sleep(2000);
+                                    int done = 0; StringBuilder sb = new StringBuilder();
+                                    for (int i = ms; i <= me; i++) {
+                                        if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) { done++; sb.append(" ✅").append(i); }
+                                        else sb.append(" ❌").append(i);
                                     }
-                                    
-                                    int pct = (done * 100) / totalPieces;
-                                    debug("📊 Resultado: " + done + "/" + totalPieces + " peças (" + pct + "%)" + sb.toString());
-                                    
-                                    if (pct >= 50) debug("✅ Já pode reproduzir!");
-                                    else if (pct > 0) debug("⏳ Baixando... " + done + " de " + totalPieces);
-                                    else debug("⏳ Aguardando peers...");
-                                    
+                                    debug("📊 " + done + "/" + total + " (" + ((done*100)/total) + "%)" + sb);
                                 } catch (Exception e) {}
                             }).start();
                         }
@@ -261,7 +238,7 @@ public class MainActivity extends AppCompatActivity {
     private void start() {
         String magnet = magnetInput.getText().toString().trim();
         if (!magnet.startsWith("magnet:") || downloading) return;
-        downloading = true; videoFile = null; torrentHandle = null; downloadedPieces.clear();
+        downloading = true; videoFile = null; torrentHandle = null; videoStartTime = 0;
         handler.post(() -> { btnStop.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); });
         debug("⏳ Conectando...");
         
@@ -270,8 +247,7 @@ public class MainActivity extends AppCompatActivity {
                 add_torrent_params p = libtorrent.parse_magnet_uri(magnet, new error_code());
                 p.setSave_path(savePath); p.setFlags(torrent_flags_t.from_int(9)); p.setDownload_limit(3*1024*1024);
                 byte_vector pr = new byte_vector(); pr.add((byte)7); p.set_file_priorities(pr);
-                session.swig().async_add_torrent(p);
-                Thread.sleep(3000);
+                session.swig().async_add_torrent(p); Thread.sleep(3000);
                 torrent_handle_vector h = session.swig().get_torrents();
                 if (h.size() > 0) torrentHandle = new TorrentHandle(h.get(0));
                 
@@ -282,16 +258,34 @@ public class MainActivity extends AppCompatActivity {
                 
                 if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) {
                     TorrentInfo info = torrentHandle.torrentFile();
-                    int np = info.numPieces();
+                    int np = info.numPieces(), pl = info.pieceLength();
+                    debug("📊 " + (info.totalSize()/1048576) + "MB, " + np + " peças de " + (pl/1024) + "KB");
                     
-                    for (int i = 0; i < Math.min(50, np); i++) {
-                        try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY); torrentHandle.setPieceDeadline(i, 1000); } catch (Exception e) {}
+                    // 30 peças de metadados = ~30MB (áudio, legendas, índice)
+                    int metaPieces = Math.min(30, np);
+                    debug("📋 Metadados: " + metaPieces + " peças (~" + (metaPieces*pl/1048576) + "MB)");
+                    
+                    for (int i = 0; i < metaPieces; i++) {
+                        try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY); torrentHandle.setPieceDeadline(i, 500); } catch (Exception e) {}
+                    }
+                    for (int i = metaPieces; i < np; i++) {
+                        try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE); } catch (Exception e) {}
                     }
                     
-                    int target = Math.min(10, np), complete = 0, wt = 0;
-                    while (complete < target && wt < 120 && downloading) {
+                    int complete = 0, wt = 0;
+                    while (complete < metaPieces && wt < 120 && downloading) {
                         Thread.sleep(500); complete = 0; wt++;
-                        for (int i = 0; i < target; i++) if (torrentHandle.havePiece(i)) complete++;
+                        for (int i = 0; i < metaPieces; i++) if (torrentHandle.havePiece(i)) complete++;
+                        if (wt % 4 == 0) debug("   📋 " + complete + "/" + metaPieces + " (" + (wt/2) + "s)");
+                    }
+                    
+                    if (complete >= metaPieces) {
+                        debug("✅ Metadados OK! 🎵Áudio 📝Legendas 📊Índice (" + (metaPieces*pl/1048576) + "MB)");
+                    }
+                    
+                    // Ativa o resto
+                    for (int i = metaPieces; i < np; i++) {
+                        try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.DEFAULT); } catch (Exception e) {}
                     }
                 }
                 
@@ -303,10 +297,7 @@ public class MainActivity extends AppCompatActivity {
                         if ((hdr[4]=='f' && hdr[5]=='t' && hdr[6]=='y' && hdr[7]=='p') ||
                             ((hdr[0]&0xFF)==0x1A && hdr[1]==0x45 && hdr[2]==(byte)0xDF && hdr[3]==(byte)0xA3)) {
                             videoFile = f;
-                            handler.post(() -> {
-                                btnWatch.setText("🎬 ASSISTIR (" + (f.length()/1048576) + "MB)");
-                                btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE);
-                            });
+                            handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); });
                             break;
                         }
                     }
@@ -331,8 +322,7 @@ public class MainActivity extends AppCompatActivity {
         webView.loadUrl("about:blank"); webView.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE);
         if (torrentHandle != null && session != null) {
-            try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {}
-            torrentHandle = null;
+            try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null;
         }
     }
     
