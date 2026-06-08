@@ -63,7 +63,6 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // ExoPlayer
         exoPlayer = new ExoPlayer.Builder(this).build();
         playerView.setPlayer(exoPlayer);
         playerView.setUseController(true);
@@ -80,70 +79,47 @@ public class MainActivity extends AppCompatActivity {
                     case Player.STATE_ENDED: s = "ENDED"; break;
                     default: s = "STATE_" + state; break;
                 }
-                debug("[EXO] State: " + s + " (raw=" + state + ")");
+                debug("[EXO] " + s);
                 handler.post(() -> spinnerBar.setVisibility(state == Player.STATE_BUFFERING ? View.VISIBLE : View.GONE));
                 
                 if (state == Player.STATE_READY) {
-                    debug("[EXO] ✅ READY - Video pronto!");
-                    debug("[EXO] Duration: " + exoPlayer.getDuration() + "ms");
-                }
-                if (state == Player.STATE_IDLE) {
-                    debug("[EXO] ⚠️ IDLE - Player parado (possível erro)");
+                    debug("[EXO] ✅ READY! Duration: " + exoPlayer.getDuration() + "ms");
                 }
             }
             
             @Override
             public void onPlayerError(androidx.media3.common.PlaybackException error) {
                 debug("[EXO] ❌ ERRO: " + error.getErrorCodeName());
-                debug("[EXO]   Message: " + error.getMessage());
-                debug("[EXO]   ErrorCode: " + error.errorCode);
+                debug("[EXO]   Msg: " + error.getMessage());
+                debug("[EXO]   Code: " + error.errorCode);
             }
         });
         
-        debug("=== TORRENT STREAM EXOPLAYER ===");
+        debug("=== TORRENT STREAM EXOPLAYER v2 ===");
         
         streamServer = new StreamServer();
         try { streamServer.start(); debug("[SRV] ✅ HTTP:8080"); } 
         catch (Exception e) { debug("[SRV] ❌ " + e.getMessage()); }
         
         torrentEngine = new TorrentEngine(new TorrentEngine.EngineCallback() {
-            public void onReady() { debug("[ENG] ✅ Pronto"); }
+            public void onReady() { debug("[ENG] ✅"); }
             public void onError(String e) { debug("[ENG] ❌ " + e); }
             public void onProgress(TorrentInfo info) {
-                handler.post(() -> { 
-                    bufferBar.setProgress(info.progress); 
-                    statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s"); 
-                });
+                handler.post(() -> { bufferBar.setProgress(info.progress); statusText.setText(info.progress + "% | " + (info.speed/1024) + "KB/s"); });
             }
             public void onStreamReady(torrent_handle handle, String sp) {
                 File vf = findVideoFile(new File(sp));
-                if (vf != null) { 
-                    videoFile = vf; 
-                    streamServer.setVideoFile(vf); 
-                    streamServer.setTorrentInfo(handle); 
-                    debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)"); 
-                }
+                if (vf != null) { videoFile = vf; streamServer.setVideoFile(vf); streamServer.setTorrentInfo(handle); debug("[ENG] 📁 " + vf.getName() + " (" + (vf.length()/1048576) + "MB)"); }
                 debug("[ENG] ✅ STREAM READY");
-                handler.post(() -> { 
-                    spinnerBar.setVisibility(View.GONE); 
-                    btnWatch.setVisibility(View.VISIBLE); 
-                });
+                handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnWatch.setVisibility(View.VISIBLE); });
             }
             public void onStatus(String s) { debug("[ENG] " + s); }
             public void onLog(String log) { debug("[ENG] " + log); }
         });
         torrentEngine.start();
         
-        btnPlay.setOnClickListener(v -> { 
-            String m = magnetInput.getText().toString().trim(); 
-            if (!m.isEmpty()) startStream(m); 
-        });
-        btnTorrent.setOnClickListener(v -> { 
-            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); 
-            i.addCategory(Intent.CATEGORY_OPENABLE); 
-            i.setType("*/*"); 
-            startActivityForResult(i, PICK_TORRENT_FILE); 
-        });
+        btnPlay.setOnClickListener(v -> { String m = magnetInput.getText().toString().trim(); if (!m.isEmpty()) startStream(m); });
+        btnTorrent.setOnClickListener(v -> { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, PICK_TORRENT_FILE); });
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
         debug("📱 Pronto");
@@ -156,55 +132,85 @@ public class MainActivity extends AppCompatActivity {
             if (uri != null) try {
                 InputStream is = getContentResolver().openInputStream(uri);
                 File tf = new File(savePath, "torrent_file.torrent");
-                FileOutputStream fos = new FileOutputStream(tf); 
-                byte[] b = new byte[8192]; int l; 
-                while ((l = is.read(b)) > 0) fos.write(b, 0, l);
-                fos.close(); is.close(); 
-                startStream(tf.getAbsolutePath());
-            } catch (Exception e) { debug("❌ Erro: " + e.getMessage()); }
+                FileOutputStream fos = new FileOutputStream(tf); byte[] b = new byte[8192]; int l; while ((l = is.read(b)) > 0) fos.write(b, 0, l);
+                fos.close(); is.close(); startStream(tf.getAbsolutePath());
+            } catch (Exception e) { debug("❌ " + e.getMessage()); }
         }
     }
     
-    private void debug(String msg) { 
-        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; 
-        debugLog.append(line); 
-        handler.post(() -> debugText.setText(debugLog.toString())); 
-    }
+    private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; debugLog.append(line); handler.post(() -> debugText.setText(debugLog.toString())); }
     
     private File findVideoFile(File dir) {
         if (dir == null || !dir.exists()) return null;
-        File[] files = dir.listFiles(); 
-        if (files != null) for (File f : files) { 
-            if (f.isDirectory()) { File found = findVideoFile(f); if (found != null) return found; } 
-            else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) return f; 
-        }
+        File[] files = dir.listFiles(); if (files != null) for (File f : files) { if (f.isDirectory()) { File found = findVideoFile(f); if (found != null) return found; } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm|mov)$") && f.length() > 0) return f; }
         return null;
     }
     
-    private void startStream(String source) { 
-        bufferBar.setVisibility(View.VISIBLE); 
-        spinnerBar.setVisibility(View.VISIBLE); 
-        btnStop.setVisibility(View.VISIBLE); 
-        btnWatch.setVisibility(View.GONE); 
-        playerView.setVisibility(View.GONE); 
-        debugLog.setLength(0); 
-        torrentEngine.startDownload(source, savePath); 
-    }
+    private void startStream(String source) { bufferBar.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); btnStop.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); playerView.setVisibility(View.GONE); debugLog.setLength(0); torrentEngine.startDownload(source, savePath); }
     
     private void watch() {
-        if (videoFile == null || !videoFile.exists()) { 
-            debug("❌ Video nao encontrado. Path: " + savePath); 
-            return; 
-        }
+        if (videoFile == null || !videoFile.exists()) { debug("❌ Video nao encontrado"); return; }
         
         debug("══════════════════════════════════");
         debug("▶️ INICIANDO EXOPLAYER");
         debug("   Arquivo: " + videoFile.getAbsolutePath());
-        debug("   Tamanho: " + videoFile.length() + " bytes (" + (videoFile.length()/1048576) + "MB)");
-        debug("   Existe: " + videoFile.exists());
-        debug("   Pode ler: " + videoFile.canRead());
+        debug("   Tamanho: " + (videoFile.length()/1048576) + "MB");
         debug("   URL: http://127.0.0.1:8080/video");
         debug("   Server: " + streamServer.getStats());
+        
+        // TESTE DE CONEXÃO DETALHADO
+        new Thread(() -> {
+            // Teste 1: Socket
+            try {
+                java.net.Socket s = new java.net.Socket("127.0.0.1", 8080);
+                debug("   ✅ Teste Socket: OK");
+                s.close();
+            } catch (Exception e) {
+                debug("   ❌ Teste Socket FALHOU: " + e.getMessage());
+            }
+            
+            // Teste 2: HTTP
+            try {
+                java.net.HttpURLConnection conn = (java.net.HttpURLConnection) 
+                    new java.net.URL("http://127.0.0.1:8080/video").openConnection();
+                conn.setRequestMethod("GET");
+                conn.setRequestProperty("Range", "bytes=0-1023");
+                conn.setConnectTimeout(5000);
+                conn.setReadTimeout(5000);
+                conn.connect();
+                int code = conn.getResponseCode();
+                String type = conn.getContentType();
+                long len = conn.getContentLength();
+                String range = conn.getHeaderField("Content-Range");
+                debug("   ✅ Teste HTTP: " + code + " Type:" + type + " Len:" + len);
+                debug("   Content-Range: " + range);
+                
+                InputStream is = conn.getInputStream();
+                byte[] buf = new byte[1024];
+                int read = is.read(buf);
+                is.close();
+                debug("   Bytes lidos: " + read);
+                if (read > 4) {
+                    debug("   Magic: " + String.format("0x%02X 0x%02X 0x%02X 0x%02X", 
+                        buf[0] & 0xFF, buf[1] & 0xFF, buf[2] & 0xFF, buf[3] & 0xFF));
+                }
+                conn.disconnect();
+            } catch (Exception e) {
+                debug("   ❌ Teste HTTP FALHOU: " + e.getClass().getSimpleName() + " - " + e.getMessage());
+            }
+            
+            // Teste 3: Acesso direto ao arquivo
+            try {
+                RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
+                byte[] buf = new byte[1024];
+                raf.read(buf);
+                raf.close();
+                debug("   ✅ Acesso direto ao arquivo: OK");
+            } catch (Exception e) {
+                debug("   ❌ Acesso direto FALHOU: " + e.getMessage());
+            }
+        }).start();
+        
         debug("══════════════════════════════════");
         
         handler.post(() -> {
@@ -216,36 +222,18 @@ public class MainActivity extends AppCompatActivity {
             MediaItem mediaItem = MediaItem.fromUri(videoUri);
             
             DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(60000)
-                .setAllowCrossProtocolRedirects(true);
+                .setConnectTimeoutMs(15000).setReadTimeoutMs(60000).setAllowCrossProtocolRedirects(true);
             
-            ProgressiveMediaSource.Factory mediaSourceFactory = 
-                new ProgressiveMediaSource.Factory(dataSourceFactory);
+            ProgressiveMediaSource.Factory mediaSourceFactory = new ProgressiveMediaSource.Factory(dataSourceFactory);
             
             exoPlayer.setMediaSource(mediaSourceFactory.createMediaSource(mediaItem));
             exoPlayer.prepare();
             exoPlayer.setPlayWhenReady(true);
             
-            debug("✅ ExoPlayer.prepare() chamado");
+            debug("✅ prepare() chamado");
         });
     }
     
-    private void stop() { 
-        debug("⏹ Parado");
-        torrentEngine.stop(); 
-        if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); } 
-        playerView.setVisibility(View.GONE); 
-        btnStop.setVisibility(View.GONE); 
-        btnWatch.setVisibility(View.GONE); 
-        bufferBar.setVisibility(View.GONE); 
-        spinnerBar.setVisibility(View.GONE); 
-    }
-    
-    @Override protected void onDestroy() { 
-        stop(); 
-        if (streamServer != null) streamServer.stop(); 
-        if (exoPlayer != null) exoPlayer.release(); 
-        super.onDestroy(); 
-    }
+    private void stop() { debug("⏹"); torrentEngine.stop(); if (exoPlayer != null) { exoPlayer.stop(); exoPlayer.clearMediaItems(); } playerView.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); }
+    @Override protected void onDestroy() { stop(); if (streamServer != null) streamServer.stop(); if (exoPlayer != null) exoPlayer.release(); super.onDestroy(); }
 }
