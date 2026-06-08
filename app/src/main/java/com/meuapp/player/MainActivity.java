@@ -35,6 +35,10 @@ public class MainActivity extends AppCompatActivity {
     private EditText magnetInput;
     private Button btnPlay, btnTorrent, btnStop, btnWatch;
     
+    // Controles do player
+    private LinearLayout playerControls;
+    private Button btnPause, btnSeekBack, btnSeekForward, btnAudio, btnSubtitle;
+    
     private String savePath;
     private SessionManager session;
     private TorrentHandle torrentHandle;
@@ -46,6 +50,7 @@ public class MainActivity extends AppCompatActivity {
     private long videoStartTime = 0;
     private boolean surfaceReady = false;
     private String pendingUrl = null;
+    private boolean isPlaying = false;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     private StringBuilder debugLog = new StringBuilder();
     private static final int PICK_TORRENT = 100;
@@ -65,6 +70,14 @@ public class MainActivity extends AppCompatActivity {
         btnTorrent = findViewById(R.id.btn_torrent);
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
+        
+        // Controles do player
+        playerControls = findViewById(R.id.player_controls);
+        btnPause = findViewById(R.id.btn_pause);
+        btnSeekBack = findViewById(R.id.btn_seek_back);
+        btnSeekForward = findViewById(R.id.btn_seek_forward);
+        btnAudio = findViewById(R.id.btn_audio);
+        btnSubtitle = findViewById(R.id.btn_subtitle);
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
@@ -93,7 +106,21 @@ public class MainActivity extends AppCompatActivity {
                 switch (event.type) {
                     case MediaPlayer.Event.Playing:
                         debug("[VLC] ▶ Playing");
-                        handler.post(() -> spinnerBar.setVisibility(View.GONE));
+                        isPlaying = true;
+                        handler.post(() -> { 
+                            spinnerBar.setVisibility(View.GONE);
+                            btnPause.setText("⏸");
+                        });
+                        break;
+                    case MediaPlayer.Event.Paused:
+                        debug("[VLC] ⏸ Paused");
+                        isPlaying = false;
+                        handler.post(() -> btnPause.setText("▶"));
+                        break;
+                    case MediaPlayer.Event.Stopped:
+                        debug("[VLC] ⏹ Stopped");
+                        isPlaying = false;
+                        handler.post(() -> btnPause.setText("▶"));
                         break;
                     case MediaPlayer.Event.Buffering:
                         debug("[VLC] Buffering " + event.getBuffering() + "%");
@@ -101,6 +128,58 @@ public class MainActivity extends AppCompatActivity {
                     case MediaPlayer.Event.EncounteredError:
                         debug("[VLC] ❌ ERRO!");
                         break;
+                }
+            }
+        });
+        
+        // Eventos dos botões de controle
+        btnPause.setOnClickListener(v -> {
+            if (vlcPlayer != null) {
+                if (isPlaying) vlcPlayer.pause();
+                else vlcPlayer.play();
+            }
+        });
+        
+        btnSeekBack.setOnClickListener(v -> {
+            if (vlcPlayer != null && vlcPlayer.getLength() > 0) {
+                long newTime = vlcPlayer.getTime() - 10000; // -10 segundos
+                vlcPlayer.setTime(Math.max(0, newTime));
+                debug("⏪ -10s");
+            }
+        });
+        
+        btnSeekForward.setOnClickListener(v -> {
+            if (vlcPlayer != null && vlcPlayer.getLength() > 0) {
+                long newTime = vlcPlayer.getTime() + 10000; // +10 segundos
+                vlcPlayer.setTime(Math.min(vlcPlayer.getLength(), newTime));
+                debug("⏩ +10s");
+            }
+        });
+        
+        btnAudio.setOnClickListener(v -> {
+            if (vlcPlayer != null) {
+                int track = vlcPlayer.getAudioTrack();
+                int count = vlcPlayer.getAudioTracksCount();
+                if (count > 0) {
+                    int newTrack = (track + 1) % count;
+                    vlcPlayer.setAudioTrack(newTrack);
+                    debug("🎵 Áudio: " + newTrack + "/" + count);
+                    Toast.makeText(this, "🎵 Áudio " + (newTrack+1) + "/" + count, Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        
+        btnSubtitle.setOnClickListener(v -> {
+            if (vlcPlayer != null) {
+                int track = vlcPlayer.getSpuTrack();
+                int count = vlcPlayer.getSpuTracksCount();
+                if (count > 0) {
+                    int newTrack = (track + 1) % count;
+                    vlcPlayer.setSpuTrack(newTrack);
+                    debug("📝 Legenda: " + newTrack + "/" + count);
+                    Toast.makeText(this, "📝 Legenda " + (newTrack+1) + "/" + count, Toast.LENGTH_SHORT).show();
+                } else {
+                    Toast.makeText(this, "📝 Sem legendas", Toast.LENGTH_SHORT).show();
                 }
             }
         });
@@ -143,9 +222,13 @@ public class MainActivity extends AppCompatActivity {
             media.addOption(":http-reconnect");
             media.addOption(":file-caching=2000");
             vlcPlayer.setMedia(media); media.release(); vlcPlayer.play();
+            
+            handler.post(() -> playerControls.setVisibility(View.VISIBLE));
             debug("[VLC] ✅ Playing");
         } catch (Exception e) { debug("[VLC] ❌ " + e.getMessage()); }
     }
+    
+    // ... (resto do código igual ao anterior: onActivityResult, debug, startServer, handleHttp, start, startDownload, watch, stop, find, onDestroy)
     
     @Override protected void onActivityResult(int r, int res, Intent data) {
         super.onActivityResult(r, res, data);
@@ -248,9 +331,26 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
     
-    private void watch() { if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } debug("▶️ VLC: " + videoFile.getName()); handler.post(() -> { videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); spinnerBar.setVisibility(View.VISIBLE); playWithVlc("http://127.0.0.1:8080/video"); }); }
+    private void watch() { 
+        if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } 
+        debug("▶️ VLC: " + videoFile.getName()); 
+        handler.post(() -> { 
+            videoSurface.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE); 
+            spinnerBar.setVisibility(View.VISIBLE); 
+            playWithVlc("http://127.0.0.1:8080/video"); 
+        }); 
+    }
     
-    private void stop() { downloading = false; if (vlcPlayer != null) vlcPlayer.stop(); videoSurface.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; } }
+    private void stop() { 
+        downloading = false; 
+        if (vlcPlayer != null) vlcPlayer.stop(); 
+        videoSurface.setVisibility(View.GONE); 
+        playerControls.setVisibility(View.GONE);
+        btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); 
+        bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); 
+        if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; } 
+    }
     
     private File find(File dir) { File[] files = dir.listFiles(); if (files != null) for (File f : files) { if (f.isDirectory()) { File found = find(f); if (found != null) return found; } else if (f.getName().endsWith(".mp4") || f.getName().endsWith(".mkv") || f.getName().endsWith(".avi") || f.getName().endsWith(".webm")) return f; } return null; }
     
