@@ -6,25 +6,27 @@
     android:background="#0a0a1a"
     android:padding="8dp">
     
-    <!-- Player -->
+    <!-- Player menor e centralizado -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="45"
+        android:layout_weight="38"
         android:layout_marginBottom="8dp"
         android:background="@drawable/glass_bg"
-        android:elevation="8dp">
+        android:elevation="8dp"
+        android:padding="4dp">
         
         <SurfaceView
             android:id="@+id/video_surface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_gravity="center"
             android:visibility="gone" />
         
         <ProgressBar
             android:id="@+id/spinner_bar"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
+            android:layout_width="28dp"
+            android:layout_height="28dp"
             android:layout_gravity="center"
             android:indeterminateTint="#6c5ce7"
             android:visibility="gone" />
@@ -34,10 +36,10 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="15"
+        android:layout_weight="17"
         android:orientation="vertical"
         android:background="@drawable/glass_bg"
-        android:padding="12dp"
+        android:padding="10dp"
         android:layout_marginBottom="8dp"
         android:elevation="8dp">
         
@@ -47,10 +49,12 @@
             android:layout_height="wrap_content"
             android:text="🎬 Torrent Stream"
             android:textColor="#FFFFFF"
-            android:textSize="14sp"
+            android:textSize="13sp"
             android:textStyle="bold"
             android:letterSpacing="0.5"
-            android:layout_marginBottom="4dp" />
+            android:layout_marginBottom="4dp"
+            android:singleLine="true"
+            android:ellipsize="end" />
         
         <ProgressBar
             android:id="@+id/buffer_bar"
@@ -60,7 +64,7 @@
             android:progressTint="#6c5ce7"
             android:progressBackgroundTint="#33FFFFFF"
             android:visibility="gone"
-            android:layout_marginBottom="8dp" />
+            android:layout_marginBottom="6dp" />
         
         <LinearLayout
             android:layout_width="match_parent"
@@ -70,37 +74,37 @@
             <EditText
                 android:id="@+id/magnet_input"
                 android:layout_width="0dp"
-                android:layout_height="40dp"
+                android:layout_height="38dp"
                 android:layout_weight="1"
                 android:background="@drawable/input_bg"
                 android:hint="Colar magnet link..."
                 android:textColorHint="#80FFFFFF"
                 android:inputType="textMultiLine"
-                android:padding="10dp"
+                android:padding="8dp"
                 android:textColor="#FFFFFF"
-                android:textSize="11sp" />
+                android:textSize="10sp" />
             
             <Button
                 android:id="@+id/btn_play"
-                android:layout_width="44dp"
-                android:layout_height="40dp"
+                android:layout_width="40dp"
+                android:layout_height="38dp"
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
                 android:text="GO"
                 android:textColor="#fff"
                 android:textStyle="bold"
-                android:textSize="11sp"
+                android:textSize="10sp"
                 android:elevation="4dp" />
             
             <Button
                 android:id="@+id/btn_torrent"
-                android:layout_width="44dp"
-                android:layout_height="40dp"
+                android:layout_width="40dp"
+                android:layout_height="38dp"
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
                 android:text="📁"
                 android:textColor="#fff"
-                android:textSize="16sp"
+                android:textSize="14sp"
                 android:elevation="4dp" />
         </LinearLayout>
         
@@ -108,32 +112,32 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginTop="8dp">
+            android:layout_marginTop="6dp">
             
             <Button
                 android:id="@+id/btn_watch"
                 android:layout_width="0dp"
-                android:layout_height="38dp"
+                android:layout_height="34dp"
                 android:layout_weight="1"
                 android:background="@drawable/btn_success"
                 android:text="▶ ASSISTIR"
                 android:textColor="#fff"
                 android:textStyle="bold"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:visibility="gone"
                 android:elevation="4dp" />
             
             <Button
                 android:id="@+id/btn_stop"
                 android:layout_width="0dp"
-                android:layout_height="38dp"
+                android:layout_height="34dp"
                 android:layout_weight="1"
-                android:layout_marginStart="6dp"
+                android:layout_marginStart="4dp"
                 android:background="@drawable/btn_danger"
                 android:text="⏹ PARAR"
                 android:textColor="#fff"
                 android:textStyle="bold"
-                android:textSize="12sp"
+                android:textSize="11sp"
                 android:visibility="gone"
                 android:elevation="4dp" />
         </LinearLayout>
@@ -143,7 +147,7 @@
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="40"
+        android:layout_weight="45"
         android:background="@drawable/glass_bg"
         android:elevation="8dp">
         
@@ -153,9 +157,9 @@
             android:layout_height="wrap_content"
             android:text="Logs:"
             android:textColor="#AAFFFFFF"
-            android:textSize="10sp"
+            android:textSize="9sp"
             android:fontFamily="monospace"
-            android:padding="8dp" />
+            android:padding="6dp" />
     </ScrollView>
     
 </LinearLayout>
