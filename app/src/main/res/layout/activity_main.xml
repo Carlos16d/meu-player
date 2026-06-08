@@ -1,23 +1,27 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="#0a0a0f"
     android:padding="6dp">
     
-    <!-- Player VLC com SurfaceView -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="45"
         android:background="#000000">
         
-        <SurfaceView
-            android:id="@+id/video_surface"
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/player_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="gone" />
+            android:visibility="gone"
+            app:show_buffering="when_playing"
+            app:use_controller="true"
+            app:surface_type="texture_view"
+            app:resize_mode="fit" />
         
         <ProgressBar
             android:id="@+id/spinner_bar"
@@ -28,7 +32,6 @@
             android:visibility="gone" />
     </FrameLayout>
     
-    <!-- Painel de controle -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -56,7 +59,6 @@
             android:progressBackgroundTint="#33ffffff"
             android:visibility="gone" />
         
-        <!-- Linha: Input + Botões GO e 📁 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -98,7 +100,6 @@
                 android:textSize="14sp" />
         </LinearLayout>
         
-        <!-- Linha: Botões ASSISTIR e PARAR -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -132,7 +133,6 @@
         </LinearLayout>
     </LinearLayout>
     
-    <!-- Logs -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
