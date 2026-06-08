@@ -30,14 +30,15 @@ public class MainActivity extends AppCompatActivity {
     private SurfaceHolder surfaceHolder;
     private LibVLC libVLC;
     private MediaPlayer vlcPlayer;
-    private TextView statusText, debugText;
+    private TextView statusText, debugText, timeText;
     private ProgressBar bufferBar, spinnerBar;
     private EditText magnetInput;
     private Button btnPlay, btnTorrent, btnStop, btnWatch;
     
-    // Controles do player
-    private LinearLayout playerControls;
-    private Button btnPause, btnSeekBack, btnSeekForward, btnAudio, btnSubtitle;
+    private LinearLayout playerControls, centerControls, audioMenu, subtitleMenu;
+    private Button btnPlayPause, btnSeekBack, btnSeekForward, btnAudio, btnSubtitle;
+    private SeekBar seekBar;
+    private boolean isTracking = false;
     
     private String savePath;
     private SessionManager session;
@@ -46,14 +47,13 @@ public class MainActivity extends AppCompatActivity {
     private volatile File videoFile;
     private Handler handler;
     private Thread serverThread;
-    private long lastSeekTime = 0;
-    private long videoStartTime = 0;
-    private boolean surfaceReady = false;
+    private long lastSeekTime = 0, videoStartTime = 0;
+    private boolean surfaceReady = false, isPlaying = false;
     private String pendingUrl = null;
-    private boolean isPlaying = false;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     private StringBuilder debugLog = new StringBuilder();
     private static final int PICK_TORRENT = 100;
+    private Runnable timeUpdater;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -63,6 +63,7 @@ public class MainActivity extends AppCompatActivity {
         videoSurface = findViewById(R.id.video_surface);
         statusText = findViewById(R.id.status_text);
         debugText = findViewById(R.id.debug_text);
+        timeText = findViewById(R.id.time_text);
         bufferBar = findViewById(R.id.buffer_bar);
         spinnerBar = findViewById(R.id.spinner_bar);
         magnetInput = findViewById(R.id.magnet_input);
@@ -71,164 +72,134 @@ public class MainActivity extends AppCompatActivity {
         btnStop = findViewById(R.id.btn_stop);
         btnWatch = findViewById(R.id.btn_watch);
         
-        // Controles do player
         playerControls = findViewById(R.id.player_controls);
-        btnPause = findViewById(R.id.btn_pause);
+        centerControls = findViewById(R.id.center_controls);
+        btnPlayPause = findViewById(R.id.btn_play_pause);
         btnSeekBack = findViewById(R.id.btn_seek_back);
         btnSeekForward = findViewById(R.id.btn_seek_forward);
         btnAudio = findViewById(R.id.btn_audio);
         btnSubtitle = findViewById(R.id.btn_subtitle);
+        seekBar = findViewById(R.id.seek_bar);
+        audioMenu = findViewById(R.id.audio_menu);
+        subtitleMenu = findViewById(R.id.subtitle_menu);
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
+        timeUpdater = new Runnable() {
+            @Override public void run() {
+                if (vlcPlayer != null && isPlaying) {
+                    timeText.setText(formatTime(vlcPlayer.getTime()) + " / " + formatTime(vlcPlayer.getLength()));
+                    if (!isTracking) seekBar.setProgress(vlcPlayer.getLength() > 0 ? (int)(vlcPlayer.getTime() * 100 / vlcPlayer.getLength()) : 0);
+                }
+                handler.postDelayed(this, 500);
+            }
+        };
+        
         videoSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
-            @Override public void surfaceCreated(SurfaceHolder holder) {
-                surfaceHolder = holder; surfaceReady = true;
-                if (pendingUrl != null) { playWithVlc(pendingUrl); pendingUrl = null; }
-            }
-            @Override public void surfaceChanged(SurfaceHolder holder, int f, int w, int h) {}
-            @Override public void surfaceDestroyed(SurfaceHolder holder) {
-                surfaceReady = false; surfaceHolder = null;
-            }
+            @Override public void surfaceCreated(SurfaceHolder h) { surfaceHolder = h; surfaceReady = true; if (pendingUrl != null) { playWithVlc(pendingUrl); pendingUrl = null; } }
+            @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h2) {}
+            @Override public void surfaceDestroyed(SurfaceHolder h) { surfaceReady = false; surfaceHolder = null; }
         });
         
-        ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=3000");
-        options.add("--http-reconnect");
-        options.add("--file-caching=2000");
-        libVLC = new LibVLC(this, options);
+        libVLC = new LibVLC(this, Arrays.asList("--network-caching=3000", "--http-reconnect", "--file-caching=2000"));
         vlcPlayer = new MediaPlayer(libVLC);
         
-        vlcPlayer.setEventListener(new MediaPlayer.EventListener() {
-            @Override public void onEvent(MediaPlayer.Event event) {
-                switch (event.type) {
-                    case MediaPlayer.Event.Playing:
-                        debug("[VLC] ▶ Playing");
-                        isPlaying = true;
-                        handler.post(() -> { 
-                            spinnerBar.setVisibility(View.GONE);
-                            btnPause.setText("⏸");
-                        });
-                        break;
-                    case MediaPlayer.Event.Paused:
-                        debug("[VLC] ⏸ Paused");
-                        isPlaying = false;
-                        handler.post(() -> btnPause.setText("▶"));
-                        break;
-                    case MediaPlayer.Event.Stopped:
-                        debug("[VLC] ⏹ Stopped");
-                        isPlaying = false;
-                        handler.post(() -> btnPause.setText("▶"));
-                        break;
-                    case MediaPlayer.Event.Buffering:
-                        debug("[VLC] Buffering " + event.getBuffering() + "%");
-                        break;
-                    case MediaPlayer.Event.EncounteredError:
-                        debug("[VLC] ❌ ERRO!");
-                        break;
-                }
+        vlcPlayer.setEventListener(event -> {
+            switch (event.type) {
+                case MediaPlayer.Event.Playing: isPlaying = true; handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); handler.post(timeUpdater); }); break;
+                case MediaPlayer.Event.Paused: isPlaying = false; handler.post(() -> { btnPlayPause.setText("▶"); handler.removeCallbacks(timeUpdater); }); break;
+                case MediaPlayer.Event.Stopped: isPlaying = false; handler.post(() -> { btnPlayPause.setText("▶"); handler.removeCallbacks(timeUpdater); }); break;
             }
         });
         
-        // Eventos dos botões de controle
-        btnPause.setOnClickListener(v -> {
-            if (vlcPlayer != null) {
-                if (isPlaying) vlcPlayer.pause();
-                else vlcPlayer.play();
-            }
+        btnPlayPause.setOnClickListener(v -> { if (vlcPlayer != null) { if (isPlaying) vlcPlayer.pause(); else vlcPlayer.play(); } });
+        btnSeekBack.setOnClickListener(v -> { if (vlcPlayer != null && vlcPlayer.getLength() > 0) vlcPlayer.setTime(Math.max(0, vlcPlayer.getTime() - 10000)); });
+        btnSeekForward.setOnClickListener(v -> { if (vlcPlayer != null && vlcPlayer.getLength() > 0) vlcPlayer.setTime(Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + 10000)); });
+        
+        seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user && vlcPlayer != null) vlcPlayer.setTime((long)(vlcPlayer.getLength() * p / 100.0)); }
+            @Override public void onStartTrackingTouch(SeekBar s) { isTracking = true; }
+            @Override public void onStopTrackingTouch(SeekBar s) { isTracking = false; }
         });
         
-        btnSeekBack.setOnClickListener(v -> {
-            if (vlcPlayer != null && vlcPlayer.getLength() > 0) {
-                long newTime = vlcPlayer.getTime() - 10000; // -10 segundos
-                vlcPlayer.setTime(Math.max(0, newTime));
-                debug("⏪ -10s");
-            }
-        });
+        btnAudio.setOnClickListener(v -> toggleAudioMenu());
+        btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        btnSeekForward.setOnClickListener(v -> {
-            if (vlcPlayer != null && vlcPlayer.getLength() > 0) {
-                long newTime = vlcPlayer.getTime() + 10000; // +10 segundos
-                vlcPlayer.setTime(Math.min(vlcPlayer.getLength(), newTime));
-                debug("⏩ +10s");
-            }
-        });
-        
-        btnAudio.setOnClickListener(v -> {
-            if (vlcPlayer != null) {
-                int track = vlcPlayer.getAudioTrack();
-                int count = vlcPlayer.getAudioTracksCount();
-                if (count > 0) {
-                    int newTrack = (track + 1) % count;
-                    vlcPlayer.setAudioTrack(newTrack);
-                    debug("🎵 Áudio: " + newTrack + "/" + count);
-                    Toast.makeText(this, "🎵 Áudio " + (newTrack+1) + "/" + count, Toast.LENGTH_SHORT).show();
-                }
-            }
-        });
-        
-        btnSubtitle.setOnClickListener(v -> {
-            if (vlcPlayer != null) {
-                int track = vlcPlayer.getSpuTrack();
-                int count = vlcPlayer.getSpuTracksCount();
-                if (count > 0) {
-                    int newTrack = (track + 1) % count;
-                    vlcPlayer.setSpuTrack(newTrack);
-                    debug("📝 Legenda: " + newTrack + "/" + count);
-                    Toast.makeText(this, "📝 Legenda " + (newTrack+1) + "/" + count, Toast.LENGTH_SHORT).show();
-                } else {
-                    Toast.makeText(this, "📝 Sem legendas", Toast.LENGTH_SHORT).show();
-                }
-            }
-        });
-        
-        debug("=== TORRENT STREAM VLC ===");
-        
-        new Thread(() -> {
-            try { session = new SessionManager(); session.start(); debug("✅ OK"); } 
-            catch (Exception e) { debug("❌ " + e.getMessage()); }
-        }).start();
-        
+        debug("=== TORRENT STREAM VLC PRO ===");
+        new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ OK"); } catch (Exception e) { debug("❌ " + e.getMessage()); } }).start();
         startServer();
         
         btnPlay.setOnClickListener(v -> start());
-        btnTorrent.setOnClickListener(v -> {
-            Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-            i.addCategory(Intent.CATEGORY_OPENABLE);
-            i.setType("*/*");
-            startActivityForResult(i, PICK_TORRENT);
-        });
+        btnTorrent.setOnClickListener(v -> { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, PICK_TORRENT); });
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
-        
         debug("📱 Pronto");
     }
     
-    private void playWithVlc(String url) {
-        if (!surfaceReady || surfaceHolder == null) {
-            pendingUrl = url;
-            return;
+    private void toggleAudioMenu() {
+        if (vlcPlayer == null) return;
+        int count = vlcPlayer.getAudioTracksCount();
+        int current = vlcPlayer.getAudioTrack();
+        audioMenu.removeAllViews();
+        for (int i = 0; i < count; i++) {
+            TextView tv = new TextView(this);
+            tv.setText("🎵 Áudio " + (i+1) + (i == current ? " ✓" : ""));
+            tv.setTextColor(i == current ? 0xFF6c5ce7 : 0xFFFFFFFF);
+            tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
+            final int idx = i;
+            tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(idx); audioMenu.setVisibility(View.GONE); });
+            audioMenu.addView(tv);
         }
+        audioMenu.setVisibility(audioMenu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        subtitleMenu.setVisibility(View.GONE);
+    }
+    
+    private void toggleSubtitleMenu() {
+        if (vlcPlayer == null) return;
+        int count = vlcPlayer.getSpuTracksCount();
+        int current = vlcPlayer.getSpuTrack();
+        subtitleMenu.removeAllViews();
+        
+        TextView off = new TextView(this);
+        off.setText("📝 Desligado" + (current == -1 ? " ✓" : ""));
+        off.setTextColor(current == -1 ? 0xFF6c5ce7 : 0xFFFFFFFF);
+        off.setTextSize(12); off.setPadding(16, 12, 16, 12);
+        off.setOnClickListener(v -> { vlcPlayer.setSpuTrack(-1); subtitleMenu.setVisibility(View.GONE); });
+        subtitleMenu.addView(off);
+        
+        for (int i = 0; i < count; i++) {
+            TextView tv = new TextView(this);
+            tv.setText("📝 Legenda " + (i+1) + (i == current ? " ✓" : ""));
+            tv.setTextColor(i == current ? 0xFF6c5ce7 : 0xFFFFFFFF);
+            tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
+            final int idx = i;
+            tv.setOnClickListener(v -> { vlcPlayer.setSpuTrack(idx); subtitleMenu.setVisibility(View.GONE); });
+            subtitleMenu.addView(tv);
+        }
+        subtitleMenu.setVisibility(subtitleMenu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        audioMenu.setVisibility(View.GONE);
+    }
+    
+    private String formatTime(long ms) {
+        if (ms < 0) return "0:00";
+        int s = (int)(ms / 1000); int m = s / 60; s = s % 60;
+        return m + ":" + (s < 10 ? "0" : "") + s;
+    }
+    
+    private void playWithVlc(String url) {
+        if (!surfaceReady || surfaceHolder == null) { pendingUrl = url; return; }
         try {
             vlcPlayer.getVLCVout().setVideoSurface(surfaceHolder.getSurface(), null);
             vlcPlayer.getVLCVout().setWindowSize(videoSurface.getWidth(), videoSurface.getHeight());
             vlcPlayer.getVLCVout().attachViews();
-            
-            Media media = new Media(libVLC, Uri.parse(url));
-            media.setHWDecoderEnabled(true, true);
-            media.addOption(":network-caching=3000");
-            media.addOption(":http-reconnect");
-            media.addOption(":file-caching=2000");
-            vlcPlayer.setMedia(media); media.release(); vlcPlayer.play();
-            
-            handler.post(() -> playerControls.setVisibility(View.VISIBLE));
-            debug("[VLC] ✅ Playing");
+            Media m = new Media(libVLC, Uri.parse(url)); m.setHWDecoderEnabled(true, true);
+            m.addOption(":network-caching=3000"); m.addOption(":http-reconnect"); m.addOption(":file-caching=2000");
+            vlcPlayer.setMedia(m); m.release(); vlcPlayer.play();
+            handler.post(() -> { playerControls.setVisibility(View.VISIBLE); centerControls.setVisibility(View.VISIBLE); });
         } catch (Exception e) { debug("[VLC] ❌ " + e.getMessage()); }
     }
-    
-    // ... (resto do código igual ao anterior: onActivityResult, debug, startServer, handleHttp, start, startDownload, watch, stop, find, onDestroy)
     
     @Override protected void onActivityResult(int r, int res, Intent data) {
         super.onActivityResult(r, res, data);
@@ -244,24 +215,16 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    private void debug(String msg) {
-        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n";
-        Log.d("TS", msg); debugLog.append(line);
-        handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); });
-    }
+    private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; Log.d("TS", msg); debugLog.append(line); handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); }
     
     private void startServer() {
         serverThread = new Thread(() -> {
             try {
-                ServerSocket server = new ServerSocket(8080, 10);
-                server.setReuseAddress(true);
-                while (!Thread.interrupted()) {
-                    try { Socket client = server.accept(); new Thread(() -> handleHttp(client)).start(); } catch (IOException e) {}
-                }
+                ServerSocket server = new ServerSocket(8080, 10); server.setReuseAddress(true);
+                while (!Thread.interrupted()) { try { Socket c = server.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {} }
                 server.close();
             } catch (IOException e) {}
-        });
-        serverThread.setDaemon(true); serverThread.start();
+        }); serverThread.setDaemon(true); serverThread.start();
     }
     
     private void handleHttp(Socket client) {
@@ -291,7 +254,7 @@ public class MainActivity extends AppCompatActivity {
                 long now = System.currentTimeMillis();
                 if ((videoStartTime == 0 || now - videoStartTime > 5000) && now - lastSeekTime > 3000) {
                     lastSeekTime = now;
-                    try { if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) { TorrentInfo ti = torrentHandle.torrentFile(); int pl = ti.pieceLength(), np = ti.numPieces(); int tp = (int)(rs / pl); int rss = Math.max(0, tp-2), ree = Math.min(tp+7, np-1); torrentHandle.setSequentialRange(rss, ree); for (int i = 0; i < np; i++) torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE); for (int i = rss; i <= ree; i++) { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY); torrentHandle.setPieceDeadline(i, 300); } debug("🔥 SEEK: " + (rs/1048576) + "MB"); } } catch (Exception e) {}
+                    try { if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) { TorrentInfo ti = torrentHandle.torrentFile(); int pl = ti.pieceLength(), np = ti.numPieces(); int tp = (int)(rs / pl); int rss = Math.max(0, tp-2), ree = Math.min(tp+7, np-1); torrentHandle.setSequentialRange(rss, ree); for (int i = 0; i < np; i++) torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE); for (int i = rss; i <= ree; i++) { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY); torrentHandle.setPieceDeadline(i, 300); } } } catch (Exception e) {}
                 }
             }
             
@@ -331,26 +294,9 @@ public class MainActivity extends AppCompatActivity {
         }).start();
     }
     
-    private void watch() { 
-        if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } 
-        debug("▶️ VLC: " + videoFile.getName()); 
-        handler.post(() -> { 
-            videoSurface.setVisibility(View.VISIBLE); 
-            btnWatch.setVisibility(View.GONE); 
-            spinnerBar.setVisibility(View.VISIBLE); 
-            playWithVlc("http://127.0.0.1:8080/video"); 
-        }); 
-    }
+    private void watch() { if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } debug("▶️ VLC: " + videoFile.getName()); handler.post(() -> { videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); spinnerBar.setVisibility(View.VISIBLE); playWithVlc("http://127.0.0.1:8080/video"); }); }
     
-    private void stop() { 
-        downloading = false; 
-        if (vlcPlayer != null) vlcPlayer.stop(); 
-        videoSurface.setVisibility(View.GONE); 
-        playerControls.setVisibility(View.GONE);
-        btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); 
-        bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); 
-        if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; } 
-    }
+    private void stop() { downloading = false; if (vlcPlayer != null) vlcPlayer.stop(); videoSurface.setVisibility(View.GONE); playerControls.setVisibility(View.GONE); centerControls.setVisibility(View.GONE); audioMenu.setVisibility(View.GONE); subtitleMenu.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); handler.removeCallbacks(timeUpdater); if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; } }
     
     private File find(File dir) { File[] files = dir.listFiles(); if (files != null) for (File f : files) { if (f.isDirectory()) { File found = find(f); if (found != null) return found; } else if (f.getName().endsWith(".mp4") || f.getName().endsWith(".mkv") || f.getName().endsWith(".avi") || f.getName().endsWith(".webm")) return f; } return null; }
     
