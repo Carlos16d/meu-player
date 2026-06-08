@@ -1,54 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
     android:background="#0a0a0f"
     android:padding="6dp">
     
-    <!-- Player -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="45"
         android:background="#000000">
         
-        <androidx.media3.ui.PlayerView
-            android:id="@+id/player_view"
+        <WebView
+            android:id="@+id/webview"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:visibility="gone"
-            app:show_buffering="when_playing"
-            app:use_controller="true"
-            app:surface_type="texture_view"
-            app:resize_mode="fit" />
+            android:visibility="gone" />
         
-        <FrameLayout
-            android:id="@+id/loading_overlay"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone"
-            android:background="#80000000">
-            
-            <ProgressBar
-                android:id="@+id/spinner_bar"
-                android:layout_width="32dp"
-                android:layout_height="32dp"
-                android:layout_gravity="center"
-                android:indeterminateTint="#6c5ce7" />
-        </FrameLayout>
+        <ProgressBar
+            android:id="@+id/spinner_bar"
+            android:layout_width="32dp"
+            android:layout_height="32dp"
+            android:layout_gravity="center"
+            android:indeterminateTint="#6c5ce7"
+            android:visibility="gone" />
     </FrameLayout>
     
-    <!-- Controles -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="15"
         android:orientation="vertical"
         android:background="#1a1a2e"
-        android:padding="4dp"
-        android:layout_marginTop="2dp">
+        android:padding="4dp">
         
         <TextView
             android:id="@+id/status_text"
@@ -56,8 +41,7 @@
             android:layout_height="wrap_content"
             android:text="Pronto"
             android:textColor="#fff"
-            android:textSize="11sp"
-            android:layout_marginBottom="2dp" />
+            android:textSize="11sp" />
         
         <ProgressBar
             android:id="@+id/buffer_bar"
@@ -82,7 +66,6 @@
                 android:background="@drawable/input_bg"
                 android:hint="Magnet link..."
                 android:textColorHint="#667788"
-                android:inputType="textMultiLine"
                 android:padding="6dp"
                 android:textColor="#fff"
                 android:textSize="10sp" />
@@ -95,18 +78,7 @@
                 android:background="@drawable/btn_primary"
                 android:text="GO"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="11sp" />
-            
-            <Button
-                android:id="@+id/btn_torrent"
-                android:layout_width="40dp"
-                android:layout_height="36dp"
-                android:layout_marginStart="2dp"
-                android:background="@drawable/btn_primary"
-                android:text="📁"
-                android:textColor="#fff"
-                android:textSize="14sp" />
         </LinearLayout>
         
         <LinearLayout
@@ -123,7 +95,6 @@
                 android:background="@drawable/btn_success"
                 android:text="▶ ASSISTIR"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="11sp"
                 android:visibility="gone" />
             
@@ -136,15 +107,12 @@
                 android:background="@drawable/btn_danger"
                 android:text="⏹ PARAR"
                 android:textColor="#fff"
-                android:textStyle="bold"
                 android:textSize="11sp"
                 android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
     
-    <!-- Logs -->
     <ScrollView
-        android:id="@+id/log_scroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="40"
