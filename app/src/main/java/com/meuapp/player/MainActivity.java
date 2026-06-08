@@ -266,7 +266,6 @@ public class MainActivity extends AppCompatActivity {
                     long elapsed = (System.currentTimeMillis() - startTime) / 1000;
                     debug("📊 " + (totalSize/1048576) + "MB, " + np + " peças de " + (pl/1024) + "KB (" + elapsed + "s)");
                     
-                    // APENAS 20 peças iniciais (~20MB)
                     int meta = Math.min(20, np);
                     debug("📋 Baixando cabeçalho: " + meta + " peças (~" + (meta*pl/1048576) + "MB)");
                     
@@ -284,10 +283,8 @@ public class MainActivity extends AppCompatActivity {
                             long t2 = (System.currentTimeMillis() - startTime) / 1000;
                             debug("✅ Cabeçalho OK! " + complete + "/" + meta + " peças em " + t2 + "s");
                             
-                            // Ativa o resto com NORMAL
-                            for (int i = meta; i < np; i++) { try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.NORMAL); } catch (Exception e) {} }
+                            for (int i = meta; i < np; i++) { try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.DEFAULT); } catch (Exception e) {} }
                             
-                            // Mostra botão
                             for (int i = 0; i < 30; i++) {
                                 File f = find(new File(savePath));
                                 if (f != null && f.length() > 1048576) {
