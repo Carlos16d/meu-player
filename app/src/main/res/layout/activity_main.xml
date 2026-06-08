@@ -6,7 +6,7 @@
     android:background="#0a0a1a"
     android:padding="6dp">
     
-    <!-- Player -->
+    <!-- Player com controles sobrepostos -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -20,6 +20,66 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
         
+        <!-- Controles do player -->
+        <LinearLayout
+            android:id="@+id/player_controls"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom"
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:background="#80000000"
+            android:padding="6dp"
+            android:visibility="gone">
+            
+            <Button
+                android:id="@+id/btn_seek_back"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@android:color/transparent"
+                android:text="⏪"
+                android:textColor="#fff"
+                android:textSize="16sp" />
+            
+            <Button
+                android:id="@+id/btn_pause"
+                android:layout_width="44dp"
+                android:layout_height="36dp"
+                android:background="@android:color/transparent"
+                android:text="⏸"
+                android:textColor="#fff"
+                android:textSize="20sp" />
+            
+            <Button
+                android:id="@+id/btn_seek_forward"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@android:color/transparent"
+                android:text="⏩"
+                android:textColor="#fff"
+                android:textSize="16sp" />
+            
+            <View android:layout_width="16dp" android:layout_height="1dp" />
+            
+            <Button
+                android:id="@+id/btn_audio"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@android:color/transparent"
+                android:text="🎵"
+                android:textColor="#fff"
+                android:textSize="14sp" />
+            
+            <Button
+                android:id="@+id/btn_subtitle"
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:background="@android:color/transparent"
+                android:text="📝"
+                android:textColor="#fff"
+                android:textSize="14sp" />
+        </LinearLayout>
+        
         <ProgressBar
             android:id="@+id/spinner_bar"
             android:layout_width="24dp"
@@ -29,7 +89,7 @@
             android:visibility="gone" />
     </FrameLayout>
     
-    <!-- Controles -->
+    <!-- Controles do app -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
