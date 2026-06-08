@@ -6,15 +6,14 @@
     android:background="#0a0a0f"
     android:padding="6dp">
     
-    <!-- Player WebView -->
     <FrameLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="45"
         android:background="#000000">
         
-        <WebView
-            android:id="@+id/webview"
+        <org.videolan.libvlc.util.VLCVideoLayout
+            android:id="@+id/video_surface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
@@ -28,7 +27,6 @@
             android:visibility="gone" />
     </FrameLayout>
     
-    <!-- Painel de controle -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -56,7 +54,6 @@
             android:progressBackgroundTint="#33ffffff"
             android:visibility="gone" />
         
-        <!-- Linha: Input + Botões GO e 📁 -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -69,9 +66,8 @@
                 android:layout_height="36dp"
                 android:layout_weight="1"
                 android:background="@drawable/input_bg"
-                android:hint="Magnet link ou path do .torrent..."
+                android:hint="Magnet link..."
                 android:textColorHint="#667788"
-                android:inputType="textMultiLine"
                 android:padding="6dp"
                 android:textColor="#fff"
                 android:textSize="10sp" />
@@ -98,7 +94,6 @@
                 android:textSize="14sp" />
         </LinearLayout>
         
-        <!-- Linha: Botões ASSISTIR e PARAR -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -132,7 +127,6 @@
         </LinearLayout>
     </LinearLayout>
     
-    <!-- Logs -->
     <ScrollView
         android:layout_width="match_parent"
         android:layout_height="0dp"
