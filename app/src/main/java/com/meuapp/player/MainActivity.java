@@ -7,6 +7,7 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
+import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.*;
@@ -26,6 +27,7 @@ import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
     private SurfaceView videoSurface;
+    private SurfaceHolder surfaceHolder;
     private LibVLC libVLC;
     private MediaPlayer vlcPlayer;
     private TextView statusText, debugText;
@@ -42,6 +44,8 @@ public class MainActivity extends AppCompatActivity {
     private Thread serverThread;
     private long lastSeekTime = 0;
     private long videoStartTime = 0;
+    private boolean surfaceReady = false;
+    private String pendingUrl = null;
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     private StringBuilder debugLog = new StringBuilder();
     private static final int PICK_TORRENT = 100;
@@ -66,8 +70,41 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // VLC
-        libVLC = new LibVLC(this, new ArrayList<>());
+        // Configura SurfaceView com callback
+        videoSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
+            @Override
+            public void surfaceCreated(SurfaceHolder holder) {
+                debug("[SURFACE] ✅ Criada!");
+                surfaceHolder = holder;
+                surfaceReady = true;
+                
+                // Se tem URL pendente, reproduz agora
+                if (pendingUrl != null) {
+                    playWithVlc(pendingUrl);
+                    pendingUrl = null;
+                }
+            }
+            
+            @Override
+            public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {
+                debug("[SURFACE] Mudou: " + width + "x" + height);
+            }
+            
+            @Override
+            public void surfaceDestroyed(SurfaceHolder holder) {
+                debug("[SURFACE] Destruída");
+                surfaceReady = false;
+                surfaceHolder = null;
+            }
+        });
+        
+        // VLC Player
+        ArrayList<String> options = new ArrayList<>();
+        options.add("--network-caching=3000");
+        options.add("--http-reconnect");
+        options.add("--file-caching=2000");
+        options.add("-vvv");
+        libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
         
         vlcPlayer.setEventListener(new MediaPlayer.EventListener() {
@@ -108,6 +145,38 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
         
         debug("📱 Pronto");
+    }
+    
+    private void playWithVlc(String url) {
+        if (!surfaceReady || surfaceHolder == null) {
+            debug("[VLC] ⚠️ Superfície não pronta, aguardando...");
+            pendingUrl = url;
+            return;
+        }
+        
+        try {
+            debug("[VLC] ▶ Iniciando: " + url);
+            
+            // Configura a superfície
+            vlcPlayer.getVLCVout().setVideoSurface(surfaceHolder.getSurface(), null);
+            vlcPlayer.getVLCVout().attachViews();
+            
+            // Cria e reproduz a mídia
+            Media media = new Media(libVLC, Uri.parse(url));
+            media.setHWDecoderEnabled(true, true);
+            media.addOption(":network-caching=3000");
+            media.addOption(":http-reconnect");
+            media.addOption(":file-caching=2000");
+            
+            vlcPlayer.setMedia(media);
+            media.release();
+            vlcPlayer.play();
+            
+            debug("[VLC] ✅ Play chamado");
+        } catch (Exception e) {
+            debug("[VLC] ❌ ERRO: " + e.getMessage());
+            Log.e("TS", "VLC error", e);
+        }
     }
     
     @Override protected void onActivityResult(int r, int res, Intent data) {
@@ -164,7 +233,9 @@ public class MainActivity extends AppCompatActivity {
             
             String req = new String(hb.toByteArray());
             String[] lines = req.split("\r\n");
-            if (!lines[0].contains("/video")) { out.write("HTTP/1.1 404\r\n\r\n".getBytes()); out.flush(); client.close(); return; }
+            if (lines.length == 0 || !lines[0].contains("/video")) { 
+                out.write("HTTP/1.1 404\r\n\r\n".getBytes()); out.flush(); client.close(); return; 
+            }
             
             long rs = 0, re = -1; boolean hr = false;
             for (String l : lines) {
@@ -174,9 +245,12 @@ public class MainActivity extends AppCompatActivity {
                 }
             }
             
-            if (videoFile == null || !videoFile.exists()) { out.write("HTTP/1.1 404\r\n\r\n".getBytes()); out.flush(); client.close(); return; }
+            if (videoFile == null || !videoFile.exists()) { 
+                out.write("HTTP/1.1 404\r\n\r\n".getBytes()); out.flush(); client.close(); return; 
+            }
             
             long fs = videoFile.length();
+            
             if (!hr) {
                 String resp = "HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nAccept-Ranges: bytes\r\nContent-Length: " + fs + "\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
                 out.write(resp.getBytes());
@@ -290,30 +364,40 @@ public class MainActivity extends AppCompatActivity {
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; }
         debug("▶️ VLC: " + videoFile.getName());
         handler.post(() -> {
-            videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE);
-            vlcPlayer.getVLCVout().setVideoSurface(videoSurface.getHolder().getSurface(), null);
-            vlcPlayer.getVLCVout().attachViews();
-            Media media = new Media(libVLC, Uri.parse("http://127.0.0.1:8080/video"));
-            media.setHWDecoderEnabled(true, true);
-            media.addOption(":network-caching=3000"); media.addOption(":http-reconnect"); media.addOption(":file-caching=2000");
-            vlcPlayer.setMedia(media); media.release(); vlcPlayer.play();
-            debug("✅ VLC iniciado!");
+            videoSurface.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE);
+            spinnerBar.setVisibility(View.VISIBLE);
+            playWithVlc("http://127.0.0.1:8080/video");
         });
     }
     
     private void stop() {
         downloading = false;
         if (vlcPlayer != null) vlcPlayer.stop();
-        videoSurface.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
+        videoSurface.setVisibility(View.GONE); 
+        btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
-        if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; }
+        if (torrentHandle != null && session != null) { 
+            try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} 
+            torrentHandle = null; 
+        }
     }
     
     private File find(File dir) {
         File[] files = dir.listFiles();
-        if (files != null) for (File f : files) { if (f.isDirectory()) { File found = find(f); if (found != null) return found; } else if (f.getName().endsWith(".mp4") || f.getName().endsWith(".mkv") || f.getName().endsWith(".avi") || f.getName().endsWith(".webm")) return f; }
+        if (files != null) for (File f : files) { 
+            if (f.isDirectory()) { File found = find(f); if (found != null) return found; } 
+            else if (f.getName().endsWith(".mp4") || f.getName().endsWith(".mkv") || f.getName().endsWith(".avi") || f.getName().endsWith(".webm")) return f; 
+        }
         return null;
     }
     
-    @Override protected void onDestroy() { stop(); if (serverThread != null) serverThread.interrupt(); if (session != null) session.stop(); if (vlcPlayer != null) vlcPlayer.release(); if (libVLC != null) libVLC.release(); super.onDestroy(); }
+    @Override protected void onDestroy() { 
+        stop(); 
+        if (serverThread != null) serverThread.interrupt(); 
+        if (session != null) session.stop(); 
+        if (vlcPlayer != null) vlcPlayer.release(); 
+        if (libVLC != null) libVLC.release(); 
+        super.onDestroy(); 
+    }
 }
