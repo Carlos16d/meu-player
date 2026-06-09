@@ -10,9 +10,12 @@ import android.util.Log;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
+import androidx.media3.common.C;
+import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.TrackGroup;
 import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
@@ -97,7 +100,6 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // ExoPlayer com TrackSelector
         trackSelector = new DefaultTrackSelector(this);
         exoPlayer = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
         playerView.setPlayer(exoPlayer);
@@ -131,7 +133,6 @@ public class MainActivity extends AppCompatActivity {
             handler.postDelayed(timeUpdater, 500);
         };
         
-        // Atualizador da barra de buffer (a cada 2 segundos)
         bufferUpdater = new Runnable() {
             @Override
             public void run() {
@@ -188,37 +189,44 @@ public class MainActivity extends AppCompatActivity {
     private void toggleAudioMenu() {
         if (exoPlayer == null) return;
         audioMenu.removeAllViews();
-        Tracks tracks = exoPlayer.getCurrentTracks();
         
         // "Sem áudio"
         TextView off = new TextView(this);
         off.setText("🔇 Sem áudio");
         off.setTextColor(0xFFFFFFFF); off.setTextSize(12); off.setPadding(16,12,16,12);
         off.setOnClickListener(v -> {
+            DefaultTrackSelector.Parameters.Builder params = trackSelector.getParameters().buildUpon();
+            Tracks tracks = exoPlayer.getCurrentTracks();
             for (Tracks.Group group : tracks.getGroups()) {
                 for (int i = 0; i < group.length; i++) {
                     if (group.getTrackFormat(i).sampleMimeType != null && group.getTrackFormat(i).sampleMimeType.startsWith("audio")) {
-                        trackSelector.setParameters(trackSelector.buildUponParameters().setRendererDisabled(group.getMediaTrackGroup(), true));
+                        params = params.setRendererDisabled(group.getMediaTrackGroup(), true);
                     }
                 }
             }
+            trackSelector.setParameters(params.build());
             audioScroll.setVisibility(View.GONE);
         });
         audioMenu.addView(off);
         
         int count = 0;
+        Tracks tracks = exoPlayer.getCurrentTracks();
         for (Tracks.Group group : tracks.getGroups()) {
             for (int i = 0; i < group.length; i++) {
-                if (group.getTrackFormat(i).sampleMimeType != null && group.getTrackFormat(i).sampleMimeType.startsWith("audio")) {
+                Format format = group.getTrackFormat(i);
+                if (format.sampleMimeType != null && format.sampleMimeType.startsWith("audio")) {
                     count++;
-                    String name = group.getTrackFormat(i).label != null ? group.getTrackFormat(i).label : "Faixa " + count;
-                    boolean sel = group.isSelected(i);
+                    String name = format.label != null ? format.label : "Faixa " + count;
+                    boolean sel = group.isTrackSelected(i);
                     TextView tv = new TextView(this);
                     tv.setText("🎵 " + name + (sel ? " ✓" : ""));
                     tv.setTextColor(sel ? 0xFF6c5ce7 : 0xFFFFFFFF);
                     tv.setTextSize(12); tv.setPadding(16,12,16,12);
                     tv.setOnClickListener(v -> {
-                        trackSelector.setParameters(trackSelector.buildUponParameters().setRendererDisabled(group.getMediaTrackGroup(), false));
+                        DefaultTrackSelector.Parameters.Builder params = trackSelector.getParameters().buildUpon();
+                        params = params.setRendererDisabled(group.getMediaTrackGroup(), false);
+                        params = params.setPreferredAudioLanguage(format.language);
+                        trackSelector.setParameters(params.build());
                         audioScroll.setVisibility(View.GONE);
                         debug("🎵 " + name);
                     });
@@ -244,20 +252,21 @@ public class MainActivity extends AppCompatActivity {
         });
         subtitleMenu.addView(off);
         
-        Tracks tracks = exoPlayer.getCurrentTracks();
         int count = 0;
+        Tracks tracks = exoPlayer.getCurrentTracks();
         for (Tracks.Group group : tracks.getGroups()) {
             for (int i = 0; i < group.length; i++) {
-                if (group.getTrackFormat(i).sampleMimeType != null && group.getTrackFormat(i).sampleMimeType.startsWith("text")) {
+                Format format = group.getTrackFormat(i);
+                if (format.sampleMimeType != null && format.sampleMimeType.startsWith("text")) {
                     count++;
-                    String name = group.getTrackFormat(i).label != null ? group.getTrackFormat(i).label : "Legenda " + count;
-                    boolean sel = group.isSelected(i);
+                    String name = format.label != null ? format.label : "Legenda " + count;
+                    boolean sel = group.isTrackSelected(i);
                     TextView tv = new TextView(this);
                     tv.setText("📝 " + name + (sel ? " ✓" : ""));
                     tv.setTextColor(sel ? 0xFF6c5ce7 : 0xFFFFFFFF);
                     tv.setTextSize(12); tv.setPadding(16,12,16,12);
                     tv.setOnClickListener(v -> {
-                        exoPlayer.setTrackSelectionParameters(exoPlayer.getTrackSelectionParameters().buildUpon().setPreferredTextLanguage(group.getTrackFormat(i).language).build());
+                        exoPlayer.setTrackSelectionParameters(exoPlayer.getTrackSelectionParameters().buildUpon().setPreferredTextLanguage(format.language).build());
                         subtitleScroll.setVisibility(View.GONE);
                         debug("📝 " + name);
                     });
