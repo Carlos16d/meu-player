@@ -151,42 +151,42 @@ public class MainActivity extends AppCompatActivity {
         }
         long bytePos = timeMs * videoFile.length() / Math.max(vlcPlayer.getLength(), 1);
         int tp = (int)(bytePos / pieceLength);
-        int rs = Math.max(0, tp - 2), re = Math.min(tp + 5, numPieces - 1);
+        // Range maior: 5 antes, 10 depois (15 peças)
+        int rs = Math.max(0, tp - 5), re = Math.min(tp + 10, numPieces - 1);
         
         try {
-            // Usar prioritize_pieces_ex com byte_vector para TODAS as peças de uma vez
+            // Usar prioritize_pieces_ex com byte_vector para TODAS as peças
             byte_vector priorities = new byte_vector();
             for (int i = 0; i < numPieces; i++) {
                 if (i >= rs && i <= re) {
-                    priorities.add((byte)7); // TOP_PRIORITY = 7
+                    priorities.add((byte)7); // TOP_PRIORITY = 7 para range do SEEK
                 } else {
-                    priorities.add((byte)0); // IGNORE = 0
+                    priorities.add((byte)1); // DEFAULT = 1 para o resto (não ignora, só baixa prioridade)
                 }
             }
             torrentHandle.swig().prioritize_pieces_ex(priorities);
             
-            // Setar deadlines para as peças do range
+            // Setar deadlines para as peças do range (deadline maior: 2000ms)
             for (int i = rs; i <= re; i++) {
-                torrentHandle.swig().set_piece_deadline(i, 300);
+                torrentHandle.swig().set_piece_deadline(i, 2000);
             }
             
-            // Setar range sequencial
-            torrentHandle.swig().set_sequential_range(rs, re);
+            // NÃO usar set_sequential_range - deixa o algoritmo decidir
             
             debug("🎯 SEEK: " + (timeMs/1000) + "s → byte " + bytePos + " → peça " + tp);
-            debug("   Range: " + rs + "-" + re + " (8 peças, deadline 300ms)");
-            debug("   IGNORADAS: 0-" + (rs-1) + " e " + (re+1) + "-" + (numPieces-1));
+            debug("   Range: " + rs + "-" + re + " (15 peças, deadline 2000ms)");
+            debug("   Demais peças com prioridade NORMAL");
             
-            // Verifica em 3 segundos
+            // Verifica em 5 segundos
             final int frs = rs, fre = re;
             new Thread(() -> {
-                try { Thread.sleep(3000);
+                try { Thread.sleep(5000);
                     int done = 0; StringBuilder sb = new StringBuilder();
                     for (int i = frs; i <= fre; i++) {
                         if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) { done++; sb.append(" ✅").append(i); }
                         else sb.append(" ❌").append(i);
                     }
-                    debug("📊 Pós-SEEK (3s): " + done + "/" + (fre-frs+1) + sb.toString());
+                    debug("📊 Pós-SEEK (5s): " + done + "/" + (fre-frs+1) + sb.toString());
                     if (done == 0) debug("⏳ NENHUMA peça! Sem peers ou velocidade muito baixa.");
                     if (done >= 2) debug("✅ Já pode reproduzir!");
                 } catch (Exception e) {}
