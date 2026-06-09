@@ -196,6 +196,14 @@ public class MainActivity extends AppCompatActivity {
     private void seekRelative(long delta) { if (vlcPlayer == null || vlcPlayer.getLength() <= 0 || vlcPreparing) return; long t = Math.max(0, Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + delta)); vlcPlayer.setTime(t); prioritizeSeek(t); }
     private void seekAbsolute(int pct) { if (vlcPlayer == null || vlcPlayer.getLength() <= 0 || vlcPreparing) return; long t = (long)(vlcPlayer.getLength() * pct / 100.0); vlcPlayer.setTime(t); prioritizeSeek(t); }
     
+    private int calculateDone(int frs, int fre) {
+        int done = 0;
+        for (int i = frs; i <= fre; i++) {
+            if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) done++;
+        }
+        return done;
+    }
+    
     private void prioritizeSeek(long timeMs) {
         if (pieceLength <= 0 || numPieces <= 0 || torrentHandle == null || !torrentHandle.isValid() || videoFile == null) {
             debug("⚠️ SEEK ignorado: pieceLength=" + pieceLength + " numPieces=" + numPieces + " torrentHandle=" + (torrentHandle != null));
@@ -244,16 +252,14 @@ public class MainActivity extends AppCompatActivity {
                 boolean vlcRestarted = false;
                 for (int check = 0; check < 5 && !vlcRestarted; check++) {
                     try { Thread.sleep(3000);
-                        int done = 0;
-                        for (int i = frs; i <= fre; i++) {
-                            if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) done++;
-                        }
+                        final int done = calculateDone(frs, fre);
                         torrent_status st2 = torrentHandle.swig().status();
                         debug("📊 SEEK progresso (" + ((check+1)*3) + "s): " + done + "/" + (fre-frs+1) + " peças | Peers: " + st2.getNum_peers());
                         
                         if (done >= 5 && !vlcRestarted) {
                             vlcRestarted = true;
-                            debug("✅ " + done + " peças do SEEK prontas! Reiniciando VLC...");
+                            final int finalDone = done;
+                            debug("✅ " + finalDone + " peças do SEEK prontas! Reiniciando VLC...");
                             
                             handler.post(() -> {
                                 if (vlcPlayer != null && videoFile != null && videoFile.exists()) {
@@ -264,7 +270,7 @@ public class MainActivity extends AppCompatActivity {
                                         handler.postDelayed(() -> {
                                             if (vlcPlayer != null && vlcPlayer.getLength() > 0) {
                                                 vlcPlayer.setTime(fTimeMs);
-                                                debug("🔄 VLC reiniciado em " + (fTimeMs/1000) + "s com " + done + " peças");
+                                                debug("🔄 VLC reiniciado em " + (fTimeMs/1000) + "s com " + finalDone + " peças");
                                             }
                                         }, 2000);
                                     }, 500);
