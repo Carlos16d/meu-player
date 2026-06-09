@@ -297,6 +297,7 @@ public class MainActivity extends AppCompatActivity {
             m.addOption(":http-reconnect");
             m.addOption(":file-caching=1500");
             m.addOption(":no-audio-time-stretch");
+            m.addOption(":http-continuous=false");
             vlcPlayer.setMedia(m);
             m.release();
             vlcPlayer.play();
@@ -332,7 +333,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void handleHttp(Socket client) {
         try {
-            client.setSoTimeout(30000);
+            client.setSoTimeout(60000);
             InputStream in = client.getInputStream(); OutputStream out = client.getOutputStream();
             ByteArrayOutputStream hb = new ByteArrayOutputStream(); int b;
             while ((b = in.read()) != -1) { hb.write(b); if (hb.size() > 4) { byte[] d = hb.toByteArray(); if (d[d.length-4]=='\r'&&d[d.length-3]=='\n'&&d[d.length-2]=='\r'&&d[d.length-1]=='\n') break; } }
@@ -373,28 +374,35 @@ public class MainActivity extends AppCompatActivity {
                 if (!torrentHandle.havePiece(pieceNeeded)) {
                     debug("⏳ HTTP pediu min " + estimatedMinute + ":" + String.format("%02d", estimatedSecond) + " (peça " + pieceNeeded + ") - AGUARDANDO...");
                     
+                    // Prioridade máxima para a peça necessária
                     torrentHandle.swig().piece_priority_ex(pieceNeeded, (byte)7);
-                    torrentHandle.swig().set_piece_deadline(pieceNeeded, 10000);
+                    torrentHandle.swig().set_piece_deadline(pieceNeeded, 45000);
                     
-                    for (int i = pieceNeeded - 2; i <= pieceNeeded + 5; i++) {
+                    // Priorizar peças vizinhas também
+                    for (int i = pieceNeeded - 3; i <= pieceNeeded + 10; i++) {
                         if (i >= 0 && i < numPieces && !torrentHandle.havePiece(i)) {
                             torrentHandle.swig().piece_priority_ex(i, (byte)6);
-                            torrentHandle.swig().set_piece_deadline(i, 15000);
+                            torrentHandle.swig().set_piece_deadline(i, 45000);
                         }
                     }
                     
+                    // Esperar até 45 segundos
                     long waitStart = System.currentTimeMillis();
-                    while (!torrentHandle.havePiece(pieceNeeded) && (System.currentTimeMillis() - waitStart) < 15000 && downloading) {
-                        Thread.sleep(200);
-                        if ((System.currentTimeMillis() - waitStart) % 2000 < 200) {
-                            torrentHandle.swig().set_piece_deadline(pieceNeeded, 10000);
+                    int waitLogs = 0;
+                    while (!torrentHandle.havePiece(pieceNeeded) && (System.currentTimeMillis() - waitStart) < 45000 && downloading) {
+                        Thread.sleep(500);
+                        waitLogs++;
+                        // Reforçar deadline a cada 5 segundos
+                        if (waitLogs % 10 == 0) {
+                            torrentHandle.swig().set_piece_deadline(pieceNeeded, 45000);
+                            debug("   ⏳ Ainda aguardando peça " + pieceNeeded + " (" + (waitLogs/2) + "s)...");
                         }
                     }
                     
                     if (torrentHandle.havePiece(pieceNeeded)) {
                         debug("✅ Peça " + pieceNeeded + " (min " + estimatedMinute + ":" + String.format("%02d", estimatedSecond) + ") chegou após " + ((System.currentTimeMillis() - waitStart)/1000) + "s");
                     } else {
-                        debug("⏰ Timeout peça " + pieceNeeded);
+                        debug("⏰ Timeout peça " + pieceNeeded + " após " + ((System.currentTimeMillis() - waitStart)/1000) + "s - enviando o que tem");
                     }
                 }
             }
