@@ -202,6 +202,7 @@
             android:textSize="11sp"
             android:textStyle="bold" />
         
+        <!-- Barra de buffer do vídeo -->
         <ProgressBar
             android:id="@+id/buffer_bar"
             style="?android:attr/progressBarStyleHorizontal"
@@ -211,6 +212,29 @@
             android:progressBackgroundTint="#33FFFFFF"
             android:visibility="gone"
             android:layout_marginTop="2dp" />
+        
+        <!-- Texto de progresso dos metadados -->
+        <TextView
+            android:id="@+id/progress_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#AAFFFFFF"
+            android:textSize="10sp"
+            android:layout_marginTop="2dp"
+            android:visibility="gone" />
+        
+        <!-- Barra de progresso dos metadados -->
+        <ProgressBar
+            android:id="@+id/metadata_progress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="4dp"
+            android:progressTint="#00cc88"
+            android:progressBackgroundTint="#33FFFFFF"
+            android:visibility="gone"
+            android:layout_marginTop="1dp"
+            android:layout_marginBottom="2dp" />
         
         <LinearLayout
             android:layout_width="match_parent"
