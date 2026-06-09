@@ -39,31 +39,8 @@ jobs:
     - name: Build debug APK
       run: ./gradlew assembleDebug
     
-    - name: Find APK
-      id: find_apk
-      run: |
-        APK_PATH=$(find app/build/outputs/apk/debug -name "*.apk" | head -1)
-        echo "apk_path=$APK_PATH" >> $GITHUB_OUTPUT
-        echo "APK encontrado: $APK_PATH"
-    
-    - name: Upload APK to Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: ${{ steps.find_apk.outputs.apk_path }}
-        tag_name: v${{ github.run_number }}
-        name: Build v${{ github.run_number }}
-        body: |
-          Build automático #${{ github.run_number }}
-          
-          **Data:** $(date +'%d/%m/%Y %H:%M')
-          **Commit:** ${{ github.sha }}
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    
     - name: Upload APK as Artifact
       uses: actions/upload-artifact@v4
       with:
         name: app-debug
-        path: ${{ steps.find_apk.outputs.apk_path }}
+        path: app/build/outputs/apk/debug/*.apk
