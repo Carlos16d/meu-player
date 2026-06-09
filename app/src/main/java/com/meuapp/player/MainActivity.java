@@ -347,6 +347,14 @@ public class MainActivity extends AppCompatActivity {
         if (!surfaceReady || surfaceHolder == null) { pendingUrl = url; return; }
         try {
             vlcPreparing = true;
+            
+            // Desanexar view anterior se existir
+            try {
+                vlcPlayer.getVLCVout().detachViews();
+            } catch (Exception e) {
+                // Ignorar se não estiver anexado
+            }
+            
             vlcPlayer.getVLCVout().setVideoSurface(surfaceHolder.getSurface(), null);
             vlcPlayer.getVLCVout().setWindowSize(videoSurface.getWidth(), videoSurface.getHeight());
             vlcPlayer.getVLCVout().attachViews();
