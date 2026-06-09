@@ -151,44 +151,72 @@ public class MainActivity extends AppCompatActivity {
         }
         long bytePos = timeMs * videoFile.length() / Math.max(vlcPlayer.getLength(), 1);
         int tp = (int)(bytePos / pieceLength);
-        // Range maior: 5 antes, 10 depois (15 peças)
-        int rs = Math.max(0, tp - 5), re = Math.min(tp + 10, numPieces - 1);
+        // Range ultra-focado: 3 peças centrais
+        int rs = Math.max(0, tp - 1), re = Math.min(tp + 2, numPieces - 1);
+        
+        // Verificar disponibilidade de peers
+        torrent_status st = torrentHandle.swig().status();
+        int numPeers = st.getNum_peers();
+        debug("👥 Peers conectados: " + numPeers);
         
         try {
-            // Usar prioritize_pieces_ex com byte_vector para TODAS as peças
+            // Verificar disponibilidade das peças do SEEK
+            int_vector avail = new int_vector();
+            torrentHandle.swig().piece_availability(avail);
+            StringBuilder availStr = new StringBuilder();
+            for (int i = rs; i <= re && i < avail.size(); i++) {
+                availStr.append(" peça").append(i).append(":").append(avail.get(i)).append(" peers");
+            }
+            debug("📡 Disponibilidade:" + availStr.toString());
+            
+            // PRIORIDADE MÁXIMA só para as peças do SEEK, IGNORE para todo o resto
             byte_vector priorities = new byte_vector();
             for (int i = 0; i < numPieces; i++) {
                 if (i >= rs && i <= re) {
-                    priorities.add((byte)7); // TOP_PRIORITY = 7 para range do SEEK
+                    priorities.add((byte)7); // TOP_PRIORITY = 7
                 } else {
-                    priorities.add((byte)1); // DEFAULT = 1 para o resto (não ignora, só baixa prioridade)
+                    priorities.add((byte)0); // IGNORE = 0 para forçar foco total
                 }
             }
             torrentHandle.swig().prioritize_pieces_ex(priorities);
             
-            // Setar deadlines para as peças do range (deadline maior: 2000ms)
+            // Deadlines ALTOS (30 segundos) para dar tempo de baixar
             for (int i = rs; i <= re; i++) {
-                torrentHandle.swig().set_piece_deadline(i, 2000);
+                torrentHandle.swig().set_piece_deadline(i, 30000);
             }
             
-            // NÃO usar set_sequential_range - deixa o algoritmo decidir
-            
             debug("🎯 SEEK: " + (timeMs/1000) + "s → byte " + bytePos + " → peça " + tp);
-            debug("   Range: " + rs + "-" + re + " (15 peças, deadline 2000ms)");
-            debug("   Demais peças com prioridade NORMAL");
+            debug("   Range: " + rs + "-" + re + " (3 peças, deadline 30s)");
+            debug("   ⚠️ TODO RESTO IGNORADO - Foco total no SEEK");
             
-            // Verifica em 5 segundos
+            // Verifica em 10 segundos
             final int frs = rs, fre = re;
+            final int fTp = tp;
             new Thread(() -> {
-                try { Thread.sleep(5000);
+                try { Thread.sleep(10000);
                     int done = 0; StringBuilder sb = new StringBuilder();
                     for (int i = frs; i <= fre; i++) {
                         if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) { done++; sb.append(" ✅").append(i); }
                         else sb.append(" ❌").append(i);
                     }
-                    debug("📊 Pós-SEEK (5s): " + done + "/" + (fre-frs+1) + sb.toString());
-                    if (done == 0) debug("⏳ NENHUMA peça! Sem peers ou velocidade muito baixa.");
-                    if (done >= 2) debug("✅ Já pode reproduzir!");
+                    // Atualizar peers
+                    torrent_status st2 = torrentHandle.swig().status();
+                    debug("📊 Pós-SEEK (10s): " + done + "/" + (fre-frs+1) + sb.toString() + " | Peers: " + st2.getNum_peers());
+                    if (done >= 1) {
+                        debug("✅ Peça(s) do SEEK chegou! Restaurando download normal...");
+                        // Restaurar prioridades normais
+                        byte_vector normalPriorities = new byte_vector();
+                        for (int i = 0; i < numPieces; i++) {
+                            normalPriorities.add((byte)1); // DEFAULT
+                        }
+                        torrentHandle.swig().prioritize_pieces_ex(normalPriorities);
+                        // Prioridade extra para próximas peças
+                        for (int i = fTp + 3; i < Math.min(fTp + 10, numPieces); i++) {
+                            torrentHandle.swig().piece_priority_ex(i, (byte)4);
+                        }
+                    } else {
+                        debug("⏳ Ainda esperando... deadline mantido");
+                    }
                 } catch (Exception e) {}
             }).start();
             
@@ -303,7 +331,13 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             try {
                 add_torrent_params p; if (source.startsWith("magnet:")) p = libtorrent.parse_magnet_uri(source, new error_code()); else p = add_torrent_params.load_torrent_file(source, new error_code());
-                p.setSave_path(savePath); p.setFlags(torrent_flags_t.from_int(9)); p.setDownload_limit(3*1024*1024);
+                p.setSave_path(savePath);
+                // Flags corretas: auto_managed + sequential_download + apply_ip_filter (SEM seed_mode!)
+                torrent_flags_t flags = libtorrent.getAuto_managed()
+                    .or_(libtorrent.getSequential_download())
+                    .or_(libtorrent.getApply_ip_filter());
+                p.setFlags(flags);
+                p.setDownload_limit(3*1024*1024);
                 byte_vector pr = new byte_vector(); pr.add((byte)7); p.set_file_priorities(pr);
                 session.swig().async_add_torrent(p); Thread.sleep(3000);
                 torrent_handle_vector h = session.swig().get_torrents(); if (h.size() > 0) torrentHandle = new TorrentHandle(h.get(0));
@@ -315,7 +349,9 @@ public class MainActivity extends AppCompatActivity {
                     int np = ti.numPieces(), pl = ti.pieceLength();
                     pieceLength = pl; numPieces = np; totalSize = ti.totalSize();
                     long elapsed = (System.currentTimeMillis() - startTime) / 1000;
-                    debug("📊 " + (totalSize/1048576) + "MB, " + np + " peças de " + (pl/1024) + "KB (" + elapsed + "s)");
+                    // Log de peers
+                    torrent_status st = torrentHandle.swig().status();
+                    debug("📊 " + (totalSize/1048576) + "MB, " + np + " peças de " + (pl/1024) + "KB (" + elapsed + "s) | Peers: " + st.getNum_peers() + " seeds: " + st.getNum_seeds());
                     
                     int meta = Math.min(20, np);
                     debug("📋 Cabeçalho: " + meta + " peças (~" + (meta*pl/1048576) + "MB)");
