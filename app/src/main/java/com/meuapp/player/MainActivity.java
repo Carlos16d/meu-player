@@ -161,10 +161,9 @@ public class MainActivity extends AppCompatActivity {
         btnSeekBack.setOnClickListener(v -> { if (!vlcPreparing) seekRelative(-10000); });
         btnSeekForward.setOnClickListener(v -> { if (!vlcPreparing) seekRelative(10000); });
         
-        // Botão pular 20 minutos
         btnSkip20.setOnClickListener(v -> {
             if (vlcPlayer != null && !vlcPreparing && videoFile != null && videoFile.exists()) {
-                long targetTime = 20 * 60 * 1000; // 20 minutos em ms
+                long targetTime = 20 * 60 * 1000;
                 if (vlcPlayer.getLength() > 0 && targetTime < vlcPlayer.getLength()) {
                     debug("⏭ Pulando para 20:00...");
                     vlcPlayer.setTime(targetTime);
@@ -204,7 +203,7 @@ public class MainActivity extends AppCompatActivity {
         }
         long bytePos = timeMs * videoFile.length() / Math.max(vlcPlayer.getLength(), 1);
         int tp = (int)(bytePos / pieceLength);
-        int rs = Math.max(0, tp - 1), re = Math.min(tp + 2, numPieces - 1);
+        int rs = Math.max(0, tp - 3), re = Math.min(tp + 7, numPieces - 1);
         
         torrent_status st = torrentHandle.swig().status();
         int numPeers = st.getNum_peers();
@@ -213,74 +212,81 @@ public class MainActivity extends AppCompatActivity {
         try {
             int_vector avail = new int_vector();
             torrentHandle.swig().piece_availability(avail);
-            StringBuilder availStr = new StringBuilder();
+            int availCount = 0;
             for (int i = rs; i <= re && i < avail.size(); i++) {
-                availStr.append(" peça").append(i).append(":").append(avail.get(i)).append(" peers");
+                if (avail.get(i) > 0) availCount++;
             }
-            debug("📡 Disponibilidade:" + availStr.toString());
+            debug("📡 Disponibilidade: " + availCount + "/" + (re-rs+1) + " peças disponíveis");
             
             byte_vector priorities = new byte_vector();
             for (int i = 0; i < numPieces; i++) {
                 if (i >= rs && i <= re) {
                     priorities.add((byte)7);
+                } else if (i > re && i <= re + 20) {
+                    priorities.add((byte)4);
                 } else {
-                    priorities.add((byte)0);
+                    priorities.add((byte)1);
                 }
             }
             torrentHandle.swig().prioritize_pieces_ex(priorities);
             
             for (int i = rs; i <= re; i++) {
-                torrentHandle.swig().set_piece_deadline(i, 30000);
+                torrentHandle.swig().set_piece_deadline(i, 15000);
             }
             
             debug("🎯 SEEK: " + (timeMs/1000) + "s → byte " + bytePos + " → peça " + tp);
-            debug("   Range: " + rs + "-" + re + " (3 peças, deadline 30s)");
-            debug("   ⚠️ TODO RESTO IGNORADO - Foco total no SEEK");
+            debug("   Range: " + rs + "-" + re + " (10 peças) + próximas 20 com prioridade ALTA");
             
             final int frs = rs, fre = re;
             final int fTp = tp;
             final long fTimeMs = timeMs;
             new Thread(() -> {
-                try { Thread.sleep(10000);
-                    int done = 0; StringBuilder sb = new StringBuilder();
-                    for (int i = frs; i <= fre; i++) {
-                        if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) { done++; sb.append(" ✅").append(i); }
-                        else sb.append(" ❌").append(i);
-                    }
-                    torrent_status st2 = torrentHandle.swig().status();
-                    debug("📊 Pós-SEEK (10s): " + done + "/" + (fre-frs+1) + sb.toString() + " | Peers: " + st2.getNum_peers());
-                    if (done >= 1) {
-                        debug("✅ Peça(s) do SEEK chegou! Restaurando download normal...");
-                        byte_vector normalPriorities = new byte_vector();
-                        for (int i = 0; i < numPieces; i++) {
-                            normalPriorities.add((byte)1);
+                boolean vlcRestarted = false;
+                for (int check = 0; check < 5 && !vlcRestarted; check++) {
+                    try { Thread.sleep(3000);
+                        int done = 0;
+                        for (int i = frs; i <= fre; i++) {
+                            if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(i)) done++;
                         }
-                        torrentHandle.swig().prioritize_pieces_ex(normalPriorities);
-                        for (int i = fTp + 3; i < Math.min(fTp + 10, numPieces); i++) {
-                            torrentHandle.swig().piece_priority_ex(i, (byte)4);
+                        torrent_status st2 = torrentHandle.swig().status();
+                        debug("📊 SEEK progresso (" + ((check+1)*3) + "s): " + done + "/" + (fre-frs+1) + " peças | Peers: " + st2.getNum_peers());
+                        
+                        if (done >= 5 && !vlcRestarted) {
+                            vlcRestarted = true;
+                            debug("✅ " + done + " peças do SEEK prontas! Reiniciando VLC...");
+                            
+                            handler.post(() -> {
+                                if (vlcPlayer != null && videoFile != null && videoFile.exists()) {
+                                    vlcPreparing = true;
+                                    vlcPlayer.stop();
+                                    handler.postDelayed(() -> {
+                                        playWithVlc("http://127.0.0.1:8080/video");
+                                        handler.postDelayed(() -> {
+                                            if (vlcPlayer != null && vlcPlayer.getLength() > 0) {
+                                                vlcPlayer.setTime(fTimeMs);
+                                                debug("🔄 VLC reiniciado em " + (fTimeMs/1000) + "s com " + done + " peças");
+                                            }
+                                        }, 2000);
+                                    }, 500);
+                                }
+                            });
                         }
                         
-                        // 🔄 REINICIAR VLC para ler os novos dados!
-                        handler.post(() -> {
-                            if (vlcPlayer != null && videoFile != null && videoFile.exists()) {
-                                vlcPreparing = true;
-                                vlcPlayer.stop();
-                                handler.postDelayed(() -> {
-                                    playWithVlc("http://127.0.0.1:8080/video");
-                                    // Seek para a posição correta após iniciar
-                                    handler.postDelayed(() -> {
-                                        if (vlcPlayer != null && vlcPlayer.getLength() > 0) {
-                                            vlcPlayer.setTime(fTimeMs);
-                                            debug("🔄 VLC reiniciado e posicionado em " + (fTimeMs/1000) + "s");
-                                        }
-                                    }, 1500);
-                                }, 500);
+                        if (done >= (fre-frs+1)) {
+                            byte_vector normalPriorities = new byte_vector();
+                            for (int i = 0; i < numPieces; i++) {
+                                if (i >= frs && i <= fTp + 30) {
+                                    normalPriorities.add((byte)4);
+                                } else {
+                                    normalPriorities.add((byte)1);
+                                }
                             }
-                        });
-                    } else {
-                        debug("⏳ Ainda esperando... deadline mantido");
-                    }
-                } catch (Exception e) {}
+                            torrentHandle.swig().prioritize_pieces_ex(normalPriorities);
+                            debug("✅ Todas peças do SEEK prontas! Download continuando...");
+                            break;
+                        }
+                    } catch (Exception e) {}
+                }
             }).start();
             
         } catch (Exception e) { debug("❌ Erro SEEK: " + e.getMessage()); }
@@ -348,12 +354,9 @@ public class MainActivity extends AppCompatActivity {
         try {
             vlcPreparing = true;
             
-            // Desanexar view anterior se existir
             try {
                 vlcPlayer.getVLCVout().detachViews();
-            } catch (Exception e) {
-                // Ignorar se não estiver anexado
-            }
+            } catch (Exception e) {}
             
             vlcPlayer.getVLCVout().setVideoSurface(surfaceHolder.getSurface(), null);
             vlcPlayer.getVLCVout().setWindowSize(videoSurface.getWidth(), videoSurface.getHeight());
