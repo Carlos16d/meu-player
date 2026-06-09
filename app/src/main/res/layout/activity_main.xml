@@ -100,14 +100,31 @@
                     android:textSize="10sp"
                     android:layout_marginEnd="8dp" />
                 
-                <SeekBar
-                    android:id="@+id/seek_bar"
+                <FrameLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:progressTint="#6c5ce7"
-                    android:thumbTint="#FFFFFF"
-                    android:progressBackgroundTint="#33FFFFFF" />
+                    android:layout_weight="1">
+                    
+                    <!-- Barra de buffer (partes baixadas) -->
+                    <ProgressBar
+                        android:id="@+id/buffer_progress"
+                        style="?android:attr/progressBarStyleHorizontal"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:progressTint="#40FFFFFF"
+                        android:progressBackgroundTint="#00000000"
+                        android:max="100" />
+                    
+                    <!-- Barra de seek -->
+                    <SeekBar
+                        android:id="@+id/seek_bar"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:progressTint="#6c5ce7"
+                        android:thumbTint="#FFFFFF"
+                        android:progressBackgroundTint="#00000000"
+                        android:splitTrack="false" />
+                </FrameLayout>
             </LinearLayout>
             
             <LinearLayout
@@ -138,6 +155,42 @@
                     android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
+        
+        <!-- Menu de áudio com scroll -->
+        <ScrollView
+            android:id="@+id/audio_scroll"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginBottom="80dp"
+            android:layout_marginEnd="8dp"
+            android:background="#E0000000"
+            android:visibility="gone">
+            
+            <LinearLayout
+                android:id="@+id/audio_menu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
+        
+        <!-- Menu de legenda com scroll -->
+        <ScrollView
+            android:id="@+id/subtitle_scroll"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
+            android:layout_gravity="bottom|end"
+            android:layout_marginBottom="80dp"
+            android:layout_marginEnd="8dp"
+            android:background="#E0000000"
+            android:visibility="gone">
+            
+            <LinearLayout
+                android:id="@+id/subtitle_menu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
         
         <ProgressBar
             android:id="@+id/spinner_bar"
