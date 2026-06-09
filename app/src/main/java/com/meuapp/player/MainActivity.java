@@ -7,17 +7,15 @@ import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
-import android.view.SurfaceHolder;
-import android.view.SurfaceView;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
+import androidx.media3.common.Tracks;
 import androidx.media3.exoplayer.ExoPlayer;
-import androidx.media3.exoplayer.source.DefaultMediaSourceFactory;
-import androidx.media3.exoplayer.upstream.DefaultHttpDataSource;
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
 
 import org.libtorrent4j.SessionManager;
@@ -33,11 +31,14 @@ import java.util.*;
 public class MainActivity extends AppCompatActivity {
     private PlayerView playerView;
     private ExoPlayer exoPlayer;
+    private DefaultTrackSelector trackSelector;
     private TextView statusText, debugText, timeText;
-    private ProgressBar bufferBar, spinnerBar;
+    private ProgressBar bufferBar, spinnerBar, bufferProgress;
     private EditText magnetInput;
     private Button btnPlay, btnTorrent, btnStop, btnWatch, btnSkip20;
-    private LinearLayout playerControls, centerControls, audioMenu, subtitleMenu;
+    private LinearLayout playerControls, centerControls;
+    private ScrollView audioScroll, subtitleScroll;
+    private LinearLayout audioMenu, subtitleMenu;
     private Button btnPlayPause, btnSeekBack, btnSeekForward, btnAudio, btnSubtitle;
     private SeekBar seekBar;
     private boolean isTracking = false;
@@ -53,7 +54,7 @@ public class MainActivity extends AppCompatActivity {
     private SimpleDateFormat sdf = new SimpleDateFormat("HH:mm:ss");
     private StringBuilder debugLog = new StringBuilder();
     private static final int PICK_TORRENT = 100;
-    private Runnable timeUpdater;
+    private Runnable timeUpdater, bufferUpdater;
     private int pieceLength = 0, numPieces = 0;
     private long totalSize = 0;
     private long lastDownloadLog = 0;
@@ -66,13 +67,13 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        // PlayerView substitui SurfaceView
         playerView = findViewById(R.id.player_view);
         statusText = findViewById(R.id.status_text);
         debugText = findViewById(R.id.debug_text);
         timeText = findViewById(R.id.time_text);
         bufferBar = findViewById(R.id.buffer_bar);
         spinnerBar = findViewById(R.id.spinner_bar);
+        bufferProgress = findViewById(R.id.buffer_progress);
         magnetInput = findViewById(R.id.magnet_input);
         btnPlay = findViewById(R.id.btn_play);
         btnTorrent = findViewById(R.id.btn_torrent);
@@ -87,6 +88,8 @@ public class MainActivity extends AppCompatActivity {
         btnAudio = findViewById(R.id.btn_audio);
         btnSubtitle = findViewById(R.id.btn_subtitle);
         seekBar = findViewById(R.id.seek_bar);
+        audioScroll = findViewById(R.id.audio_scroll);
+        subtitleScroll = findViewById(R.id.subtitle_scroll);
         audioMenu = findViewById(R.id.audio_menu);
         subtitleMenu = findViewById(R.id.subtitle_menu);
         
@@ -94,32 +97,25 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // Configurar ExoPlayer
-        exoPlayer = new ExoPlayer.Builder(this).build();
+        // ExoPlayer com TrackSelector
+        trackSelector = new DefaultTrackSelector(this);
+        exoPlayer = new ExoPlayer.Builder(this).setTrackSelector(trackSelector).build();
         playerView.setPlayer(exoPlayer);
         playerView.setVisibility(View.GONE);
         
         exoPlayer.addListener(new Player.Listener() {
             @Override public void onPlaybackStateChanged(int state) {
                 switch (state) {
-                    case Player.STATE_BUFFERING: 
-                        handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); 
-                        debug("[Exo] 🔃 Buffering..."); 
-                        break;
+                    case Player.STATE_BUFFERING: handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); break;
                     case Player.STATE_READY: 
                         videoDurationMs = exoPlayer.getDuration();
-                        handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText(exoPlayer.getPlayWhenReady() ? "⏸" : "▶"); }); 
-                        debug("[Exo] ▶ Pronto! Duração=" + (videoDurationMs/60000) + "min"); 
+                        handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText(exoPlayer.getPlayWhenReady() ? "⏸" : "▶"); bufferProgress.setVisibility(View.VISIBLE); }); 
+                        debug("[Exo] ▶ " + (videoDurationMs/60000) + "min");
                         break;
-                    case Player.STATE_ENDED: 
-                        handler.post(() -> btnPlayPause.setText("▶")); 
-                        debug("[Exo] 🏁 Fim"); 
-                        break;
+                    case Player.STATE_ENDED: handler.post(() -> btnPlayPause.setText("▶")); break;
                 }
             }
-            @Override public void onPlayerError(PlaybackException error) {
-                debug("[Exo] ❌ Erro: " + error.getMessage());
-            }
+            @Override public void onPlayerError(PlaybackException error) { debug("[Exo] ❌ " + error.getMessage()); }
         });
         
         timeUpdater = () -> {
@@ -135,20 +131,31 @@ public class MainActivity extends AppCompatActivity {
             handler.postDelayed(timeUpdater, 500);
         };
         
-        btnPlayPause.setOnClickListener(v -> { 
-            if (exoPlayer != null) { 
-                if (exoPlayer.isPlaying()) { exoPlayer.pause(); } 
-                else { exoPlayer.play(); } 
-            } 
-        });
+        // Atualizador da barra de buffer (a cada 2 segundos)
+        bufferUpdater = new Runnable() {
+            @Override
+            public void run() {
+                if (exoPlayer != null && videoFile != null && pieceLength > 0 && exoPlayer.getDuration() > 0) {
+                    int totalPieces = Math.min(numPieces, 100);
+                    int downloaded = 0;
+                    synchronized (torrentLock) {
+                        if (torrentHandle != null && torrentHandle.isValid()) {
+                            for (int i = 0; i < totalPieces; i++) {
+                                if (torrentHandle.havePiece(i)) downloaded++;
+                            }
+                        }
+                    }
+                    int pct = totalPieces > 0 ? (downloaded * 100 / totalPieces) : 0;
+                    bufferProgress.setProgress(pct);
+                }
+                handler.postDelayed(this, 2000);
+            }
+        };
+        
+        btnPlayPause.setOnClickListener(v -> { if (exoPlayer != null) { if (exoPlayer.isPlaying()) { exoPlayer.pause(); } else { exoPlayer.play(); } } });
         btnSeekBack.setOnClickListener(v -> seekRelative(-10000));
         btnSeekForward.setOnClickListener(v -> seekRelative(10000));
-        btnSkip20.setOnClickListener(v -> { 
-            if (exoPlayer != null && videoFile != null) { 
-                exoPlayer.seekTo(20 * 60 * 1000); 
-                debug("⏭ Pulando para 20:00...");
-            } 
-        });
+        btnSkip20.setOnClickListener(v -> { if (exoPlayer != null && videoFile != null) { exoPlayer.seekTo(20 * 60 * 1000); debug("⏭ 20:00"); } });
         
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override public void onProgressChanged(SeekBar s, int p, boolean user) { 
@@ -160,8 +167,8 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onStopTrackingTouch(SeekBar s) { isTracking = false; }
         });
         
-        btnAudio.setOnClickListener(v -> debug("🎵 Áudio: ExoPlayer gerencia automaticamente"));
-        btnSubtitle.setOnClickListener(v -> debug("📝 Legendas: ExoPlayer gerencia automaticamente"));
+        btnAudio.setOnClickListener(v -> toggleAudioMenu());
+        btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
         debug("=== TORRENT STREAM (ExoPlayer) ===");
         new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ Sessão OK"); } catch (Exception e) { debug("❌ " + e.getMessage()); } }).start();
@@ -174,31 +181,113 @@ public class MainActivity extends AppCompatActivity {
         debug("📱 Pronto");
     }
     
-    private void seekRelative(long delta) { 
-        if (exoPlayer == null || exoPlayer.getDuration() <= 0) return; 
-        long t = Math.max(0, Math.min(exoPlayer.getDuration(), exoPlayer.getCurrentPosition() + delta)); 
-        exoPlayer.seekTo(t); 
+    private void seekRelative(long delta) { if (exoPlayer == null || exoPlayer.getDuration() <= 0) return; long t = Math.max(0, Math.min(exoPlayer.getDuration(), exoPlayer.getCurrentPosition() + delta)); exoPlayer.seekTo(t); }
+    
+    // ==================== MENUS DE ÁUDIO E LEGENDA ====================
+    
+    private void toggleAudioMenu() {
+        if (exoPlayer == null) return;
+        audioMenu.removeAllViews();
+        Tracks tracks = exoPlayer.getCurrentTracks();
+        
+        // "Sem áudio"
+        TextView off = new TextView(this);
+        off.setText("🔇 Sem áudio");
+        off.setTextColor(0xFFFFFFFF); off.setTextSize(12); off.setPadding(16,12,16,12);
+        off.setOnClickListener(v -> {
+            for (Tracks.Group group : tracks.getGroups()) {
+                for (int i = 0; i < group.length; i++) {
+                    if (group.getTrackFormat(i).sampleMimeType != null && group.getTrackFormat(i).sampleMimeType.startsWith("audio")) {
+                        trackSelector.setParameters(trackSelector.buildUponParameters().setRendererDisabled(group.getMediaTrackGroup(), true));
+                    }
+                }
+            }
+            audioScroll.setVisibility(View.GONE);
+        });
+        audioMenu.addView(off);
+        
+        int count = 0;
+        for (Tracks.Group group : tracks.getGroups()) {
+            for (int i = 0; i < group.length; i++) {
+                if (group.getTrackFormat(i).sampleMimeType != null && group.getTrackFormat(i).sampleMimeType.startsWith("audio")) {
+                    count++;
+                    String name = group.getTrackFormat(i).label != null ? group.getTrackFormat(i).label : "Faixa " + count;
+                    boolean sel = group.isSelected(i);
+                    TextView tv = new TextView(this);
+                    tv.setText("🎵 " + name + (sel ? " ✓" : ""));
+                    tv.setTextColor(sel ? 0xFF6c5ce7 : 0xFFFFFFFF);
+                    tv.setTextSize(12); tv.setPadding(16,12,16,12);
+                    tv.setOnClickListener(v -> {
+                        trackSelector.setParameters(trackSelector.buildUponParameters().setRendererDisabled(group.getMediaTrackGroup(), false));
+                        audioScroll.setVisibility(View.GONE);
+                        debug("🎵 " + name);
+                    });
+                    audioMenu.addView(tv);
+                }
+            }
+        }
+        debug("🎵 " + count + " áudios");
+        audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        subtitleScroll.setVisibility(View.GONE);
     }
     
-    private String formatTime(long ms) { if (ms < 0) return "0:00"; int s = (int)(ms/1000); int m = s / 60; s = s % 60; return m + ":" + (s < 10 ? "0" : "") + s; }
+    private void toggleSubtitleMenu() {
+        if (exoPlayer == null) return;
+        subtitleMenu.removeAllViews();
+        
+        TextView off = new TextView(this);
+        off.setText("📝 Sem legenda");
+        off.setTextColor(0xFFFFFFFF); off.setTextSize(12); off.setPadding(16,12,16,12);
+        off.setOnClickListener(v -> {
+            exoPlayer.setTrackSelectionParameters(exoPlayer.getTrackSelectionParameters().buildUpon().setPreferredTextLanguage(null).build());
+            subtitleScroll.setVisibility(View.GONE);
+        });
+        subtitleMenu.addView(off);
+        
+        Tracks tracks = exoPlayer.getCurrentTracks();
+        int count = 0;
+        for (Tracks.Group group : tracks.getGroups()) {
+            for (int i = 0; i < group.length; i++) {
+                if (group.getTrackFormat(i).sampleMimeType != null && group.getTrackFormat(i).sampleMimeType.startsWith("text")) {
+                    count++;
+                    String name = group.getTrackFormat(i).label != null ? group.getTrackFormat(i).label : "Legenda " + count;
+                    boolean sel = group.isSelected(i);
+                    TextView tv = new TextView(this);
+                    tv.setText("📝 " + name + (sel ? " ✓" : ""));
+                    tv.setTextColor(sel ? 0xFF6c5ce7 : 0xFFFFFFFF);
+                    tv.setTextSize(12); tv.setPadding(16,12,16,12);
+                    tv.setOnClickListener(v -> {
+                        exoPlayer.setTrackSelectionParameters(exoPlayer.getTrackSelectionParameters().buildUpon().setPreferredTextLanguage(group.getTrackFormat(i).language).build());
+                        subtitleScroll.setVisibility(View.GONE);
+                        debug("📝 " + name);
+                    });
+                    subtitleMenu.addView(tv);
+                }
+            }
+        }
+        debug("📝 " + count + " legendas");
+        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        audioScroll.setVisibility(View.GONE);
+    }
+    
+    private String formatTime(long ms) { if (ms < 0) return "0:00"; int s = (int)(ms/1000); return (s/60) + ":" + (s%60 < 10 ? "0" : "") + (s%60); }
     
     private void playWithExoPlayer(String url) {
         try {
-            debug("[Exo] 🎬 Iniciando: " + url);
-            MediaItem mediaItem = MediaItem.fromUri(Uri.parse(url));
-            exoPlayer.setMediaItem(mediaItem);
+            debug("[Exo] 🎬 " + url);
+            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
             exoPlayer.prepare();
             exoPlayer.play();
             handler.post(() -> { 
                 playerView.setVisibility(View.VISIBLE); 
                 playerControls.setVisibility(View.VISIBLE); 
                 centerControls.setVisibility(View.VISIBLE); 
-                btnSkip20.setVisibility(View.VISIBLE); 
+                btnSkip20.setVisibility(View.VISIBLE);
+                bufferProgress.setVisibility(View.VISIBLE);
+                handler.post(bufferUpdater);
+                handler.post(timeUpdater);
             });
-            debug("[Exo] ▶ Play executado");
-        } catch (Exception e) { 
-            debug("[Exo] ❌ Erro: " + e.getMessage()); 
-        }
+        } catch (Exception e) { debug("[Exo] ❌ " + e.getMessage()); }
     }
     
     @Override protected void onActivityResult(int r, int res, Intent data) {
@@ -213,7 +302,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; Log.d("TS", msg); debugLog.append(line); handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); }
     
-    // ==================== SERVIDOR HTTP (MANTIDO IGUAL) ====================
+    // ==================== SERVIDOR HTTP ====================
     
     private void startServer() { serverThread = new Thread(() -> { try { ServerSocket s = new ServerSocket(8080, 10); s.setReuseAddress(true); while (!Thread.interrupted()) { try { Socket c = s.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {} } s.close(); } catch (IOException e) {} }); serverThread.setDaemon(true); serverThread.start(); }
     
@@ -247,7 +336,6 @@ public class MainActivity extends AppCompatActivity {
             if (re == -1 || re >= fs) re = fs - 1;
             long cl = re - rs + 1;
             
-            // SEEK com bloqueio
             synchronized (torrentLock) {
                 if (torrentHandle != null && pieceLength > 0) {
                     int pn = (int)(rs / pieceLength);
@@ -283,7 +371,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
-    // ==================== DOWNLOAD (MANTIDO IGUAL) ====================
+    // ==================== DOWNLOAD ====================
     
     private void start() { String m = magnetInput.getText().toString().trim(); if (m.startsWith("magnet:") && !downloading) startDownload(m); }
     
@@ -345,7 +433,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() { if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } debug("▶️ ExoPlayer: " + videoFile.getName()); handler.post(() -> { playerView.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); playWithExoPlayer("http://127.0.0.1:8080/video"); }); }
     
-    private void stop() { downloading = false; if (exoPlayer != null) exoPlayer.stop(); playerView.setVisibility(View.GONE); playerControls.setVisibility(View.GONE); centerControls.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); handler.removeCallbacks(timeUpdater); synchronized (torrentLock) { if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; } } }
+    private void stop() { downloading = false; if (exoPlayer != null) exoPlayer.stop(); playerView.setVisibility(View.GONE); playerControls.setVisibility(View.GONE); centerControls.setVisibility(View.GONE); audioScroll.setVisibility(View.GONE); subtitleScroll.setVisibility(View.GONE); btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE); bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE); bufferProgress.setVisibility(View.GONE); handler.removeCallbacks(timeUpdater); handler.removeCallbacks(bufferUpdater); synchronized (torrentLock) { if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; } } }
     
     private File find(File dir) { File[] files = dir.listFiles(); if (files != null) for (File f : files) { if (f.isDirectory()) { File found = find(f); if (found != null) return found; } else if (f.getName().endsWith(".mp4") || f.getName().endsWith(".mkv") || f.getName().endsWith(".avi") || f.getName().endsWith(".webm")) return f; } return null; }
     
