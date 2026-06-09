@@ -154,9 +154,24 @@ public class MainActivity extends AppCompatActivity {
         int rs = Math.max(0, tp - 2), re = Math.min(tp + 5, numPieces - 1);
         
         try {
-            torrentHandle.setSequentialRange(rs, re);
-            for (int i = 0; i < numPieces; i++) torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE);
-            for (int i = rs; i <= re; i++) { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY); torrentHandle.setPieceDeadline(i, 300); }
+            // Usar prioritize_pieces_ex com byte_vector para TODAS as peças de uma vez
+            byte_vector priorities = new byte_vector();
+            for (int i = 0; i < numPieces; i++) {
+                if (i >= rs && i <= re) {
+                    priorities.add((byte)7); // TOP_PRIORITY = 7
+                } else {
+                    priorities.add((byte)0); // IGNORE = 0
+                }
+            }
+            torrentHandle.swig().prioritize_pieces_ex(priorities);
+            
+            // Setar deadlines para as peças do range
+            for (int i = rs; i <= re; i++) {
+                torrentHandle.swig().set_piece_deadline(i, 300);
+            }
+            
+            // Setar range sequencial
+            torrentHandle.swig().set_sequential_range(rs, re);
             
             debug("🎯 SEEK: " + (timeMs/1000) + "s → byte " + bytePos + " → peça " + tp);
             debug("   Range: " + rs + "-" + re + " (8 peças, deadline 300ms)");
@@ -305,12 +320,30 @@ public class MainActivity extends AppCompatActivity {
                     int meta = Math.min(20, np);
                     debug("📋 Cabeçalho: " + meta + " peças (~" + (meta*pl/1048576) + "MB)");
                     
-                    for (int i = 0; i < meta; i++) { try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.TOP_PRIORITY); torrentHandle.setPieceDeadline(i, 500); } catch (Exception e) {} }
-                    for (int i = meta; i < np; i++) { try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.IGNORE); } catch (Exception e) {} }
+                    // Baixar cabeçalho com alta prioridade
+                    byte_vector headerPriorities = new byte_vector();
+                    for (int i = 0; i < np; i++) {
+                        if (i < meta) {
+                            headerPriorities.add((byte)7); // TOP_PRIORITY
+                        } else {
+                            headerPriorities.add((byte)0); // IGNORE
+                        }
+                    }
+                    torrentHandle.swig().prioritize_pieces_ex(headerPriorities);
+                    for (int i = 0; i < meta; i++) {
+                        torrentHandle.swig().set_piece_deadline(i, 500);
+                    }
                     
                     int complete = 0, wt = 0; boolean shown = false;
                     while (wt < 120 && downloading) { Thread.sleep(500); complete = 0; wt++; for (int i = 0; i < meta; i++) if (torrentHandle.havePiece(i)) complete++; if (wt % 4 == 0) debug("   📋 " + complete + "/" + meta + " (" + (wt/2) + "s)"); 
-                        if (!shown && complete >= meta) { shown = true; long t2 = (System.currentTimeMillis() - startTime) / 1000; debug("✅ Cabeçalho OK! " + complete + "/" + meta + " em " + t2 + "s"); for (int i = meta; i < np; i++) { try { torrentHandle.piecePriority(i, org.libtorrent4j.Priority.DEFAULT); } catch (Exception e) {} }
+                        if (!shown && complete >= meta) { shown = true; long t2 = (System.currentTimeMillis() - startTime) / 1000; debug("✅ Cabeçalho OK! " + complete + "/" + meta + " em " + t2 + "s");
+                            // Restaurar prioridades padrão para download normal
+                            byte_vector normalPriorities = new byte_vector();
+                            for (int i = 0; i < np; i++) {
+                                normalPriorities.add((byte)1); // DEFAULT priority
+                            }
+                            torrentHandle.swig().prioritize_pieces_ex(normalPriorities);
+                            
                             for (int i = 0; i < 30; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 1048576) { byte[] hdr = new byte[8]; try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; } if ((hdr[4]=='f'&&hdr[5]=='t'&&hdr[6]=='y'&&hdr[7]=='p') || ((hdr[0]&0xFF)==0x1A&&hdr[1]==0x45&&hdr[2]==(byte)0xDF&&hdr[3]==(byte)0xA3)) { videoFile = f; handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); }); debug("📁 " + f.getName() + " (" + (f.length()/1048576) + "MB)"); break; } } Thread.sleep(500); } break; } }
                     
                     // Monitor de download contínuo
