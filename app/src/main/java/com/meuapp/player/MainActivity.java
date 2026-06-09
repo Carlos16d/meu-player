@@ -35,6 +35,7 @@ public class MainActivity extends AppCompatActivity {
     private EditText magnetInput;
     private Button btnPlay, btnTorrent, btnStop, btnWatch, btnSkip20;
     private LinearLayout playerControls, centerControls, audioMenu, subtitleMenu;
+    private ScrollView audioScroll, subtitleScroll;
     private Button btnPlayPause, btnSeekBack, btnSeekForward, btnAudio, btnSubtitle;
     private SeekBar seekBar;
     private boolean isTracking = false;
@@ -83,6 +84,8 @@ public class MainActivity extends AppCompatActivity {
         btnAudio = findViewById(R.id.btn_audio);
         btnSubtitle = findViewById(R.id.btn_subtitle);
         seekBar = findViewById(R.id.seek_bar);
+        audioScroll = findViewById(R.id.audio_scroll);
+        subtitleScroll = findViewById(R.id.subtitle_scroll);
         audioMenu = findViewById(R.id.audio_menu);
         subtitleMenu = findViewById(R.id.subtitle_menu);
         
@@ -298,13 +301,13 @@ public class MainActivity extends AppCompatActivity {
                     tv.setTextSize(12); 
                     tv.setPadding(16, 12, 16, 12);
                     final int id = t.id; 
-                    tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(id); audioMenu.setVisibility(View.GONE); debug("🎵 Áudio alterado: " + t.name); }); 
+                    tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(id); audioScroll.setVisibility(View.GONE); debug("🎵 Áudio alterado: " + t.name); }); 
                     audioMenu.addView(tv);
                 }
             }
         }
-        audioMenu.setVisibility(audioMenu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); 
-        subtitleMenu.setVisibility(View.GONE);
+        audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); 
+        subtitleScroll.setVisibility(View.GONE);
     }
     
     private void toggleSubtitleMenu() {
@@ -317,7 +320,7 @@ public class MainActivity extends AppCompatActivity {
         off.setTextColor(current == -1 ? 0xFF6c5ce7 : 0xFFFFFFFF); 
         off.setTextSize(12); 
         off.setPadding(16, 12, 16, 12);
-        off.setOnClickListener(v -> { vlcPlayer.setSpuTrack(-1); subtitleMenu.setVisibility(View.GONE); });
+        off.setOnClickListener(v -> { vlcPlayer.setSpuTrack(-1); subtitleScroll.setVisibility(View.GONE); });
         subtitleMenu.addView(off);
         if (tracks != null) {
             debug("📝 Legendas disponíveis: " + tracks.length + " faixas");
@@ -329,13 +332,13 @@ public class MainActivity extends AppCompatActivity {
                     tv.setTextSize(12); 
                     tv.setPadding(16, 12, 16, 12);
                     final int id = t.id; 
-                    tv.setOnClickListener(v -> { vlcPlayer.setSpuTrack(id); subtitleMenu.setVisibility(View.GONE); debug("📝 Legenda alterada: " + t.name); }); 
+                    tv.setOnClickListener(v -> { vlcPlayer.setSpuTrack(id); subtitleScroll.setVisibility(View.GONE); debug("📝 Legenda alterada: " + t.name); }); 
                     subtitleMenu.addView(tv);
                 }
             }
         }
-        subtitleMenu.setVisibility(subtitleMenu.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); 
-        audioMenu.setVisibility(View.GONE);
+        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); 
+        audioScroll.setVisibility(View.GONE);
     }
     
     private String formatTime(long ms) { if (ms < 0) return "0:00"; int s = (int)(ms / 1000); int m = s / 60; s = s % 60; return m + ":" + (s < 10 ? "0" : "") + s; }
@@ -484,8 +487,8 @@ public class MainActivity extends AppCompatActivity {
         videoSurface.setVisibility(View.GONE); 
         playerControls.setVisibility(View.GONE); 
         centerControls.setVisibility(View.GONE); 
-        audioMenu.setVisibility(View.GONE); 
-        subtitleMenu.setVisibility(View.GONE); 
+        audioScroll.setVisibility(View.GONE); 
+        subtitleScroll.setVisibility(View.GONE); 
         btnStop.setVisibility(View.GONE); 
         btnWatch.setVisibility(View.GONE); 
         btnSkip20.setVisibility(View.GONE);
