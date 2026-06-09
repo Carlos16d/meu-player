@@ -19,6 +19,21 @@
             android:layout_height="match_parent"
             android:visibility="gone" />
         
+        <!-- Botão Pular 20min (canto superior direito) -->
+        <Button
+            android:id="@+id/btn_skip_20"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_gravity="top|end"
+            android:layout_margin="8dp"
+            android:background="@drawable/btn_primary"
+            android:text="⏭ 20:00"
+            android:textColor="#FFFFFF"
+            android:textSize="11sp"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:visibility="gone" />
+        
         <!-- Controles centrais (Play/Pause grande) -->
         <LinearLayout
             android:id="@+id/center_controls"
@@ -35,7 +50,7 @@
                 android:layout_height="48dp"
                 android:background="@android:color/transparent"
                 android:text="⏪"
-                android:textColor="#fff"
+                android:textColor="#FFFFFF"
                 android:textSize="22sp" />
             
             <Button
@@ -46,7 +61,7 @@
                 android:layout_marginEnd="16dp"
                 android:background="@drawable/btn_primary"
                 android:text="⏸"
-                android:textColor="#fff"
+                android:textColor="#FFFFFF"
                 android:textSize="28sp" />
             
             <Button
@@ -55,7 +70,7 @@
                 android:layout_height="48dp"
                 android:background="@android:color/transparent"
                 android:text="⏩"
-                android:textColor="#fff"
+                android:textColor="#FFFFFF"
                 android:textSize="22sp" />
         </LinearLayout>
         
@@ -81,7 +96,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="0:00 / 0:00"
-                    android:textColor="#fff"
+                    android:textColor="#FFFFFF"
                     android:textSize="10sp"
                     android:layout_marginEnd="8dp" />
                 
@@ -91,7 +106,7 @@
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
                     android:progressTint="#6c5ce7"
-                    android:thumbTint="#fff"
+                    android:thumbTint="#FFFFFF"
                     android:progressBackgroundTint="#33FFFFFF" />
             </LinearLayout>
             
@@ -109,7 +124,7 @@
                     android:layout_weight="1"
                     android:background="@android:color/transparent"
                     android:text="🎵 Áudio"
-                    android:textColor="#fff"
+                    android:textColor="#FFFFFF"
                     android:textSize="11sp" />
                 
                 <Button
@@ -119,34 +134,46 @@
                     android:layout_weight="1"
                     android:background="@android:color/transparent"
                     android:text="📝 Legenda"
-                    android:textColor="#fff"
+                    android:textColor="#FFFFFF"
                     android:textSize="11sp" />
             </LinearLayout>
         </LinearLayout>
         
-        <!-- Menu de áudio -->
-        <LinearLayout
-            android:id="@+id/audio_menu"
-            android:layout_width="180dp"
-            android:layout_height="wrap_content"
+        <!-- Menu de áudio com scroll -->
+        <ScrollView
+            android:id="@+id/audio_scroll"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
             android:layout_gravity="bottom|end"
             android:layout_marginBottom="80dp"
             android:layout_marginEnd="8dp"
-            android:orientation="vertical"
             android:background="#E0000000"
-            android:visibility="gone" />
+            android:visibility="gone">
+            
+            <LinearLayout
+                android:id="@+id/audio_menu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
         
-        <!-- Menu de legenda -->
-        <LinearLayout
-            android:id="@+id/subtitle_menu"
-            android:layout_width="180dp"
-            android:layout_height="wrap_content"
+        <!-- Menu de legenda com scroll -->
+        <ScrollView
+            android:id="@+id/subtitle_scroll"
+            android:layout_width="200dp"
+            android:layout_height="200dp"
             android:layout_gravity="bottom|end"
             android:layout_marginBottom="80dp"
             android:layout_marginEnd="8dp"
-            android:orientation="vertical"
             android:background="#E0000000"
-            android:visibility="gone" />
+            android:visibility="gone">
+            
+            <LinearLayout
+                android:id="@+id/subtitle_menu"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
         
         <ProgressBar
             android:id="@+id/spinner_bar"
@@ -210,7 +237,7 @@
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
                 android:text="GO"
-                android:textColor="#fff"
+                android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="10sp" />
             
@@ -221,7 +248,7 @@
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_primary"
                 android:text="📁"
-                android:textColor="#fff"
+                android:textColor="#FFFFFF"
                 android:textSize="14sp" />
         </LinearLayout>
         
@@ -238,7 +265,7 @@
                 android:layout_weight="1"
                 android:background="@drawable/btn_success"
                 android:text="▶ ASSISTIR"
-                android:textColor="#fff"
+                android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="11sp"
                 android:visibility="gone" />
@@ -251,7 +278,7 @@
                 android:layout_marginStart="4dp"
                 android:background="@drawable/btn_danger"
                 android:text="⏹ PARAR"
-                android:textColor="#fff"
+                android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="11sp"
                 android:visibility="gone" />
