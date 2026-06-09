@@ -145,7 +145,7 @@ public class MainActivity extends AppCompatActivity {
                 case MediaPlayer.Event.Buffering:
                     handler.post(() -> spinnerBar.setVisibility(View.VISIBLE));
                     break;
-                case MediaPlayer.Event.Ended:
+                case MediaPlayer.Event.EndReached:
                     isPlaying = false;
                     handler.post(() -> btnPlayPause.setText("▶"));
                     break;
