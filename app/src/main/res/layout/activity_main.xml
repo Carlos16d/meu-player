@@ -13,8 +13,8 @@
         android:layout_marginBottom="4dp"
         android:background="#000000">
         
-        <SurfaceView
-            android:id="@+id/video_surface"
+        <androidx.media3.ui.PlayerView
+            android:id="@+id/player_view"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
@@ -139,42 +139,6 @@
             </LinearLayout>
         </LinearLayout>
         
-        <!-- Menu de áudio com scroll -->
-        <ScrollView
-            android:id="@+id/audio_scroll"
-            android:layout_width="200dp"
-            android:layout_height="200dp"
-            android:layout_gravity="bottom|end"
-            android:layout_marginBottom="80dp"
-            android:layout_marginEnd="8dp"
-            android:background="#E0000000"
-            android:visibility="gone">
-            
-            <LinearLayout
-                android:id="@+id/audio_menu"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </ScrollView>
-        
-        <!-- Menu de legenda com scroll -->
-        <ScrollView
-            android:id="@+id/subtitle_scroll"
-            android:layout_width="200dp"
-            android:layout_height="200dp"
-            android:layout_gravity="bottom|end"
-            android:layout_marginBottom="80dp"
-            android:layout_marginEnd="8dp"
-            android:background="#E0000000"
-            android:visibility="gone">
-            
-            <LinearLayout
-                android:id="@+id/subtitle_menu"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </ScrollView>
-        
         <ProgressBar
             android:id="@+id/spinner_bar"
             android:layout_width="24dp"
@@ -202,7 +166,6 @@
             android:textSize="11sp"
             android:textStyle="bold" />
         
-        <!-- Barra de buffer do vídeo -->
         <ProgressBar
             android:id="@+id/buffer_bar"
             style="?android:attr/progressBarStyleHorizontal"
@@ -212,29 +175,6 @@
             android:progressBackgroundTint="#33FFFFFF"
             android:visibility="gone"
             android:layout_marginTop="2dp" />
-        
-        <!-- Texto de progresso dos metadados -->
-        <TextView
-            android:id="@+id/progress_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textColor="#AAFFFFFF"
-            android:textSize="10sp"
-            android:layout_marginTop="2dp"
-            android:visibility="gone" />
-        
-        <!-- Barra de progresso dos metadados -->
-        <ProgressBar
-            android:id="@+id/metadata_progress"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="4dp"
-            android:progressTint="#00cc88"
-            android:progressBackgroundTint="#33FFFFFF"
-            android:visibility="gone"
-            android:layout_marginTop="1dp"
-            android:layout_marginBottom="2dp" />
         
         <LinearLayout
             android:layout_width="match_parent"
