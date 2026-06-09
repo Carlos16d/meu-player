@@ -1,54 +1,40 @@
 name: Build APK
-
 on:
-  push:
-    branches: [ main, master ]
-  workflow_dispatch:
-
+  workflow_dispatch  # Apenas execução manual
 jobs:
   build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
-    
     steps:
     - name: Checkout
       uses: actions/checkout@v4
-    
     - name: Set up JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
-    
     - name: Setup Android SDK
       uses: android-actions/setup-android@v3
-    
     - name: Clean old builds
       run: |
-        rm -rf /home/runner/.gradle/caches/
-        rm -rf /home/runner/work/meu-player/meu-player/.gradle/
-        rm -rf /home/runner/work/meu-player/meu-player/app/build/
-    
-    - name: Grant execute permission for gradlew
+        rm -rf ~/.gradle/caches/
+        rm -rf .gradle/
+        rm -rf app/build/
+    - name: Permitir gradlew
       run: chmod +x gradlew
-    
-    - name: Clean project
+    - name: Limpar projeto
       run: ./gradlew clean
-    
-    - name: Build debug APK
-      run: ./gradlew assembleDebug
-    
-    - name: Rename APK
-      run: |
-        cp app/build/outputs/apk/debug/app-debug.apk app-meu-player.apk
-    
-    - name: Create Release
+    - name: Build Release APK
+      run: ./gradlew assembleRelease  # Gera versão final
+    - name: Renomear APK
+      run: cp app/build/outputs/apk/release/app-release.apk app-meu-player.apk
+    - name: Criar Release
       uses: softprops/action-gh-release@v2
       with:
         files: app-meu-player.apk
         tag_name: v${{ github.run_number }}
         name: Build v${{ github.run_number }}
-        body: "Build automático #${{ github.run_number }}"
+        body: "Build manual Release #${{ github.run_number }}"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
