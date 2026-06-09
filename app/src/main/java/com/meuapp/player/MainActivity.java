@@ -146,11 +146,11 @@ public class MainActivity extends AppCompatActivity {
                 case MediaPlayer.Event.Playing: 
                     isPlaying = true; vlcPreparing = false; 
                     handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); if (!isTracking) handler.post(timeUpdater); }); 
-                    debug("[VLC] ▶ Tocando! Duração=" + (vlcPlayer.getLength()/60000) + "min Tracks=" + vlcPlayer.getAudioTracks().length + " áudios/" + vlcPlayer.getSpuTracks().length + " legendas"); 
+                    debug("[VLC] ▶ Tocando! Dur=" + (vlcPlayer.getLength()/60000) + "min Aud=" + vlcPlayer.getAudioTracks().length + " Leg=" + vlcPlayer.getSpuTracks().length); 
                     break;
                 case MediaPlayer.Event.Paused: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); debug("[VLC] ⏸ Pausado"); break;
                 case MediaPlayer.Event.Stopped: isPlaying = false; vlcPreparing = false; handler.post(() -> btnPlayPause.setText("▶")); debug("[VLC] ⏹ Parado"); break;
-                case MediaPlayer.Event.Buffering: handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); debug("[VLC] 🔃 Buffering " + event.buffering + "%"); break;
+                case MediaPlayer.Event.Buffering: handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); debug("[VLC] 🔃 Buffering..."); break;
                 case MediaPlayer.Event.EndReached: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); debug("[VLC] 🏁 Fim"); break;
                 case MediaPlayer.Event.EncounteredError: debug("[VLC] ❌ Erro!"); break;
             }
@@ -315,11 +315,9 @@ public class MainActivity extends AppCompatActivity {
                 synchronized (httpLock) { if (currentClient != client) { debug("❌ Conexão cancelada"); try { out.flush(); client.close(); } catch (Exception e) {} return; } }
                 
                 if (!hr) {
-                    // Requisição inicial: enviar o máximo possível
-                    long toSend = Math.min(52428800, fs); // 50MB inicial
+                    long toSend = Math.min(52428800, fs);
                     debug("📦 Requisição inicial - enviando até " + (toSend/1048576) + "MB...");
                     
-                    // Aguardar peças iniciais
                     synchronized (torrentLock) {
                         if (isHandleValidSafe() && pieceLength > 0) {
                             long tb = videoFileOffset + toSend;
@@ -368,7 +366,6 @@ public class MainActivity extends AppCompatActivity {
                     continue;
                 }
                 
-                // Requisição com Range
                 if (re == -1 || re >= fs) re = fs - 1;
                 long cl = re - rs + 1;
                 if (cl > 4194304) { cl = 4194304; re = rs + cl - 1; }
