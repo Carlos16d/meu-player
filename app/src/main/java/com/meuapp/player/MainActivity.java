@@ -15,7 +15,9 @@ import androidx.media3.common.MediaItem;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.Tracks;
+import androidx.media3.datasource.DefaultHttpDataSource;
 import androidx.media3.exoplayer.ExoPlayer;
+import androidx.media3.exoplayer.source.ProgressiveMediaSource;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import androidx.media3.ui.PlayerView;
 
@@ -231,9 +233,28 @@ public class MainActivity extends AppCompatActivity {
     private void playWithExoPlayer(String url) {
         try {
             debug("[Exo] 🎬 " + url);
-            exoPlayer.setMediaItem(MediaItem.fromUri(Uri.parse(url)));
-            exoPlayer.prepare(); exoPlayer.play();
-            handler.post(() -> { playerView.setVisibility(View.VISIBLE); playerControls.setVisibility(View.VISIBLE); centerControls.setVisibility(View.VISIBLE); btnSkip20.setVisibility(View.VISIBLE); bufferProgress.setVisibility(View.VISIBLE); handler.post(timeUpdater); });
+            
+            // Usar ProgressiveMediaSource com timeout maior
+            DefaultHttpDataSource.Factory dataSourceFactory = new DefaultHttpDataSource.Factory();
+            dataSourceFactory.setConnectTimeoutMs(15000);
+            dataSourceFactory.setReadTimeoutMs(120000);
+            dataSourceFactory.setAllowCrossProtocolRedirects(true);
+            
+            ProgressiveMediaSource mediaSource = new ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(MediaItem.fromUri(Uri.parse(url)));
+            
+            exoPlayer.setMediaSource(mediaSource);
+            exoPlayer.prepare();
+            exoPlayer.play();
+            
+            handler.post(() -> { 
+                playerView.setVisibility(View.VISIBLE); 
+                playerControls.setVisibility(View.VISIBLE); 
+                centerControls.setVisibility(View.VISIBLE); 
+                btnSkip20.setVisibility(View.VISIBLE); 
+                bufferProgress.setVisibility(View.VISIBLE); 
+                handler.post(timeUpdater); 
+            });
         } catch (Exception e) { debug("[Exo] ❌ " + e.getMessage()); }
     }
     
@@ -267,8 +288,8 @@ public class MainActivity extends AppCompatActivity {
             
             if (!hr) {
                 if (fs < 1048576) { out.write("HTTP/1.1 503 Retry-After: 5\r\n\r\n".getBytes()); out.flush(); client.close(); return; }
-                long toSend = Math.min(3145728, fs);
-                String resp = "HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nAccept-Ranges: bytes\r\nContent-Length: " + fs + "\r\nAccess-Control-Allow-Origin: *\r\n\r\n";
+                long toSend = Math.min(5242880, fs); // 5MB iniciais
+                String resp = "HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nAccept-Ranges: bytes\r\nContent-Length: " + fs + "\r\nAccess-Control-Allow-Origin: *\r\nConnection: keep-alive\r\n\r\n";
                 out.write(resp.getBytes()); out.flush();
                 RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
                 byte[] data = new byte[262144]; long sent = 0;
@@ -280,7 +301,7 @@ public class MainActivity extends AppCompatActivity {
             
             if (re == -1 || re >= fs) re = fs - 1;
             long cl = re - rs + 1;
-            out.write(("HTTP/1.1 206 Partial Content\r\nContent-Type: video/x-matroska\r\nAccept-Ranges: bytes\r\nContent-Range: bytes " + rs + "-" + (rs+cl-1) + "/" + fs + "\r\nContent-Length: " + cl + "\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n").getBytes()); out.flush();
+            out.write(("HTTP/1.1 206 Partial Content\r\nContent-Type: video/x-matroska\r\nAccept-Ranges: bytes\r\nContent-Range: bytes " + rs + "-" + (rs+cl-1) + "/" + fs + "\r\nContent-Length: " + cl + "\r\nAccess-Control-Allow-Origin: *\r\nConnection: keep-alive\r\n\r\n").getBytes()); out.flush();
             RandomAccessFile raf = new RandomAccessFile(videoFile, "r"); raf.seek(rs); byte[] buf = new byte[65536]; long sent = 0;
             while (sent < cl && downloading) { int tr = (int)Math.min(buf.length, cl-sent); int read = raf.read(buf, 0, tr); if (read <= 0) { Thread.sleep(100); continue; } out.write(buf, 0, read); out.flush(); sent += read; }
             raf.close(); out.flush(); client.close();
@@ -313,7 +334,6 @@ public class MainActivity extends AppCompatActivity {
                     int totalMeta = headerPieces + cuePieces;
                     debug("📊 " + (totalSize/1048576) + "MB " + np + "p H:0-" + (headerPieces-1) + " C:" + cueStart + "-" + (np-1) + " (" + totalMeta + " peças)");
                     
-                    // Fase 1: Baixar metadados (cabeçalho + cues)
                     final int hdr = headerPieces, cueS = cueStart;
                     safeSwig(() -> {
                         byte_vector hp = new byte_vector();
@@ -331,46 +351,19 @@ public class MainActivity extends AppCompatActivity {
                     }
                     
                     if (metaReady) {
-                        // Fase 2: Baixar +30 segundos de vídeo antes de liberar
-                        int pecas30s = (int)((30.0 / 1420) * np); // ~30s para vídeo de 23:40
-                        if (pecas30s < 5) pecas30s = 5;
-                        if (pecas30s > 30) pecas30s = 30;
-                        int totalInicio = headerPieces + pecas30s;
-                        debug("🎬 Baixando " + pecas30s + " peças iniciais (~30s de vídeo)...");
-                        
-                        final int hdr2 = headerPieces, cueS2 = cueStart, p30 = pecas30s;
+                        final int hdr2 = headerPieces, cueS2 = cueStart;
                         safeSwig(() -> {
                             byte_vector np2 = new byte_vector();
                             for (int i = 0; i < np; i++) {
-                                if (i < hdr2 + p30 || i >= cueS2) np2.add((byte)7);
+                                if (i < hdr2 + 30 || i >= cueS2) np2.add((byte)4);
                                 else np2.add((byte)0);
                             }
                             torrentHandle.swig().prioritize_pieces_ex(np2);
-                            for (int i = hdr2; i < hdr2 + p30; i++) torrentHandle.swig().set_piece_deadline(i, 1000);
                         });
                         
-                        int ready = 0, wt2 = 0; boolean inicioReady = false;
-                        while (wt2 < 120 && downloading && !inicioReady) { Thread.sleep(500); ready = 0; wt2++;
-                            for (int i = 0; i < totalInicio; i++) if (havePieceSafe(i)) ready++;
-                            if (wt2 % 4 == 0) debug("   🎬 " + ready + "/" + totalInicio + " (" + (wt2/2) + "s)");
-                            if (ready >= totalInicio) { inicioReady = true; debug("✅ Início pronto: " + ready + "/" + totalInicio + " " + (wt2/2) + "s"); }
-                        }
-                        
-                        // Fase 3: Restaurar prioridades e liberar player
-                        final int hdr3 = headerPieces, cueS3 = cueStart, p302 = pecas30s;
-                        safeSwig(() -> {
-                            byte_vector np3 = new byte_vector();
-                            for (int i = 0; i < np; i++) {
-                                if (i < hdr3 + p302 || i >= cueS3) np3.add((byte)4);
-                                else np3.add((byte)0);
-                            }
-                            torrentHandle.swig().prioritize_pieces_ex(np3);
-                        });
-                        
-                        // Encontrar arquivo
                         for (int i = 0; i < 60; i++) { 
                             File f = find(new File(savePath)); 
-                            if (f != null && f.length() > 5242880) {
+                            if (f != null && f.length() > 3145728) {
                                 byte[] hdr3 = new byte[8]; 
                                 try { new RandomAccessFile(f, "r").read(hdr3); } catch (Exception e2) { continue; }
                                 if ((hdr3[4]=='f'&&hdr3[5]=='t'&&hdr3[6]=='y'&&hdr3[7]=='p') || ((hdr3[0]&0xFF)==0x1A&&hdr3[1]==0x45&&hdr3[2]==(byte)0xDF&&hdr3[3]==(byte)0xA3)) { 
@@ -388,13 +381,12 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e2) { debug("❌ " + e2.getMessage()); downloading = false; }
         }).start();
         
-        // ==================== PREFETCH VIA HANDLER (Main Thread) ====================
+        // Prefetch via Handler (main thread)
         prefetchThread = new Thread(() -> {
             while (downloading) {
                 try { Thread.sleep(2000); } catch (Exception e) {}
                 if (!handleValid || videoFile == null || pieceLength <= 0) continue;
                 
-                // Postar na main thread para acessar ExoPlayer
                 handler.post(() -> {
                     if (exoPlayer == null || !exoPlayer.isPlaying() || exoPlayer.getDuration() <= 0) return;
                     
