@@ -100,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override public void onStreamReady(torrent_handle handle, String sp) {
                 streamServer.setTorrentInfo(handle);
-                handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); });
+                debug("🎬 Streaming liberado pelo Engine!");
             }
             @Override public void onStatus(String status) { debug(status); }
             @Override public void onLog(String log) { debug(log); }
@@ -109,18 +109,20 @@ public class MainActivity extends AppCompatActivity {
         
         // VLC
         ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=1500");
-        options.add("--file-caching=1500");
+        options.add("--network-caching=3000");
+        options.add("--file-caching=2000");
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
         
         vlcPlayer.setEventListener(event -> {
             switch (event.type) {
-                case MediaPlayer.Event.Playing: isPlaying = true; handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); }); break;
+                case MediaPlayer.Event.Opening: debug("[VLC] Abrindo..."); break;
+                case MediaPlayer.Event.Playing: isPlaying = true; handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); }); debug("[VLC] ▶ Tocando!"); break;
                 case MediaPlayer.Event.Paused: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); break;
                 case MediaPlayer.Event.Stopped: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); break;
-                case MediaPlayer.Event.Buffering: handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); break;
+                case MediaPlayer.Event.Buffering: handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); debug("[VLC] 🔃 Buffering..."); break;
                 case MediaPlayer.Event.EndReached: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); break;
+                case MediaPlayer.Event.EncounteredError: debug("[VLC] ❌ Erro!"); break;
             }
         });
         
@@ -168,10 +170,13 @@ public class MainActivity extends AppCompatActivity {
         audioMenu.removeAllViews();
         MediaPlayer.TrackDescription[] tracks = vlcPlayer.getAudioTracks();
         int current = vlcPlayer.getAudioTrack();
-        if (tracks != null) for (MediaPlayer.TrackDescription t : tracks) if (t.id >= 0) {
-            TextView tv = new TextView(this); tv.setText("🎵 " + t.name + (t.id == current ? " ✓" : ""));
-            tv.setTextColor(t.id == current ? 0xFF6c5ce7 : 0xFFFFFFFF); tv.setTextSize(12); tv.setPadding(16,12,16,12);
-            final int id = t.id; tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(id); audioScroll.setVisibility(View.GONE); }); audioMenu.addView(tv);
+        if (tracks != null) {
+            debug("🎵 " + tracks.length + " áudios");
+            for (MediaPlayer.TrackDescription t : tracks) if (t.id >= 0) {
+                TextView tv = new TextView(this); tv.setText("🎵 " + t.name + (t.id == current ? " ✓" : ""));
+                tv.setTextColor(t.id == current ? 0xFF6c5ce7 : 0xFFFFFFFF); tv.setTextSize(12); tv.setPadding(16,12,16,12);
+                final int id = t.id; tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(id); audioScroll.setVisibility(View.GONE); }); audioMenu.addView(tv);
+            }
         }
         audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); subtitleScroll.setVisibility(View.GONE);
     }
@@ -183,10 +188,13 @@ public class MainActivity extends AppCompatActivity {
         off.setTextColor(vlcPlayer.getSpuTrack() == -1 ? 0xFF6c5ce7 : 0xFFFFFFFF); off.setTextSize(12); off.setPadding(16,12,16,12);
         off.setOnClickListener(v -> { vlcPlayer.setSpuTrack(-1); subtitleScroll.setVisibility(View.GONE); }); subtitleMenu.addView(off);
         MediaPlayer.TrackDescription[] tracks = vlcPlayer.getSpuTracks();
-        if (tracks != null) for (MediaPlayer.TrackDescription t : tracks) if (t.id >= 0) {
-            TextView tv = new TextView(this); tv.setText("📝 " + t.name + (t.id == vlcPlayer.getSpuTrack() ? " ✓" : ""));
-            tv.setTextColor(t.id == vlcPlayer.getSpuTrack() ? 0xFF6c5ce7 : 0xFFFFFFFF); tv.setTextSize(12); tv.setPadding(16,12,16,12);
-            final int id = t.id; tv.setOnClickListener(v -> { vlcPlayer.setSpuTrack(id); subtitleScroll.setVisibility(View.GONE); }); subtitleMenu.addView(tv);
+        if (tracks != null) {
+            debug("📝 " + tracks.length + " legendas");
+            for (MediaPlayer.TrackDescription t : tracks) if (t.id >= 0) {
+                TextView tv = new TextView(this); tv.setText("📝 " + t.name + (t.id == vlcPlayer.getSpuTrack() ? " ✓" : ""));
+                tv.setTextColor(t.id == vlcPlayer.getSpuTrack() ? 0xFF6c5ce7 : 0xFFFFFFFF); tv.setTextSize(12); tv.setPadding(16,12,16,12);
+                final int id = t.id; tv.setOnClickListener(v -> { vlcPlayer.setSpuTrack(id); subtitleScroll.setVisibility(View.GONE); }); subtitleMenu.addView(tv);
+            }
         }
         subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); audioScroll.setVisibility(View.GONE);
     }
@@ -194,16 +202,17 @@ public class MainActivity extends AppCompatActivity {
     private String formatTime(long ms) { if (ms < 0) return "0:00"; int s = (int)(ms/1000); return (s/60) + ":" + (s%60 < 10 ? "0" : "") + (s%60); }
     
     private void playWithVlc(String url) {
-        if (!surfaceReady || surfaceHolder == null) { pendingUrl = url; return; }
+        if (!surfaceReady || surfaceHolder == null) { pendingUrl = url; debug("⏳ Aguardando superfície..."); return; }
         try {
+            debug("[VLC] 🎬 " + url);
             vlcPlayer.getVLCVout().setVideoSurface(surfaceHolder.getSurface(), null);
             vlcPlayer.getVLCVout().setWindowSize(videoSurface.getWidth(), videoSurface.getHeight());
             vlcPlayer.getVLCVout().attachViews();
             Media m = new Media(libVLC, Uri.parse(url)); m.setHWDecoderEnabled(true, true);
-            m.addOption(":network-caching=1500"); m.addOption(":file-caching=1500");
+            m.addOption(":network-caching=3000"); m.addOption(":file-caching=2000");
             vlcPlayer.setMedia(m); m.release(); vlcPlayer.play();
             handler.post(() -> { playerControls.setVisibility(View.VISIBLE); centerControls.setVisibility(View.VISIBLE); btnSkip20.setVisibility(View.VISIBLE); handler.post(timeUpdater); });
-            debug("[VLC] ▶ Reproduzindo");
+            debug("[VLC] ▶ Play executado");
         } catch (Exception e) { debug("[VLC] ❌ " + e.getMessage()); }
     }
     
@@ -226,20 +235,36 @@ public class MainActivity extends AppCompatActivity {
         debug("⏳ Iniciando download...");
         new Thread(() -> {
             torrentEngine.startDownload(source, savePath);
-            for (int i = 0; i < 60; i++) {
+            
+            // Aguardar o arquivo aparecer (até 120 segundos)
+            boolean found = false;
+            for (int i = 0; i < 120; i++) {
                 File f = find(new File(savePath));
-                if (f != null && f.length() > 1048576) {
+                if (f != null && f.length() > 5242880) { // Pelo menos 5MB
                     videoFile = f;
                     streamServer.setVideoFile(f);
                     debug("📁 " + f.getName() + " (" + (f.length()/1048576) + "MB)");
+                    found = true;
+                    
+                    // Mostrar botão ASSISTIR
+                    handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); });
                     break;
                 }
+                if (i % 10 == 0 && i > 0) debug("⏳ Procurando arquivo... (" + i + "s)");
                 try { Thread.sleep(1000); } catch (Exception e) {}
+            }
+            
+            if (!found) {
+                debug("❌ Arquivo não encontrado após 120s!");
             }
         }).start();
     }
     
-    private void watch() { if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } handler.post(() -> { videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); playWithVlc("http://127.0.0.1:8080/video"); }); }
+    private void watch() { 
+        if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } 
+        debug("▶️ VLC: " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)"); 
+        handler.post(() -> { videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); playWithVlc("http://127.0.0.1:8080/video"); }); 
+    }
     
     private void stop() { 
         if (vlcPlayer != null) vlcPlayer.stop(); 
