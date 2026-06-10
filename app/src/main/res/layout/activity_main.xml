@@ -13,13 +13,12 @@
         android:layout_marginBottom="4dp"
         android:background="#000000">
         
-        <androidx.media3.ui.PlayerView
-            android:id="@+id/player_view"
+        <SurfaceView
+            android:id="@+id/video_surface"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:visibility="gone" />
         
-        <!-- Botão Pular 20min (canto superior direito) -->
         <Button
             android:id="@+id/btn_skip_20"
             android:layout_width="wrap_content"
@@ -34,7 +33,6 @@
             android:paddingEnd="12dp"
             android:visibility="gone" />
         
-        <!-- Controles centrais (Play/Pause grande) -->
         <LinearLayout
             android:id="@+id/center_controls"
             android:layout_width="wrap_content"
@@ -74,7 +72,6 @@
                 android:textSize="22sp" />
         </LinearLayout>
         
-        <!-- Barra inferior -->
         <LinearLayout
             android:id="@+id/player_controls"
             android:layout_width="match_parent"
@@ -100,31 +97,14 @@
                     android:textSize="10sp"
                     android:layout_marginEnd="8dp" />
                 
-                <FrameLayout
+                <SeekBar
+                    android:id="@+id/seek_bar"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1">
-                    
-                    <!-- Barra de buffer (partes baixadas) -->
-                    <ProgressBar
-                        android:id="@+id/buffer_progress"
-                        style="?android:attr/progressBarStyleHorizontal"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:progressTint="#40FFFFFF"
-                        android:progressBackgroundTint="#00000000"
-                        android:max="100" />
-                    
-                    <!-- Barra de seek -->
-                    <SeekBar
-                        android:id="@+id/seek_bar"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:progressTint="#6c5ce7"
-                        android:thumbTint="#FFFFFF"
-                        android:progressBackgroundTint="#00000000"
-                        android:splitTrack="false" />
-                </FrameLayout>
+                    android:layout_weight="1"
+                    android:progressTint="#6c5ce7"
+                    android:thumbTint="#FFFFFF"
+                    android:progressBackgroundTint="#33FFFFFF" />
             </LinearLayout>
             
             <LinearLayout
@@ -156,7 +136,6 @@
             </LinearLayout>
         </LinearLayout>
         
-        <!-- Menu de áudio com scroll -->
         <ScrollView
             android:id="@+id/audio_scroll"
             android:layout_width="200dp"
@@ -174,7 +153,6 @@
                 android:orientation="vertical" />
         </ScrollView>
         
-        <!-- Menu de legenda com scroll -->
         <ScrollView
             android:id="@+id/subtitle_scroll"
             android:layout_width="200dp"
