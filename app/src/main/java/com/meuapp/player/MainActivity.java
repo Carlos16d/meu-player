@@ -250,18 +250,27 @@ public class MainActivity extends AppCompatActivity {
                     TorrentInfo ti = torrentHandle.torrentFile();
                     int np = ti.numPieces(), pl = ti.pieceLength();
                     pieceLength = pl; numPieces = np; totalSize = ti.totalSize();
-                    debug("📊 " + (totalSize/1048576) + "MB " + np + " peças");
                     
+                    // Baixar: 20 cabeçalho + 15 cues (índice) = 35 peças
                     int meta = Math.min(20, np);
-                    debug("📋 Baixando " + meta + " peças iniciais...");
+                    int cues = Math.min(15, np);
+                    int cueStart = np - cues;
+                    int totalNeeded = meta + cues;
                     
-                    // Baixar primeiras peças
+                    debug("📊 " + (totalSize/1048576) + "MB " + np + " peças");
+                    debug("📋 Baixando: " + meta + " cabeçalho + " + cues + " cues = " + totalNeeded + " peças");
+                    
+                    // Prioridade MÁXIMA para cabeçalho + cues, NORMAL para o resto
                     byte_vector hp = new byte_vector();
-                    for (int i = 0; i < np; i++) hp.add((byte)(i < meta ? 7 : 1));
+                    for (int i = 0; i < np; i++) {
+                        if (i < meta || i >= cueStart) hp.add((byte)7);
+                        else hp.add((byte)1);
+                    }
                     torrentHandle.swig().prioritize_pieces_ex(hp);
                     for (int i = 0; i < meta; i++) torrentHandle.swig().set_piece_deadline(i, 500);
+                    for (int i = cueStart; i < np; i++) torrentHandle.swig().set_piece_deadline(i, 500);
                     
-                    // Usar status().getTotal_done() em vez de havePiece() no loop!
+                    // Aguardar usando getTotal_done()
                     int complete = 0, wt = 0;
                     long lastDl = 0;
                     while (wt < 120 && downloading) { 
@@ -272,20 +281,19 @@ public class MainActivity extends AppCompatActivity {
                             try {
                                 torrent_status st = torrentHandle.swig().status();
                                 long dl = st.getTotal_done();
-                                // Estimar peças completas baseado no download total
-                                complete = (int)(dl * meta / Math.max(totalSize, 1));
-                                if (complete > meta) complete = meta;
+                                complete = (int)(dl * totalNeeded / Math.max(totalSize, 1));
+                                if (complete > totalNeeded) complete = totalNeeded;
                                 lastDl = dl;
                             } catch (Exception e) { break; }
                         }
                         
                         if (wt % 4 == 0) {
                             int pct = totalSize > 0 ? (int)(lastDl * 100 / totalSize) : 0;
-                            debug("   📋 ~" + complete + "/" + meta + " (" + (wt/2) + "s) " + pct + "%");
+                            debug("   📋 ~" + complete + "/" + totalNeeded + " (" + (wt/2) + "s) " + pct + "%");
                         }
                         
-                        if (complete >= meta) {
-                            debug("✅ Cabeçalho OK! " + (lastDl/1048576) + "MB baixados");
+                        if (complete >= totalNeeded) {
+                            debug("✅ Tudo pronto! " + (lastDl/1048576) + "MB baixados");
                             break;
                         }
                     }
@@ -293,7 +301,7 @@ public class MainActivity extends AppCompatActivity {
                     // Encontrar arquivo
                     for (int i = 0; i < 30; i++) { 
                         File f = find(new File(savePath)); 
-                        if (f != null && f.length() > 1048576) { 
+                        if (f != null && f.length() > 3145728) { 
                             byte[] hdr = new byte[8]; 
                             try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; } 
                             if ((hdr[4]=='f'&&hdr[5]=='t'&&hdr[6]=='y'&&hdr[7]=='p') || ((hdr[0]&0xFF)==0x1A&&hdr[1]==0x45&&hdr[2]==(byte)0xDF&&hdr[3]==(byte)0xA3)) { 
@@ -310,7 +318,7 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e2) { debug("❌ " + e2.getMessage()); downloading = false; }
         }).start();
         
-        // Monitor de download (apenas log)
+        // Monitor de download
         new Thread(() -> { 
             while (downloading) { 
                 try { Thread.sleep(5000); 
