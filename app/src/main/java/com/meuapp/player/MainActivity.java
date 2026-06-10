@@ -179,7 +179,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; Log.d("TS", msg); debugLog.append(line); handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); }
     
-    // ==================== SERVIDOR HTTP SIMPLES ====================
+    // ==================== SERVIDOR HTTP ====================
     private void startServer() { serverThread = new Thread(() -> { try { ServerSocket s = new ServerSocket(8080, 10); s.setReuseAddress(true); while (!Thread.interrupted()) { try { Socket c = s.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {} } s.close(); } catch (IOException e) {} }); serverThread.setDaemon(true); serverThread.start(); }
     
     private void handleHttp(Socket client) {
@@ -215,7 +215,7 @@ public class MainActivity extends AppCompatActivity {
         } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
-    // ==================== DOWNLOAD SIMPLES ====================
+    // ==================== DOWNLOAD ====================
     private void start() { String m = magnetInput.getText().toString().trim(); if (m.startsWith("magnet:") && !downloading) startDownload(m); }
     
     private void startDownload(String source) {
@@ -261,13 +261,31 @@ public class MainActivity extends AppCompatActivity {
                     torrentHandle.swig().prioritize_pieces_ex(hp);
                     for (int i = 0; i < meta; i++) torrentHandle.swig().set_piece_deadline(i, 500);
                     
+                    // Usar status().getTotal_done() em vez de havePiece() no loop!
                     int complete = 0, wt = 0;
+                    long lastDl = 0;
                     while (wt < 120 && downloading) { 
-                        Thread.sleep(500); complete = 0; wt++; 
-                        for (int i = 0; i < meta; i++) if (torrentHandle.havePiece(i)) complete++; 
-                        if (wt % 4 == 0) debug("   📋 " + complete + "/" + meta + " (" + (wt/2) + "s)"); 
+                        Thread.sleep(500); wt++;
+                        
+                        synchronized (torrentLock) {
+                            if (torrentHandle == null || !torrentHandle.isValid()) break;
+                            try {
+                                torrent_status st = torrentHandle.swig().status();
+                                long dl = st.getTotal_done();
+                                // Estimar peças completas baseado no download total
+                                complete = (int)(dl * meta / Math.max(totalSize, 1));
+                                if (complete > meta) complete = meta;
+                                lastDl = dl;
+                            } catch (Exception e) { break; }
+                        }
+                        
+                        if (wt % 4 == 0) {
+                            int pct = totalSize > 0 ? (int)(lastDl * 100 / totalSize) : 0;
+                            debug("   📋 ~" + complete + "/" + meta + " (" + (wt/2) + "s) " + pct + "%");
+                        }
+                        
                         if (complete >= meta) {
-                            debug("✅ Cabeçalho OK!");
+                            debug("✅ Cabeçalho OK! " + (lastDl/1048576) + "MB baixados");
                             break;
                         }
                     }
@@ -292,17 +310,19 @@ public class MainActivity extends AppCompatActivity {
             } catch (Exception e2) { debug("❌ " + e2.getMessage()); downloading = false; }
         }).start();
         
-        // Monitor de download SIMPLES (apenas log, sem prefetch)
+        // Monitor de download (apenas log)
         new Thread(() -> { 
             while (downloading) { 
                 try { Thread.sleep(5000); 
                     synchronized (torrentLock) { 
                         if (torrentHandle != null && torrentHandle.isValid() && videoFile != null) { 
-                            long dl = torrentHandle.swig().status().getTotal_done(); 
-                            if (dl - lastDownloadLog > 10485760) { 
-                                lastDownloadLog = dl; 
-                                debug("📥 " + (dl/1048576) + "MB / " + (totalSize/1048576) + "MB (" + (totalSize>0?(dl*100/totalSize):0) + "%)"); 
-                            } 
+                            try {
+                                long dl = torrentHandle.swig().status().getTotal_done(); 
+                                if (dl - lastDownloadLog > 10485760) { 
+                                    lastDownloadLog = dl; 
+                                    debug("📥 " + (dl/1048576) + "MB / " + (totalSize/1048576) + "MB (" + (totalSize>0?(dl*100/totalSize):0) + "%)"); 
+                                } 
+                            } catch (Exception e) {}
                         } 
                     } 
                 } catch (Exception e) {} 
