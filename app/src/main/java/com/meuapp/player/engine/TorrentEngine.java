@@ -54,11 +54,11 @@ public class TorrentEngine {
                     SettingsPack sp = new SettingsPack();
                     sp.activeDownloads(2); sp.activeSeeds(2);
                     sp.connectionsLimit(30);
-                    sp.downloadRateLimit(2097152); sp.uploadRateLimit(524288);
+                    sp.downloadRateLimit(3145728); sp.uploadRateLimit(524288);
                     session.applySettings(sp);
                 } catch (Exception e) {}
                 ready = true;
-                log("Engine pronto! Limite: 2MB/s");
+                log("Engine pronto! Limite: 3MB/s");
                 try { handler.post(() -> callback.onReady()); } catch (Exception e) {}
             } catch (Exception e) { log("ERRO: " + e.getMessage()); }
         }).start();
@@ -76,10 +76,18 @@ public class TorrentEngine {
                 saveDir.mkdirs();
                 
                 if (source.startsWith("magnet:")) {
-                    session.download(source, saveDir, new torrent_flags_t());
+                    add_torrent_params p = libtorrent.parse_magnet_uri(source, new error_code());
+                    p.setSave_path(savePath);
+                    torrent_flags_t flags = libtorrent.getAuto_managed().or_(libtorrent.getSequential_download()).or_(libtorrent.getApply_ip_filter());
+                    p.setFlags(flags);
+                    p.setDownload_limit(3*1024*1024);
+                    session.swig().async_add_torrent(p);
                 } else {
                     add_torrent_params params = add_torrent_params.load_torrent_file(source, new error_code());
                     params.setSave_path(savePath);
+                    torrent_flags_t flags = libtorrent.getAuto_managed().or_(libtorrent.getSequential_download()).or_(libtorrent.getApply_ip_filter());
+                    params.setFlags(flags);
+                    params.setDownload_limit(3*1024*1024);
                     session.swig().async_add_torrent(params);
                 }
                 Thread.sleep(3000);
@@ -103,36 +111,67 @@ public class TorrentEngine {
                 if (numPieces <= 0) numPieces = 100;
                 if (pieceLength <= 0) pieceLength = 524288;
                 
-                log("Torrent: " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
+                log("📊 " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
                 
+                // ==================== CORREÇÃO 1: 59 peças (cabeçalho + cues) ====================
+                int headerPieces = Math.min(30, Math.max(20, numPieces / 30));
+                int cuePieces = Math.min(30, Math.max(10, numPieces / 20));
+                int cueStart = Math.max(0, numPieces - cuePieces);
+                int totalNeeded = headerPieces + cuePieces;
+                
+                log("📋 " + headerPieces + " cabeçalho + " + cuePieces + " cues = " + totalNeeded + " peças");
+                
+                // ==================== CORREÇÃO 2: NÃO baixar o vídeo completo ====================
                 try {
-                    for (int i = 0; i < numPieces; i++) torrentHandle.piece_priority_ex(i, (byte)4);
-                    for (int i = 0; i < Math.min(100, numPieces); i++) {
-                        torrentHandle.piece_priority_ex(i, (byte)7);
-                        torrentHandle.set_piece_deadline(i, 2000);
+                    for (int i = 0; i < numPieces; i++) {
+                        if (i < headerPieces || i >= cueStart)
+                            torrentHandle.piece_priority_ex(i, (byte)7); // MÁXIMA para cabeçalho+cues
+                        else
+                            torrentHandle.piece_priority_ex(i, (byte)0); // IGNORE para o resto!
                     }
+                    for (int i = 0; i < headerPieces; i++)
+                        torrentHandle.set_piece_deadline(i, 500);
+                    for (int i = cueStart; i < numPieces; i++)
+                        torrentHandle.set_piece_deadline(i, 500);
                 } catch (Exception e) {}
                 
-                int target = Math.min(10, numPieces);
                 boolean streamReady = false;
                 while (downloading) {
                     Thread.sleep(500);
                     if (torrentHandle == null || !torrentHandle.is_valid()) break;
+                    
                     int complete = 0;
-                    for (int i = 0; i < target; i++) if (torrentHandle.have_piece(i)) complete++;
+                    for (int i = 0; i < headerPieces; i++)
+                        if (torrentHandle.have_piece(i)) complete++;
+                    for (int i = cueStart; i < numPieces; i++)
+                        if (torrentHandle.have_piece(i)) complete++;
+                    
                     st = torrentHandle.status();
                     TorrentInfo info = new TorrentInfo();
-                    info.progress = (complete * 100) / target;
+                    info.progress = totalNeeded > 0 ? (complete * 100 / totalNeeded) : 0;
                     info.downloaded = st.getTotal_done();
                     info.speed = st.getDownload_rate();
                     info.peers = st.getNum_peers();
                     try { handler.post(() -> callback.onProgress(info)); } catch (Exception e) {}
-                    if (complete >= target && !streamReady) {
+                    
+                    if (!streamReady && complete >= totalNeeded) {
                         streamReady = true;
-                        log("Streaming liberado!");
+                        log("✅ Streaming liberado! " + complete + "/" + totalNeeded);
+                        
+                        // Restaurar prioridades - NÃO baixar tudo
+                        try {
+                            for (int i = 0; i < numPieces; i++) {
+                                if (i < headerPieces + 30 || i >= cueStart)
+                                    torrentHandle.piece_priority_ex(i, (byte)4);
+                                else
+                                    torrentHandle.piece_priority_ex(i, (byte)0); // IGNORE!
+                            }
+                        } catch (Exception e) {}
+                        
                         final String sp = currentSavePath;
                         final torrent_handle th = torrentHandle;
                         try { handler.post(() -> callback.onStreamReady(th, sp)); } catch (Exception e) {}
+                        break;
                     }
                 }
             } catch (Exception e) { log("ERRO: " + e.getMessage()); downloading = false; }
