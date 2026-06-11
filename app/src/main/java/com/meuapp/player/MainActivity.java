@@ -19,7 +19,6 @@ import org.libtorrent4j.TorrentHandle;
 import org.libtorrent4j.TorrentInfo;
 import org.libtorrent4j.TorrentStatus;
 import org.libtorrent4j.swig.torrent_flags_t;
-import org.libtorrent4j.swig.torrent_handle;
 import org.libtorrent4j.swig.torrent_handle_vector;
 import org.videolan.libvlc.*;
 import org.videolan.libvlc.interfaces.*;
@@ -161,7 +160,7 @@ public class MainActivity extends AppCompatActivity {
         btnAudio.setOnClickListener(v -> toggleAudioMenu());
         btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        debug("=== STREAM vFINAL - API Oficial ===");
+        debug("=== STREAM vFINAL ===");
         new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ OK"); } catch (Exception e) { debug("❌ " + e.getMessage()); } }).start();
         startServer();
         
@@ -171,52 +170,34 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
     }
     
-    // ==================== MÉTODOS SEGUROS ====================
     private boolean havePiece(int p) {
-        synchronized (lock) {
-            if (torrentHandle == null || !torrentHandle.isValid()) return false;
-            return torrentHandle.havePiece(p);
-        }
+        synchronized (lock) { return torrentHandle != null && torrentHandle.isValid() && torrentHandle.havePiece(p); }
     }
     
     private void setPrio(int p, Priority prio) {
-        synchronized (lock) {
-            if (torrentHandle != null && torrentHandle.isValid()) torrentHandle.piecePriority(p, prio);
-        }
+        synchronized (lock) { if (torrentHandle != null && torrentHandle.isValid()) torrentHandle.piecePriority(p, prio); }
     }
     
     private void setDeadline(int p, int dl) {
-        synchronized (lock) {
-            if (torrentHandle != null && torrentHandle.isValid()) torrentHandle.setPieceDeadline(p, dl);
-        }
+        synchronized (lock) { if (torrentHandle != null && torrentHandle.isValid()) torrentHandle.setPieceDeadline(p, dl); }
     }
     
     private void prioritizeAll(Priority[] p) {
-        synchronized (lock) {
-            if (torrentHandle != null && torrentHandle.isValid()) torrentHandle.prioritizePieces(p);
-        }
+        synchronized (lock) { if (torrentHandle != null && torrentHandle.isValid()) torrentHandle.prioritizePieces(p); }
     }
     
     private TorrentStatus getStatus() {
-        synchronized (lock) {
-            if (torrentHandle != null && torrentHandle.isValid()) return torrentHandle.status();
-            return null;
-        }
+        synchronized (lock) { return (torrentHandle != null && torrentHandle.isValid()) ? torrentHandle.status() : null; }
     }
     
     private TorrentInfo getTorrentFile() {
-        synchronized (lock) {
-            if (torrentHandle != null && torrentHandle.isValid()) return torrentHandle.torrentFile();
-            return null;
-        }
+        synchronized (lock) { return (torrentHandle != null && torrentHandle.isValid()) ? torrentHandle.torrentFile() : null; }
     }
     
     private void downloadRange(int start, int end) {
         if (!playing || seeking) return;
         Priority[] p = Priority.array(Priority.IGNORE, numPieces);
-        for (int i = start; i <= end; i++) {
-            if (!havePiece(i)) { p[i] = Priority.TOP_PRIORITY; setDeadline(i, 5000); }
-        }
+        for (int i = start; i <= end; i++) { if (!havePiece(i)) { p[i] = Priority.TOP_PRIORITY; setDeadline(i, 5000); } }
         prioritizeAll(p);
     }
     
@@ -244,12 +225,11 @@ public class MainActivity extends AppCompatActivity {
                 prioritizeAll(p);
                 
                 int waits = 0;
-                while (!havePiece(piece) && downloading && waits < 40) {
-                    Thread.sleep(200); waits++;
-                    if (waits % 5 == 0) setDeadline(piece, 3000);
-                }
+                while (!havePiece(piece) && downloading && waits < 40) { Thread.sleep(200); waits++; if (waits % 5 == 0) setDeadline(piece, 3000); }
+                
+                final double elapsed = waits / 5.0;
                 if (havePiece(piece)) {
-                    handler.post(() -> { debug("✅ " + (waits/5.0) + "s"); seeking = false; spinnerBar.setVisibility(View.GONE); });
+                    handler.post(() -> { debug("✅ " + elapsed + "s"); seeking = false; spinnerBar.setVisibility(View.GONE); });
                     currentPlayingPiece = piece;
                 } else {
                     handler.post(() -> { debug("⏰ Timeout"); seeking = false; spinnerBar.setVisibility(View.GONE); });
@@ -421,13 +401,11 @@ public class MainActivity extends AppCompatActivity {
                 }
                 Thread.sleep(2000);
                 
-                // Encontrar o handle
                 synchronized (lock) {
                     torrent_handle_vector h = session.swig().get_torrents();
                     if (h.size() > 0) torrentHandle = new TorrentHandle(h.get(0));
                 }
                 
-                // Aguardar metadados
                 int w = 0;
                 while (w < 60 && downloading) { Thread.sleep(1000); w++;
                     TorrentInfo ti = getTorrentFile();
@@ -441,7 +419,6 @@ public class MainActivity extends AppCompatActivity {
                 TorrentStatus st = getStatus();
                 debug("📊 " + (totalSize/1048576) + "MB | " + (st != null ? st.numSeeds() : 0) + " Seeds | " + (st != null ? st.numPeers() : 0) + " Peers");
                 
-                // PRÉ-CARGA: 15 início + 5 final + 1 meio
                 int inicio = Math.min(15, numPieces);
                 int fim = Math.min(5, numPieces);
                 int fimStart = numPieces - fim;
@@ -463,11 +440,9 @@ public class MainActivity extends AppCompatActivity {
                 }
                 debug("✅ Pré-carga: " + doneIni + "/" + inicio + " | " + doneFim + "/" + fim + " (" + ((System.currentTimeMillis()-t0)/1000) + "s)");
                 
-                // Encontrar arquivo
                 for (int i = 0; i < 15; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 5*1048576) { videoFile = f; break; } Thread.sleep(200); }
                 
                 if (videoFile != null) {
-                    // Ajustar sparse file
                     if (videoFile.length() < totalSize) {
                         try { RandomAccessFile raf = new RandomAccessFile(videoFile, "rw"); raf.setLength(totalSize); raf.close(); debug("📏 Sparse: " + (totalSize/1048576) + "MB"); } catch (Exception e) {}
                     }
@@ -493,7 +468,7 @@ public class MainActivity extends AppCompatActivity {
                             int pct = total > 0 ? done * 100 / total : 0;
                             TorrentStatus st2 = getStatus();
                             long spd = st2 != null ? st2.downloadRate() : 0;
-                            handler.post(() -> statusText.setText("📥 Metadados: " + pct + "% | " + (spd/1024) + " KB/s"));
+                            handler.post(() -> statusText.setText("📥 " + pct + "% | " + (spd/1024) + " KB/s"));
                         }
                     }
                     
