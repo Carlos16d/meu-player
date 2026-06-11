@@ -59,6 +59,7 @@ public class MainActivity extends AppCompatActivity {
     private long lastMinuteLog = -1;
     
     private int currentPlayingPiece = -1;
+    private int lastBufferedPiece = -1;
     private boolean seeking = false;
     private final Object torrentLock = new Object();
     
@@ -113,7 +114,8 @@ public class MainActivity extends AppCompatActivity {
                             int piece = (int)(time * totalSize / length / pieceLength);
                             if (piece != currentPlayingPiece && piece >= 0 && piece < numPieces) {
                                 currentPlayingPiece = piece;
-                                downloadRange(piece, Math.min(numPieces - 1, piece + 5));
+                                // Smart buffer: verifica se precisa baixar mais
+                                checkAndBuffer(piece);
                             }
                         }
                         
@@ -161,7 +163,7 @@ public class MainActivity extends AppCompatActivity {
         btnAudio.setOnClickListener(v -> toggleAudioMenu());
         btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        debug("=== STREAM v2.1 - SEEK CORRIGIDO ===");
+        debug("=== STREAM v3 - BUFFER INTELIGENTE ===");
         new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ Sessão OK"); } catch (Exception e) { debug("❌ " + e.getMessage()); } }).start();
         startServer();
         
@@ -169,6 +171,34 @@ public class MainActivity extends AppCompatActivity {
         btnTorrent.setOnClickListener(v -> { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, PICK_TORRENT); });
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
+    }
+    
+    // ==================== BUFFER INTELIGENTE ====================
+    private void checkAndBuffer(int currentPiece) {
+        if (!playing || seeking) return;
+        
+        // Contar quantas peças temos de buffer à frente
+        int buffered = 0;
+        for (int i = currentPiece; i < Math.min(numPieces, currentPiece + 20); i++) {
+            if (havePiece(i)) buffered++;
+            else break; // Para no primeiro buraco
+        }
+        
+        // Se buffer < 5 peças, baixar mais 10
+        if (buffered < 5 && currentPiece > lastBufferedPiece) {
+            int start = currentPiece + buffered;
+            int end = Math.min(numPieces - 1, start + 10);
+            debug("📥 Buffer baixo (" + buffered + "), baixando " + start + "-" + end);
+            downloadRange(start, end);
+            lastBufferedPiece = end;
+        }
+    }
+    
+    private boolean havePiece(int p) {
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return false;
+            try { return torrentHandle.havePiece(p); } catch (Exception e) { return false; }
+        }
     }
     
     private void downloadRange(int start, int end) {
@@ -210,7 +240,6 @@ public class MainActivity extends AppCompatActivity {
                     return; 
                 }
                 try {
-                    // Verificar se já tem peça alvo + 3 vizinhas
                     int haveCount = 0;
                     for (int i = piece - 2; i <= piece + 2; i++) {
                         if (i >= 0 && i < numPieces && torrentHandle.havePiece(i)) haveCount++;
@@ -226,7 +255,6 @@ public class MainActivity extends AppCompatActivity {
                         return;
                     }
                     
-                    // Prioridade ABSOLUTA: peça alvo + 8 vizinhas
                     byte_vector z = new byte_vector();
                     for (int i = 0; i < numPieces; i++) z.add((byte)0);
                     torrentHandle.swig().prioritize_pieces_ex(z);
@@ -239,7 +267,6 @@ public class MainActivity extends AppCompatActivity {
                         }
                     }
                     
-                    // Aguardar peça alvo + pelo menos 3 vizinhas (máx 8 segundos)
                     int waits = 0;
                     boolean ready = false;
                     
@@ -271,9 +298,8 @@ public class MainActivity extends AppCompatActivity {
                             spinnerBar.setVisibility(View.GONE); 
                         });
                         currentPlayingPiece = piece;
-                        // Continuar baixando vizinhas durante playback
-                        playing = true;
-                        downloadRange(piece, Math.min(numPieces - 1, piece + 5));
+                        lastBufferedPiece = -1; // Reset para forçar buffer
+                        downloadRange(piece, Math.min(numPieces - 1, piece + 10));
                     } else {
                         handler.post(() -> { 
                             debug("⏰ Timeout peça " + piece + " após " + String.format("%.1f", elapsed) + "s"); 
@@ -568,7 +594,7 @@ public class MainActivity extends AppCompatActivity {
         
         downloading = true; playing = false; seeking = false; videoFile = null; torrentHandle = null;
         pieceLength = 0; numPieces = 0; totalSize = 0; videoDurationMs = 0;
-        currentPlayingPiece = -1; lastMinuteLog = -1;
+        currentPlayingPiece = -1; lastBufferedPiece = -1; lastMinuteLog = -1;
         requiredPieces.clear(); cuesBytePos = -1; cuesByteSize = -1;
         
         handler.post(() -> { btnStop.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE); });
@@ -629,6 +655,11 @@ public class MainActivity extends AppCompatActivity {
                     for (int i = 0; i < 15; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 5*1048576) { videoFile = f; break; } Thread.sleep(200); }
                     
                     if (videoFile != null) {
+                        // Criar sparse file para VLC ver tamanho total
+                        if (videoFile.length() < totalSize) {
+                            try { RandomAccessFile raf = new RandomAccessFile(videoFile, "rw"); raf.setLength(totalSize); raf.close(); debug("📏 Sparse: " + (totalSize/1048576) + "MB"); } catch (Exception e) {}
+                        }
+                        
                         parseSeekHeadAndFindMissingPieces();
                         
                         int total = requiredPieces.size();
@@ -642,19 +673,9 @@ public class MainActivity extends AppCompatActivity {
                         }
                         
                         int done = 0;
-                        long lastLog = System.currentTimeMillis();
                         while (done < total && downloading) {
                             Thread.sleep(150); done = 0;
                             for (int piece : requiredPieces) if (piece < numPieces && torrentHandle.havePiece(piece)) done++;
-                            
-                            long now = System.currentTimeMillis();
-                            if (now - lastLog > 800) {
-                                lastLog = now;
-                                int pct = total > 0 ? done * 100 / total : 0;
-                                long spd = torrentHandle.swig().status().getDownload_rate();
-                                final String msg = "📥 Metadados: " + pct + "% | " + (spd/1024) + " KB/s";
-                                handler.post(() -> statusText.setText(msg));
-                            }
                         }
                         
                         long elapsed = (System.currentTimeMillis() - t0) / 1000;
@@ -670,7 +691,16 @@ public class MainActivity extends AppCompatActivity {
         downloadThread.start();
     }
     
-    private void watch() { if (videoFile == null || !videoFile.exists()) { debug("❌ Aguarde"); return; } playing = true; handler.post(() -> { videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); spinnerBar.setVisibility(View.VISIBLE); playWithVlc("http://127.0.0.1:8080/video"); }); }
+    private void watch() { 
+        if (videoFile == null || !videoFile.exists()) { debug("❌ Aguarde"); return; } 
+        playing = true;
+        handler.post(() -> { 
+            videoSurface.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE); 
+            spinnerBar.setVisibility(View.VISIBLE); 
+            playWithVlc("http://127.0.0.1:8080/video"); 
+        }); 
+    }
     
     private void stop() {
         downloading = false; playing = false; seeking = false; vlcPreparing = false;
