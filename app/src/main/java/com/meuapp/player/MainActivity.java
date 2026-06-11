@@ -177,7 +177,7 @@ public class MainActivity extends AppCompatActivity {
         btnAudio.setOnClickListener(v -> toggleAudioMenu());
         btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        debug("=== STREAM v3 - ANTI-CRASH ===");
+        debug("=== STREAM v4 - OOM FIX ===");
         new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ OK"); } catch (Exception e) {} }).start();
         startServer();
         
@@ -244,7 +244,6 @@ public class MainActivity extends AppCompatActivity {
         
         new Thread(() -> {
             try {
-                // Desativar sequential
                 if (sequentialActive) {
                     sequentialActive = false;
                     synchronized (torrentLock) {
@@ -255,7 +254,6 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 
-                // Verificar se já tem
                 boolean ok = true;
                 for (int i = piece - 1; i <= piece + 1; i++) {
                     if (i >= 0 && i < numPieces && !havePiece(i)) ok = false;
@@ -266,7 +264,6 @@ public class MainActivity extends AppCompatActivity {
                     return;
                 }
                 
-                // Prioridade ABSOLUTA: 3 peças
                 byte_vector z = new byte_vector();
                 for (int i = 0; i < numPieces; i++) z.add((byte)0);
                 prioritizeAll(z);
@@ -275,7 +272,6 @@ public class MainActivity extends AppCompatActivity {
                     if (i >= 0 && i < numPieces) { setPrio(i, (byte)(i == piece ? 7 : 6)); setDeadline(i, 2000); }
                 }
                 
-                // Aguardar 20 segundos
                 long t0 = System.currentTimeMillis();
                 while ((System.currentTimeMillis() - t0) < 20000 && downloading) {
                     Thread.sleep(250);
@@ -293,7 +289,6 @@ public class MainActivity extends AppCompatActivity {
                     
                     if (ok) break;
                     
-                    // Reforçar deadlines
                     for (int i = piece - 1; i <= piece + 1; i++) {
                         if (i >= 0 && i < numPieces && !havePiece(i)) setDeadline(i, 2000);
                     }
@@ -397,6 +392,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void startServer() { serverThread = new Thread(() -> { try { ServerSocket s = new ServerSocket(8080, 10); s.setReuseAddress(true); while (!Thread.interrupted()) { try { Socket c = s.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {} } s.close(); } catch (IOException e) {} }); serverThread.setDaemon(true); serverThread.start(); }
     
+    // ==================== SERVIDOR HTTP SEM OOM ====================
     private void handleHttp(Socket client) {
         try {
             client.setSoTimeout(30000);
@@ -414,19 +410,30 @@ public class MainActivity extends AppCompatActivity {
             long fs = videoFile.length();
             
             if (!hr) {
-                out.write(("HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nContent-Length: " + fs + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\n").getBytes());
+                // ⚡ PRIMEIRA REQUISIÇÃO: NUNCA enviar Content-Length enorme!
+                // Enviar como chunked ou com Content-Length pequeno
+                out.write("HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\nCache-Control: no-cache\r\n\r\n".getBytes());
                 out.flush();
+                
+                // Enviar apenas os primeiros 2MB
                 RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                byte[] data = new byte[65536]; int read = raf.read(data);
-                if (read > 0) out.write(data, 0, read);
-                raf.close(); out.flush(); client.close();
+                byte[] data = new byte[65536];
+                int read, sent = 0;
+                while (sent < 2097152 && (read = raf.read(data)) != -1) {
+                    out.write(data, 0, read);
+                    out.flush();
+                    sent += read;
+                }
+                raf.close();
+                out.flush();
+                client.close();
                 return;
             }
             
             if (re == -1 || re >= fs) re = fs - 1;
             long cl = re - rs + 1;
             
-            // NÃO BLOQUEAR - apenas retornar o que tem
+            // Range request: responder apenas com o que existe
             out.write(("HTTP/1.1 206 Partial Content\r\nContent-Type: video/x-matroska\r\nContent-Range: bytes " + rs + "-" + (rs+cl-1) + "/" + fs + "\r\nContent-Length: " + cl + "\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n").getBytes());
             out.flush();
             
@@ -435,9 +442,15 @@ public class MainActivity extends AppCompatActivity {
                 raf.seek(rs);
                 long avail = raf.length() - rs;
                 int toRead = (int) Math.min(cl, avail);
-                if (toRead > 0) { byte[] buf = new byte[toRead]; int read = raf.read(buf); if (read > 0) out.write(buf, 0, read); }
+                if (toRead > 0) {
+                    byte[] buf = new byte[Math.min(toRead, 262144)]; // máx 256KB por vez
+                    int read = raf.read(buf);
+                    if (read > 0) { out.write(buf, 0, read); out.flush(); }
+                }
             }
-            raf.close(); out.flush(); client.close();
+            raf.close();
+            out.flush();
+            client.close();
         } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
