@@ -171,10 +171,52 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
     }
     
+    // ==================== MÉTODOS SEGUROS ====================
+    private boolean safeIsValid() {
+        synchronized (torrentLock) {
+            return torrentHandle != null && torrentHandle.isValid();
+        }
+    }
+    
     private boolean safeHavePiece(int piece) {
         synchronized (torrentLock) {
             if (torrentHandle == null || !torrentHandle.isValid()) return false;
             try { return torrentHandle.havePiece(piece); } catch (Exception e) { return false; }
+        }
+    }
+    
+    private TorrentInfo safeTorrentFile() {
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return null;
+            try { return torrentHandle.torrentFile(); } catch (Exception e) { return null; }
+        }
+    }
+    
+    private torrent_status safeStatus() {
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return null;
+            try { return torrentHandle.swig().status(); } catch (Exception e) { return null; }
+        }
+    }
+    
+    private void safePrioritizePieces(byte_vector priorities) {
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return;
+            try { torrentHandle.swig().prioritize_pieces_ex(priorities); } catch (Exception e) {}
+        }
+    }
+    
+    private void safeSetPriority(int piece, byte priority) {
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return;
+            try { torrentHandle.swig().piece_priority_ex(piece, priority); } catch (Exception e) {}
+        }
+    }
+    
+    private void safeSetDeadline(int piece, int deadline) {
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return;
+            try { torrentHandle.swig().set_piece_deadline(piece, deadline); } catch (Exception e) {}
         }
     }
     
@@ -427,7 +469,7 @@ public class MainActivity extends AppCompatActivity {
                 subtitleMenu.addView(tv);
             }
         }
-        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); audioScroll.setVisibility(View.GONE);
+        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.GIBLE ? View.GONE : View.VISIBLE); audioScroll.setVisibility(View.GONE);
     }
     
     private void playWithVlc(String url) {
@@ -480,27 +522,17 @@ public class MainActivity extends AppCompatActivity {
             
             if (videoFile == null || !videoFile.exists()) { out.write("HTTP/1.1 503\r\n\r\n".getBytes()); out.flush(); client.close(); return; }
             
-            // 🔧 REPORTAR TAMANHO TOTAL DO TORRENT
             final long reportedSize = totalSize > 0 ? totalSize : videoFile.length();
             String mime = "video/x-matroska";
             
             if (!hr) {
                 out.write(("HTTP/1.1 200 OK\r\nContent-Type: " + mime + "\r\nContent-Length: " + reportedSize + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\nCache-Control: no-cache\r\n\r\n").getBytes());
                 out.flush();
-                
                 RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
                 byte[] data = new byte[65536];
-                int read;
-                int sent = 0;
-                // Enviar até 2MB do início
-                while (sent < 2097152 && (read = raf.read(data)) != -1) {
-                    out.write(data, 0, read);
-                    out.flush();
-                    sent += read;
-                }
-                raf.close();
-                out.flush();
-                client.close();
+                int read, sent = 0;
+                while (sent < 2097152 && (read = raf.read(data)) != -1) { out.write(data, 0, read); out.flush(); sent += read; }
+                raf.close(); out.flush(); client.close();
                 return;
             }
             
@@ -510,7 +542,6 @@ public class MainActivity extends AppCompatActivity {
             out.write(("HTTP/1.1 206 Partial Content\r\nContent-Type: " + mime + "\r\nContent-Range: bytes " + rs + "-" + re + "/" + reportedSize + "\r\nContent-Length: " + cl + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\nCache-Control: no-cache\r\n\r\n").getBytes());
             out.flush();
             
-            // Aguardar peça se não existir
             if (pieceLength > 0 && playing) {
                 int neededPiece = (int)(rs / pieceLength);
                 if (!safeHavePiece(neededPiece)) {
@@ -530,15 +561,10 @@ public class MainActivity extends AppCompatActivity {
                 if (toRead > 0) {
                     byte[] buf = new byte[toRead];
                     int read = raf.read(buf);
-                    if (read > 0) {
-                        out.write(buf, 0, read);
-                        out.flush();
-                    }
+                    if (read > 0) { out.write(buf, 0, read); out.flush(); }
                 }
             }
-            raf.close();
-            out.flush();
-            client.close();
+            raf.close(); out.flush(); client.close();
         } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
@@ -574,15 +600,19 @@ public class MainActivity extends AppCompatActivity {
                 
                 int w = 0;
                 while (w < 60 && downloading) { Thread.sleep(1000); w++;
-                    synchronized (torrentLock) { if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) break; }
+                    synchronized (torrentLock) { if (torrentHandle != null && torrentHandle.isValid() && safeTorrentFile() != null) break; }
                 }
                 
                 synchronized (torrentLock) {
-                if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) {
-                    TorrentInfo ti = torrentHandle.torrentFile();
+                if (torrentHandle != null && torrentHandle.isValid()) {
+                    TorrentInfo ti = safeTorrentFile();
+                    if (ti == null) { debug("❌ TorrentInfo nulo"); downloading = false; return; }
+                    
                     pieceLength = ti.pieceLength(); numPieces = ti.numPieces(); totalSize = ti.totalSize();
-                    torrent_status st = torrentHandle.swig().status();
-                    debug("📊 " + (totalSize/1048576) + "MB | " + st.getNum_seeds() + " Seeds | " + st.getNum_peers() + " Peers");
+                    torrent_status st = safeStatus();
+                    int seeds = st != null ? st.getNum_seeds() : 0;
+                    int peers = st != null ? st.getNum_peers() : 0;
+                    debug("📊 " + (totalSize/1048576) + "MB | " + seeds + " Seeds | " + peers + " Peers");
                     
                     int inicio = Math.min(15, numPieces);
                     int fim = Math.min(5, numPieces);
@@ -593,33 +623,30 @@ public class MainActivity extends AppCompatActivity {
                     
                     byte_vector z = new byte_vector();
                     for (int i = 0; i < numPieces; i++) z.add((byte)0);
-                    torrentHandle.swig().prioritize_pieces_ex(z);
+                    safePrioritizePieces(z);
                     
-                    for (int i = 0; i < inicio; i++) { torrentHandle.swig().piece_priority_ex(i, (byte)7); torrentHandle.swig().set_piece_deadline(i, 20000); }
-                    for (int i = fimStart; i < numPieces; i++) { torrentHandle.swig().piece_priority_ex(i, (byte)7); torrentHandle.swig().set_piece_deadline(i, 20000); }
-                    torrentHandle.swig().piece_priority_ex(meio, (byte)7); torrentHandle.swig().set_piece_deadline(meio, 20000);
+                    for (int i = 0; i < inicio; i++) { safeSetPriority(i, (byte)7); safeSetDeadline(i, 20000); }
+                    for (int i = fimStart; i < numPieces; i++) { safeSetPriority(i, (byte)7); safeSetDeadline(i, 20000); }
+                    safeSetPriority(meio, (byte)7); safeSetDeadline(meio, 20000);
                     
                     int doneIni = 0, doneFim = 0;
                     while ((doneIni < inicio || doneFim < fim) && downloading) {
                         Thread.sleep(200);
-                        doneIni = 0; for (int i = 0; i < inicio; i++) if (torrentHandle.havePiece(i)) doneIni++;
-                        doneFim = 0; for (int i = fimStart; i < numPieces; i++) if (torrentHandle.havePiece(i)) doneFim++;
+                        doneIni = 0; for (int i = 0; i < inicio; i++) if (safeHavePiece(i)) doneIni++;
+                        doneFim = 0; for (int i = fimStart; i < numPieces; i++) if (safeHavePiece(i)) doneFim++;
                     }
                     debug("✅ Pré-carga: " + doneIni + "/" + inicio + " | " + doneFim + "/" + fim + " (" + ((System.currentTimeMillis()-t0)/1000) + "s)");
                     
                     for (int i = 0; i < 15; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 5*1048576) { videoFile = f; break; } Thread.sleep(200); }
                     
                     if (videoFile != null) {
-                        // 🔧 AJUSTAR TAMANHO DO ARQUIVO PARA TOTAL SIZE
                         if (videoFile.length() < totalSize) {
                             try {
                                 RandomAccessFile raf = new RandomAccessFile(videoFile, "rw");
                                 raf.setLength(totalSize);
                                 raf.close();
-                                debug("📏 Arquivo ajustado para " + (totalSize/1048576) + "MB (sparse)");
-                            } catch (Exception e) {
-                                debug("⚠️ Erro ao ajustar tamanho: " + e.getMessage());
-                            }
+                                debug("📏 Arquivo: " + (totalSize/1048576) + "MB");
+                            } catch (Exception e) {}
                         }
                         
                         parseSeekHeadAndFindMissingPieces();
@@ -629,22 +656,22 @@ public class MainActivity extends AppCompatActivity {
                         
                         z = new byte_vector();
                         for (int i = 0; i < numPieces; i++) z.add((byte)0);
-                        torrentHandle.swig().prioritize_pieces_ex(z);
+                        safePrioritizePieces(z);
                         for (int piece : requiredPieces) {
-                            if (piece < numPieces) { torrentHandle.swig().piece_priority_ex(piece, (byte)7); torrentHandle.swig().set_piece_deadline(piece, 15000); }
+                            if (piece < numPieces) { safeSetPriority(piece, (byte)7); safeSetDeadline(piece, 15000); }
                         }
                         
                         int done = 0;
                         long lastLog = System.currentTimeMillis();
                         while (done < total && downloading) {
                             Thread.sleep(150); done = 0;
-                            for (int piece : requiredPieces) if (piece < numPieces && torrentHandle.havePiece(piece)) done++;
+                            for (int piece : requiredPieces) if (piece < numPieces && safeHavePiece(piece)) done++;
                             
                             long now = System.currentTimeMillis();
                             if (now - lastLog > 800) {
                                 lastLog = now;
                                 int pct = total > 0 ? done * 100 / total : 0;
-                                long spd = torrentHandle.swig().status().getDownload_rate();
+                                long spd = safeStatus() != null ? safeStatus().getDownload_rate() : 0;
                                 final String msg = "📥 Metadados: " + pct + "% | " + (spd/1024) + " KB/s";
                                 handler.post(() -> statusText.setText(msg));
                             }
