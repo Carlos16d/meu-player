@@ -172,12 +172,6 @@ public class MainActivity extends AppCompatActivity {
     }
     
     // ==================== MÉTODOS SEGUROS ====================
-    private boolean safeIsValid() {
-        synchronized (torrentLock) {
-            return torrentHandle != null && torrentHandle.isValid();
-        }
-    }
-    
     private boolean safeHavePiece(int piece) {
         synchronized (torrentLock) {
             if (torrentHandle == null || !torrentHandle.isValid()) return false;
@@ -450,7 +444,8 @@ public class MainActivity extends AppCompatActivity {
                 audioMenu.addView(tv);
             }
         }
-        audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); subtitleScroll.setVisibility(View.GONE);
+        audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); 
+        subtitleScroll.setVisibility(View.GONE);
     }
     
     private void toggleSubtitleMenu() {
@@ -469,7 +464,8 @@ public class MainActivity extends AppCompatActivity {
                 subtitleMenu.addView(tv);
             }
         }
-        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.GIBLE ? View.GONE : View.VISIBLE); audioScroll.setVisibility(View.GONE);
+        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); 
+        audioScroll.setVisibility(View.GONE);
     }
     
     private void playWithVlc(String url) {
