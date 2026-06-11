@@ -61,11 +61,15 @@ public class MainActivity extends AppCompatActivity {
     private long lastMinuteLog = 0;
     private long videoDurationMs = 0;
     
-    // NOVO: Controle preciso de prioridade
+    // Controle de prioridade
     private int currentPlayingPiece = -1;
-    private int lastPrioritizedStart = -1;
-    private int lastPrioritizedEnd = -1;
+    private int prioritizedStart = -1;
+    private int prioritizedEnd = -1;
     private long lastPrioritizeTime = 0;
+    private boolean isSeeking = false;
+    private long seekTargetTime = 0;
+    private long seekStartTime = 0;
+    private static final long SEEK_TIMEOUT = 30000; // 30 segundos para seek
     
     // Lock para proteger acesso ao torrentHandle
     private final Object torrentLock = new Object();
@@ -104,7 +108,6 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // Atualizador de tempo - AGORA com priorização inteligente
         timeUpdater = () -> {
             if (vlcPlayer != null && isPlaying && !vlcPreparing) {
                 long time = vlcPlayer.getTime();
@@ -114,8 +117,18 @@ public class MainActivity extends AppCompatActivity {
                     timeText.setText(formatTime(time) + " / " + formatTime(length));
                     if (!isTracking) seekBar.setProgress((int)(time * 100 / length));
                     
-                    // NOVO: Priorizar peça atual baseado no tempo REAL de reprodução
-                    prioritizePieceByTime(time);
+                    // Verificar se estamos em modo seek e se já passou
+                    if (isSeeking) {
+                        if (System.currentTimeMillis() - seekStartTime > SEEK_TIMEOUT) {
+                            isSeeking = false;
+                            debug("⏰ Timeout do seek - retomando priorização normal");
+                        }
+                    }
+                    
+                    // Priorizar APENAS se não estiver em seek OU se a peça atual não tem dados
+                    if (!isSeeking) {
+                        updatePriorityForCurrentTime(time);
+                    }
                     
                     long currentMinute = time / 60000;
                     if (currentMinute != lastMinuteLog && time > 0) {
@@ -124,7 +137,7 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
             }
-            handler.postDelayed(timeUpdater, 1000); // Reduzido para 1s para resposta mais rápida
+            handler.postDelayed(timeUpdater, 2000); // 2 segundos para evitar excesso
         };
         
         videoSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
@@ -134,9 +147,9 @@ public class MainActivity extends AppCompatActivity {
         });
         
         ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=3000");  // Aumentado para 3s
-        options.add("--file-caching=2000");
-        options.add("--no-audio-time-stretch");
+        options.add("--network-caching=5000");  // Aumentado para 5 segundos
+        options.add("--file-caching=3000");
+        options.add("--clock-synchro=0");       // Desabilitar sincronização de clock
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
         
@@ -149,7 +162,6 @@ public class MainActivity extends AppCompatActivity {
                     handler.post(() -> { 
                         spinnerBar.setVisibility(View.GONE); 
                         btnPlayPause.setText("⏸"); 
-                        if (!isTracking) handler.post(timeUpdater); 
                     }); 
                     break;
                 case MediaPlayer.Event.Paused: 
@@ -163,17 +175,15 @@ public class MainActivity extends AppCompatActivity {
                     break;
                 case MediaPlayer.Event.Buffering:
                     handler.post(() -> spinnerBar.setVisibility(View.VISIBLE));
+                    // Se estiver buffering durante seek, forçar prioridade
+                    if (isSeeking && vlcPlayer != null) {
+                        long bufTime = vlcPlayer.getTime();
+                        if (bufTime > 0) forceSeekPriority(bufTime);
+                    }
                     break;
                 case MediaPlayer.Event.EndReached:
                     isPlaying = false;
                     handler.post(() -> btnPlayPause.setText("▶"));
-                    break;
-                // NOVO: Detectar time change (seek)
-                case MediaPlayer.Event.TimeChanged:
-                    long newTime = vlcPlayer.getTime();
-                    if (newTime > 0) {
-                        prioritizePieceByTime(newTime);
-                    }
                     break;
             }
         });
@@ -192,8 +202,11 @@ public class MainActivity extends AppCompatActivity {
                 long targetTime = 20 * 60 * 1000;
                 if (vlcPlayer.getLength() > 0 && targetTime < vlcPlayer.getLength()) {
                     debug("⏭ Pulando para 20:00...");
+                    isSeeking = true;
+                    seekTargetTime = targetTime;
+                    seekStartTime = System.currentTimeMillis();
+                    forceSeekPriority(targetTime);
                     vlcPlayer.setTime(targetTime);
-                    prioritizePieceByTime(targetTime); // Priorizar imediatamente
                 }
             }
         });
@@ -203,9 +216,12 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onStartTrackingTouch(SeekBar s) { isTracking = true; }
             @Override public void onStopTrackingTouch(SeekBar s) { 
                 isTracking = false;
-                // NOVO: Priorizar após seek manual
                 if (vlcPlayer != null && !vlcPreparing) {
-                    prioritizePieceByTime(vlcPlayer.getTime());
+                    long time = vlcPlayer.getTime();
+                    isSeeking = true;
+                    seekTargetTime = time;
+                    seekStartTime = System.currentTimeMillis();
+                    forceSeekPriority(time);
                 }
             }
         });
@@ -213,8 +229,8 @@ public class MainActivity extends AppCompatActivity {
         btnAudio.setOnClickListener(v -> toggleAudioMenu());
         btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        debug("=== TORRENT STREAM DEBUG v2 ===");
-        debug("Priorização por tempo real de reprodução");
+        debug("=== TORRENT STREAM DEBUG v3 ===");
+        debug("Prioridade ABSOLUTA para seek");
         new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ Sessão OK"); } catch (Exception e) { debug("❌ " + e.getMessage()); } }).start();
         startServer();
         
@@ -225,66 +241,177 @@ public class MainActivity extends AppCompatActivity {
         debug("📱 Pronto");
     }
     
-    // NOVO: Método central de priorização
-    private void prioritizePieceByTime(long timeMs) {
+    // FORÇA prioridade absoluta para seek (ignora tudo)
+    private void forceSeekPriority(long timeMs) {
         if (pieceLength <= 0 || numPieces <= 0 || videoFile == null || videoDurationMs <= 0) return;
         
-        // Calcular posição no arquivo baseado no tempo
         long fileSize = videoFile.length();
         if (fileSize <= 0) return;
         
         long bytePosition = timeMs * fileSize / videoDurationMs;
         int targetPiece = (int)(bytePosition / pieceLength);
         
-        if (targetPiece == currentPlayingPiece) return; // Já está na peça correta
-        
-        currentPlayingPiece = targetPiece;
+        long currentMinute = timeMs / 60000;
+        long currentSecond = (timeMs / 1000) % 60;
         
         synchronized (torrentLock) {
             if (torrentHandle == null || !torrentHandle.isValid()) return;
             
-            // Calcular range: peça atual + próximas 20 peças (~10-20 segundos)
-            int startPiece = targetPiece;
-            int endPiece = Math.min(numPieces - 1, targetPiece + 20);
+            try {
+                // ZERAR ABSOLUTAMENTE TODAS as prioridades
+                byte_vector zeroPriorities = new byte_vector();
+                for (int i = 0; i < numPieces; i++) {
+                    zeroPriorities.add((byte)0);
+                }
+                torrentHandle.swig().prioritize_pieces_ex(zeroPriorities);
+                
+                // Remover todos os deadlines existentes
+                for (int i = 0; i < numPieces; i++) {
+                    try { torrentHandle.swig().reset_piece_deadline(i); } catch (Exception e) {}
+                }
+                
+                // Definir prioridade MÁXIMA apenas para peça alvo e próximas
+                int startPiece = targetPiece;
+                int endPiece = Math.min(numPieces - 1, targetPiece + 30);
+                
+                byte_vector seekPriorities = new byte_vector();
+                for (int i = 0; i < numPieces; i++) {
+                    if (i == targetPiece) {
+                        seekPriorities.add((byte)7); // Máxima
+                    } else if (i > targetPiece && i <= endPiece) {
+                        seekPriorities.add((byte)6); // Alta
+                    } else if (i < targetPiece && i >= targetPiece - 3) {
+                        seekPriorities.add((byte)5); // Média (para contexto)
+                    } else {
+                        seekPriorities.add((byte)0); // Nada
+                    }
+                }
+                torrentHandle.swig().prioritize_pieces_ex(seekPriorities);
+                
+                // Deadlines agressivos
+                torrentHandle.swig().set_piece_deadline(targetPiece, 5000);  // 5 segundos
+                for (int i = targetPiece + 1; i <= endPiece; i++) {
+                    torrentHandle.swig().set_piece_deadline(i, 10000 + (i - targetPiece) * 500);
+                }
+                
+                currentPlayingPiece = targetPiece;
+                prioritizedStart = startPiece;
+                prioritizedEnd = endPiece;
+                
+                debug("🔥 SEEK: Prioridade ABSOLUTA peças " + startPiece + "-" + endPiece + 
+                      " (min " + currentMinute + ":" + String.format("%02d", currentSecond) + ")");
+                
+                // Verificar se peça alvo já existe
+                if (torrentHandle.havePiece(targetPiece)) {
+                    debug("✅ Peça " + targetPiece + " já existe!");
+                    isSeeking = false;
+                } else {
+                    debug("⏳ Aguardando peça " + targetPiece + "...");
+                }
+                
+                // Monitorar chegada da peça alvo
+                new Thread(() -> {
+                    int waitCount = 0;
+                    while (isSeeking && downloading && waitCount < 60) { // 30 segundos max
+                        try { Thread.sleep(500); } catch (Exception e) {}
+                        waitCount++;
+                        
+                        synchronized (torrentLock) {
+                            if (torrentHandle != null && torrentHandle.isValid()) {
+                                if (torrentHandle.havePiece(targetPiece)) {
+                                    final int piece = targetPiece;
+                                    final long elapsed = (System.currentTimeMillis() - seekStartTime) / 1000;
+                                    handler.post(() -> {
+                                        debug("✅ Peça " + piece + " chegou em " + elapsed + "s - seek completo!");
+                                        isSeeking = false;
+                                        spinnerBar.setVisibility(View.GONE);
+                                    });
+                                    return;
+                                }
+                                
+                                // Reforçar deadline a cada 2 segundos
+                                if (waitCount % 4 == 0) {
+                                    try {
+                                        torrentHandle.swig().set_piece_deadline(targetPiece, 5000);
+                                        if (waitCount % 20 == 0) { // Log a cada 10 segundos
+                                            final int wc = waitCount;
+                                            handler.post(() -> debug("   ⏳ Ainda aguardando peça " + targetPiece + " (" + (wc/2) + "s)..."));
+                                        }
+                                    } catch (Exception e) {}
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Timeout
+                    if (isSeeking) {
+                        handler.post(() -> {
+                            debug("⏰ Timeout - peça " + targetPiece + " não chegou em 30s");
+                            isSeeking = false;
+                        });
+                    }
+                }).start();
+                
+            } catch (Exception e) {
+                debug("❌ Erro forceSeekPriority: " + e.getMessage());
+            }
+        }
+    }
+    
+    // Prioridade normal durante playback (apenas se peça atual não existe)
+    private void updatePriorityForCurrentTime(long timeMs) {
+        if (pieceLength <= 0 || numPieces <= 0 || videoFile == null || videoDurationMs <= 0) return;
+        
+        long fileSize = videoFile.length();
+        if (fileSize <= 0) return;
+        
+        long bytePosition = timeMs * fileSize / videoDurationMs;
+        int targetPiece = (int)(bytePosition / pieceLength);
+        
+        // Só atualiza se mudou de peça E a peça atual não existe
+        if (targetPiece == currentPlayingPiece) return;
+        
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return;
             
-            // Evitar repriorizar o mesmo range em menos de 2 segundos
-            if (startPiece == lastPrioritizedStart && endPiece == lastPrioritizedEnd && 
-                System.currentTimeMillis() - lastPrioritizeTime < 2000) {
-                return;
+            // Verifica se a peça atual existe
+            boolean currentExists = false;
+            try {
+                currentExists = torrentHandle.havePiece(targetPiece);
+            } catch (Exception e) {}
+            
+            if (currentExists) {
+                currentPlayingPiece = targetPiece;
+                return; // Peça já existe, não precisa repriorizar
             }
             
-            lastPrioritizedStart = startPiece;
-            lastPrioritizedEnd = endPiece;
+            // Só reprioriza se a peça NÃO existe e passou 5 segundos da última
+            if (System.currentTimeMillis() - lastPrioritizeTime < 5000) return;
+            
+            currentPlayingPiece = targetPiece;
             lastPrioritizeTime = System.currentTimeMillis();
             
             try {
-                // Resetar TODAS as prioridades para 0
+                int startPiece = targetPiece;
+                int endPiece = Math.min(numPieces - 1, targetPiece + 15);
+                
+                // Reset suave: só zera peças fora do range atual
                 for (int i = 0; i < numPieces; i++) {
-                    torrentHandle.swig().piece_priority_ex(i, (byte)0);
+                    if (i < startPiece - 5 || i > endPiece + 5) {
+                        torrentHandle.swig().piece_priority_ex(i, (byte)0);
+                    }
                 }
                 
-                // Prioridade máxima para peça atual
+                // Prioridade para range atual
                 torrentHandle.swig().piece_priority_ex(targetPiece, (byte)7);
-                torrentHandle.swig().set_piece_deadline(targetPiece, 10000);
+                torrentHandle.swig().set_piece_deadline(targetPiece, 8000);
                 
-                // Prioridade alta para próximas peças (decrescente)
                 for (int i = targetPiece + 1; i <= endPiece; i++) {
-                    if (i >= numPieces) break;
-                    int dist = i - targetPiece;
-                    byte priority = (byte)(dist <= 5 ? 7 : (dist <= 10 ? 5 : 3));
-                    torrentHandle.swig().piece_priority_ex(i, priority);
-                    torrentHandle.swig().set_piece_deadline(i, 15000 + (dist * 1000));
+                    torrentHandle.swig().piece_priority_ex(i, (byte)5);
+                    torrentHandle.swig().set_piece_deadline(i, 15000);
                 }
                 
-                long currentMinute = timeMs / 60000;
-                long currentSecond = (timeMs / 1000) % 60;
-                debug("🎯 Priorizado: peça " + targetPiece + " (min " + currentMinute + ":" + 
-                      String.format("%02d", currentSecond) + ") + " + (endPiece - startPiece) + 
-                      " peças à frente");
-                
-            } catch (Exception e) {
-                debug("❌ Erro priorização: " + e.getMessage());
-            }
+            } catch (Exception e) {}
         }
     }
     
@@ -312,16 +439,22 @@ public class MainActivity extends AppCompatActivity {
     
     private void seekRelative(long delta) { 
         if (vlcPlayer == null || vlcPlayer.getLength() <= 0 || vlcPreparing) return; 
-        long t = Math.max(0, Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + delta)); 
+        long t = Math.max(0, Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + delta));
+        isSeeking = true;
+        seekTargetTime = t;
+        seekStartTime = System.currentTimeMillis();
+        forceSeekPriority(t);
         vlcPlayer.setTime(t);
-        prioritizePieceByTime(t); // Priorizar após seek
     }
     
     private void seekAbsolute(int pct) { 
         if (vlcPlayer == null || vlcPlayer.getLength() <= 0 || vlcPreparing) return; 
-        long t = (long)(vlcPlayer.getLength() * pct / 100.0); 
+        long t = (long)(vlcPlayer.getLength() * pct / 100.0);
+        isSeeking = true;
+        seekTargetTime = t;
+        seekStartTime = System.currentTimeMillis();
+        forceSeekPriority(t);
         vlcPlayer.setTime(t);
-        prioritizePieceByTime(t); // Priorizar após seek
     }
     
     private void toggleAudioMenu() {
@@ -387,8 +520,9 @@ public class MainActivity extends AppCompatActivity {
             vlcPlayer.getVLCVout().attachViews();
             Media m = new Media(libVLC, Uri.parse(url));
             m.setHWDecoderEnabled(true, true);
-            m.addOption(":network-caching=3000");
-            m.addOption(":file-caching=2000");
+            m.addOption(":network-caching=5000");
+            m.addOption(":file-caching=3000");
+            m.addOption(":clock-synchro=0");
             vlcPlayer.setMedia(m);
             m.release();
             vlcPlayer.play();
@@ -422,7 +556,6 @@ public class MainActivity extends AppCompatActivity {
     
     private void startServer() { serverThread = new Thread(() -> { try { ServerSocket s = new ServerSocket(8080, 10); s.setReuseAddress(true); while (!Thread.interrupted()) { try { Socket c = s.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {} } s.close(); } catch (IOException e) {} }); serverThread.setDaemon(true); serverThread.start(); }
     
-    // Servidor HTTP SIMPLIFICADO - não tenta mais priorizar
     private void handleHttp(Socket client) {
         try {
             client.setSoTimeout(60000);
@@ -454,20 +587,17 @@ public class MainActivity extends AppCompatActivity {
             if (re == -1 || re >= fs) re = fs - 1;
             long cl = re - rs + 1;
             
-            // SIMPLES: Apenas log e serve - priorização é feita pelo timeUpdater
-            long estimatedTimeMs = 0;
-            if (videoDurationMs > 0 && fs > 0) estimatedTimeMs = rs * videoDurationMs / fs;
-            long estimatedMinute = estimatedTimeMs / 60000;
-            long estimatedSecond = (estimatedTimeMs / 1000) % 60;
-            int pieceNeeded = pieceLength > 0 ? (int)(rs / pieceLength) : -1;
+            totalRequests++;
             
-            // Log apenas, sem alterar prioridades
-            if (totalRequests % 10 == 0 && pieceNeeded >= 0) {
-                debug("📡 HTTP #" + totalRequests + ": min " + estimatedMinute + ":" + 
-                      String.format("%02d", estimatedSecond) + " (peça " + pieceNeeded + ")");
+            // Se estamos em seek e a requisição é para a área alvo, log
+            if (isSeeking && pieceLength > 0 && videoDurationMs > 0) {
+                int reqPiece = (int)(rs / pieceLength);
+                long reqTime = rs * videoDurationMs / fs;
+                long reqMinute = reqTime / 60000;
+                long reqSecond = (reqTime / 1000) % 60;
+                debug("📡 HTTP seek: min " + reqMinute + ":" + String.format("%02d", reqSecond) + " (peça " + reqPiece + ")");
             }
             
-            totalRequests++;
             String headers = "HTTP/1.1 206 Partial Content\r\nContent-Type: video/x-matroska\r\nAccept-Ranges: bytes\r\nContent-Range: bytes " + rs + "-" + (rs+cl-1) + "/" + fs + "\r\nContent-Length: " + cl + "\r\nAccess-Control-Allow-Origin: *\r\nConnection: close\r\n\r\n";
             out.write(headers.getBytes());
             
@@ -487,8 +617,6 @@ public class MainActivity extends AppCompatActivity {
             raf.close();
             out.flush();
             client.close();
-            
-            if (totalRequests % 100 == 0) debug("📡 HTTP #" + totalRequests + ": " + (bytesServed/1048576) + "MB servidos");
         } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
@@ -499,9 +627,10 @@ public class MainActivity extends AppCompatActivity {
         pieceLength = 0; numPieces = 0; totalSize = 0; totalRequests = 0; bytesServed = 0; 
         lastDownloadLog = 0; lastMinuteLog = -1; videoDurationMs = 0;
         currentPlayingPiece = -1;
-        lastPrioritizedStart = -1;
-        lastPrioritizedEnd = -1;
+        prioritizedStart = -1;
+        prioritizedEnd = -1;
         lastPrioritizeTime = 0;
+        isSeeking = false;
         
         handler.post(() -> { btnStop.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE); });
         debug("⏳ Conectando ao tracker...");
@@ -511,7 +640,8 @@ public class MainActivity extends AppCompatActivity {
             try {
                 add_torrent_params p; if (source.startsWith("magnet:")) p = libtorrent.parse_magnet_uri(source, new error_code()); else p = add_torrent_params.load_torrent_file(source, new error_code());
                 p.setSave_path(savePath);
-                torrent_flags_t flags = libtorrent.getAuto_managed().or_(libtorrent.getSequential_download()).or_(libtorrent.getApply_ip_filter());
+                // REMOVIDO sequential_download para não competir com priorização manual
+                torrent_flags_t flags = libtorrent.getAuto_managed().or_(libtorrent.getApply_ip_filter());
                 p.setFlags(flags);
                 p.setDownload_limit(3*1024*1024);
                 byte_vector pr = new byte_vector(); pr.add((byte)7); p.set_file_priorities(pr);
@@ -537,19 +667,22 @@ public class MainActivity extends AppCompatActivity {
                     pieceLength = pl; numPieces = np; totalSize = ti.totalSize();
                     long elapsed = (System.currentTimeMillis() - startTime) / 1000;
                     torrent_status st = torrentHandle.swig().status();
-                    debug("📊 " + (totalSize/1048576) + "MB, " + np + " peças de " + (pl/1024) + "KB (" + elapsed + "s) | Peers: " + st.getNum_peers() + " seeds: " + st.getNum_seeds());
+                    debug("📊 " + (totalSize/1048576) + "MB, " + np + " peças de " + (pl/1024) + "KB | Peers: " + st.getNum_peers());
                     
+                    // Baixar APENAS cabeçalho (primeiras 20 peças)
                     int meta = Math.min(20, np);
-                    debug("📋 Cabeçalho: " + meta + " peças (~" + (meta*pl/1048576) + "MB)");
+                    debug("📋 Baixando cabeçalho: " + meta + " peças");
                     
-                    // Priorizar cabeçalho
-                    byte_vector headerPriorities = new byte_vector();
-                    for (int i = 0; i < np; i++) {
-                        if (i < meta) headerPriorities.add((byte)7);
-                        else headerPriorities.add((byte)0);
+                    // Zerar TUDO primeiro
+                    byte_vector zeroAll = new byte_vector();
+                    for (int i = 0; i < np; i++) zeroAll.add((byte)0);
+                    torrentHandle.swig().prioritize_pieces_ex(zeroAll);
+                    
+                    // Priorizar SÓ cabeçalho
+                    for (int i = 0; i < meta; i++) {
+                        torrentHandle.swig().piece_priority_ex(i, (byte)7);
+                        torrentHandle.swig().set_piece_deadline(i, 10000);
                     }
-                    torrentHandle.swig().prioritize_pieces_ex(headerPriorities);
-                    for (int i = 0; i < meta; i++) torrentHandle.swig().set_piece_deadline(i, 5000);
                     
                     int complete = 0, wt = 0; boolean shown = false;
                     while (wt < 120 && downloading) { 
@@ -561,26 +694,15 @@ public class MainActivity extends AppCompatActivity {
                             long t2 = (System.currentTimeMillis() - startTime) / 1000; 
                             debug("✅ Cabeçalho OK! " + complete + "/" + meta + " em " + t2 + "s");
                             
-                            // Após cabeçalho, baixar sequencial do início
-                            byte_vector normalPriorities = new byte_vector();
-                            for (int i = 0; i < np; i++) {
-                                if (i < 50) normalPriorities.add((byte)6); // Primeiras 50 peças
-                                else normalPriorities.add((byte)0); // Resto sem prioridade
-                            }
-                            torrentHandle.swig().prioritize_pieces_ex(normalPriorities);
-                            for (int i = 0; i < 50; i++) torrentHandle.swig().set_piece_deadline(i, 30000);
-                            
+                            // NÃO BAIXAR MAIS NADA até o usuário dar play
+                            // Apenas encontrar arquivo de vídeo
                             for (int i = 0; i < 30; i++) { 
                                 File f = find(new File(savePath)); 
                                 if (f != null && f.length() > 1048576) { 
-                                    byte[] hdr = new byte[8]; 
-                                    try { new RandomAccessFile(f, "r").read(hdr); } catch (Exception e2) { continue; } 
-                                    if ((hdr[4]=='f'&&hdr[5]=='t'&&hdr[6]=='y'&&hdr[7]=='p') || ((hdr[0]&0xFF)==0x1A&&hdr[1]==0x45&&hdr[2]==(byte)0xDF&&hdr[3]==(byte)0xA3)) { 
-                                        videoFile = f; 
-                                        handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); }); 
-                                        debug("📁 " + f.getName() + " (" + (f.length()/1048576) + "MB)"); 
-                                        break; 
-                                    } 
+                                    videoFile = f; 
+                                    handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); }); 
+                                    debug("📁 " + f.getName() + " (" + (f.length()/1048576) + "MB)"); 
+                                    break; 
                                 } 
                                 Thread.sleep(500); 
                             } 
@@ -597,12 +719,14 @@ public class MainActivity extends AppCompatActivity {
             while (downloading) {
                 try { Thread.sleep(5000);
                     synchronized (torrentLock) {
-                        if (torrentHandle != null && torrentHandle.isValid() && videoFile != null) {
+                        if (torrentHandle != null && torrentHandle.isValid()) {
                             long dl = torrentHandle.swig().status().getTotal_done();
                             if (dl - lastDownloadLog > 10485760) { 
                                 lastDownloadLog = dl;
                                 int percent = totalSize > 0 ? (int)(dl * 100 / totalSize) : 0;
-                                debug("📥 Download: " + (dl/1048576) + "MB / " + (totalSize/1048576) + "MB (" + percent + "%)");
+                                if (!isSeeking) { // Só loga se não estiver em seek
+                                    debug("📥 Download: " + (dl/1048576) + "MB / " + (totalSize/1048576) + "MB (" + percent + "%)");
+                                }
                             }
                         }
                     }
@@ -617,7 +741,6 @@ public class MainActivity extends AppCompatActivity {
         handler.post(() -> { 
             videoSurface.setVisibility(View.VISIBLE); 
             btnWatch.setVisibility(View.GONE); 
-            btnSkip20.setVisibility(View.VISIBLE); 
             spinnerBar.setVisibility(View.VISIBLE); 
             playWithVlc("http://127.0.0.1:8080/video"); 
         }); 
