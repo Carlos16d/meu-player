@@ -24,6 +24,7 @@ import java.io.*;
 import java.net.*;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.*;
 
 public class MainActivity extends AppCompatActivity {
     private SurfaceView videoSurface;
@@ -55,16 +56,16 @@ public class MainActivity extends AppCompatActivity {
     private Runnable timeUpdater;
     private int pieceLength = 0, numPieces = 0;
     private long totalSize = 0;
-    private long totalRequests = 0;
-    private long lastMinuteLog = 0;
     private long videoDurationMs = 0;
+    private long lastMinuteLog = -1;
     
-    // Controle de download
-    private int downloadPos = 0;
+    private int currentPiece = 0;
     private boolean seeking = false;
     private int seekTarget = -1;
+    private int tailStart = 0;
     
     private final Object torrentLock = new Object();
+    private ExecutorService executor = Executors.newFixedThreadPool(4);
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -110,7 +111,13 @@ public class MainActivity extends AppCompatActivity {
                         timeText.setText(formatTime(time) + " / " + formatTime(length));
                         if (!isTracking) seekBar.setProgress((int)(time * 100 / length));
                         
-                        if (!seeking) updateDownloadPos(time);
+                        if (!seeking) {
+                            int p = pieceFromTime(time);
+                            if (p != currentPiece) {
+                                currentPiece = p;
+                                prioritizeCurrentRange(p);
+                            }
+                        }
                         
                         long min = time / 60000;
                         if (min != lastMinuteLog) { lastMinuteLog = min; logMinute(min); }
@@ -127,14 +134,18 @@ public class MainActivity extends AppCompatActivity {
         });
         
         ArrayList<String> options = new ArrayList<>();
-        options.add("--network-caching=2000");
-        options.add("--file-caching=1000");
+        options.add("--network-caching=1000");
+        options.add("--file-caching=500");
+        options.add("--clock-synchro=0");
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
         
         vlcPlayer.setEventListener(event -> {
             switch (event.type) {
-                case MediaPlayer.Event.Playing: isPlaying = true; vlcPreparing = false; handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); handler.post(timeUpdater); }); break;
+                case MediaPlayer.Event.Playing: 
+                    isPlaying = true; vlcPreparing = false; 
+                    handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); handler.post(timeUpdater); }); 
+                    break;
                 case MediaPlayer.Event.Paused: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); break;
                 case MediaPlayer.Event.Stopped: isPlaying = false; vlcPreparing = false; handler.post(() -> btnPlayPause.setText("▶")); break;
                 case MediaPlayer.Event.Buffering: handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); break;
@@ -145,10 +156,10 @@ public class MainActivity extends AppCompatActivity {
         btnPlayPause.setOnClickListener(v -> { if (vlcPlayer != null && !vlcPreparing) { if (isPlaying) vlcPlayer.pause(); else vlcPlayer.play(); } });
         btnSeekBack.setOnClickListener(v -> seekDelta(-10000));
         btnSeekForward.setOnClickListener(v -> seekDelta(10000));
-        btnSkip20.setOnClickListener(v -> doSeek(20 * 60 * 1000));
+        btnSkip20.setOnClickListener(v -> seekTo(20 * 60 * 1000));
         
         seekBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user && vlcPlayer != null && vlcPlayer.getLength() > 0) doSeek(vlcPlayer.getLength() * p / 100); }
+            @Override public void onProgressChanged(SeekBar s, int p, boolean user) { if (user && vlcPlayer != null && vlcPlayer.getLength() > 0) seekTo(vlcPlayer.getLength() * p / 100); }
             @Override public void onStartTrackingTouch(SeekBar s) { isTracking = true; }
             @Override public void onStopTrackingTouch(SeekBar s) { isTracking = false; }
         });
@@ -156,8 +167,10 @@ public class MainActivity extends AppCompatActivity {
         btnAudio.setOnClickListener(v -> toggleAudioMenu());
         btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        debug("=== TORRENT STREAM ===");
-        new Thread(() -> { try { session = new SessionManager(); session.start(); } catch (Exception e) {} }).start();
+        debug("=== TORRENT STREAM v7 ===");
+        debug("Estratégia: Cabeçalho + Cues + Meio");
+        
+        executor.execute(() -> { try { session = new SessionManager(); session.start(); debug("✅ LibTorrent OK"); } catch (Exception e) { debug("❌ " + e.getMessage()); } });
         startServer();
         
         btnPlay.setOnClickListener(v -> start());
@@ -166,193 +179,226 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
     }
     
-    // ============ SERVIDOR HTTP ============
-    private void startServer() { 
-        serverThread = new Thread(() -> { 
-            try { 
-                ServerSocket s = new ServerSocket(8080); 
-                while (!Thread.interrupted()) { 
-                    try { Socket c = s.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {} 
-                } 
-                s.close(); 
-            } catch (IOException e) {} 
-        }); 
-        serverThread.setDaemon(true); 
-        serverThread.start(); 
+    // ==================== SERVIDOR HTTP ====================
+    private void startServer() {
+        serverThread = new Thread(() -> {
+            try {
+                ServerSocket ss = new ServerSocket(8080);
+                ss.setSoTimeout(1000);
+                while (!Thread.interrupted()) {
+                    try { Socket client = ss.accept(); executor.execute(() -> handleHttp(client)); } 
+                    catch (SocketTimeoutException e) {} 
+                    catch (IOException e) { if (!Thread.interrupted()) Log.e("TS", "Accept: " + e.getMessage()); }
+                }
+                ss.close();
+            } catch (IOException e) { Log.e("TS", "Server: " + e.getMessage()); }
+        });
+        serverThread.setDaemon(true);
+        serverThread.start();
+        debug("🌐 HTTP :8080");
     }
     
     private void handleHttp(Socket client) {
         try {
-            client.setSoTimeout(15000);
-            InputStream in = client.getInputStream(); OutputStream out = client.getOutputStream();
-            ByteArrayOutputStream hb = new ByteArrayOutputStream(); int b;
-            while ((b = in.read()) != -1) { hb.write(b); byte[] d = hb.toByteArray(); if (d.length >= 4 && d[d.length-4]=='\r'&&d[d.length-3]=='\n'&&d[d.length-2]=='\r'&&d[d.length-1]=='\n') break; }
-            String req = new String(hb.toByteArray()); String[] lines = req.split("\r\n");
-            if (lines.length == 0 || !lines[0].contains("/video")) { out.write("HTTP/1.1 404\r\n\r\n".getBytes()); out.flush(); client.close(); return; }
+            client.setSoTimeout(10000);
+            OutputStream out = client.getOutputStream();
+            InputStream in = client.getInputStream();
             
-            long rs = 0, re = -1; boolean hr = false;
-            for (String l : lines) { if (l.toLowerCase().startsWith("range: bytes=")) { hr = true; String v = l.substring(13).trim(); String[] p = v.split("-"); rs = Long.parseLong(p[0]); if (p.length > 1 && !p[1].isEmpty()) re = Long.parseLong(p[1]); } }
+            StringBuilder reqBuilder = new StringBuilder();
+            int b;
+            while ((b = in.read()) != -1) {
+                reqBuilder.append((char) b);
+                String s = reqBuilder.toString();
+                if (s.endsWith("\r\n\r\n") || s.length() > 8192) break;
+            }
+            String req = reqBuilder.toString();
             
-            if (videoFile == null || !videoFile.exists()) { out.write("HTTP/1.1 503\r\n\r\n".getBytes()); out.flush(); client.close(); return; }
+            if (!req.contains("/video")) {
+                out.write("HTTP/1.1 404\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes());
+                out.flush(); client.close(); return;
+            }
             
-            long fs = videoFile.length();
-            String mime = getMime(videoFile.getName());
+            long rangeStart = 0;
+            boolean hasRange = false;
+            for (String line : req.split("\r\n")) {
+                if (line.toLowerCase().startsWith("range: bytes=")) {
+                    hasRange = true;
+                    rangeStart = Long.parseLong(line.substring(13).trim().split("-")[0]);
+                    break;
+                }
+            }
             
-            if (!hr) {
-                totalRequests++;
-                out.write(("HTTP/1.1 200 OK\r\nContent-Type: " + mime + "\r\nContent-Length: " + fs + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\n").getBytes());
-                out.flush();
+            if (videoFile == null || !videoFile.exists()) {
+                out.write("HTTP/1.1 503\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".getBytes());
+                out.flush(); client.close(); return;
+            }
+            
+            long fileSize = videoFile.length();
+            String mime = videoFile.getName().toLowerCase().endsWith(".mkv") ? "video/x-matroska" : "video/mp4";
+            
+            if (!hasRange) {
+                String header = "HTTP/1.1 200 OK\r\nContent-Type: " + mime + "\r\nContent-Length: " + fileSize + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\nCache-Control: no-cache\r\n\r\n";
+                out.write(header.getBytes()); out.flush();
+                
                 RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                byte[] buf = new byte[131072];
+                byte[] buf = new byte[65536];
                 int read, sent = 0;
-                while (sent < 1048576 && (read = raf.read(buf)) > 0) { out.write(buf, 0, read); out.flush(); sent += read; }
+                while (sent < 2097152 && (read = raf.read(buf)) != -1) { out.write(buf, 0, read); sent += read; }
                 raf.close();
                 out.flush(); client.close();
                 return;
             }
             
-            if (re == -1 || re >= fs) re = fs - 1;
-            long cl = re - rs + 1;
-            totalRequests++;
+            long rangeEnd = Math.min(fileSize - 1, rangeStart + 524287);
+            long contentLength = rangeEnd - rangeStart + 1;
             
-            out.write(("HTTP/1.1 206 Partial Content\r\nContent-Type: " + mime + "\r\nContent-Range: bytes " + rs + "-" + re + "/" + fs + "\r\nContent-Length: " + cl + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\n").getBytes());
-            out.flush();
+            String header = "HTTP/1.1 206 Partial Content\r\nContent-Type: " + mime + "\r\nContent-Range: bytes " + rangeStart + "-" + rangeEnd + "/" + fileSize + "\r\nContent-Length: " + contentLength + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\nCache-Control: no-cache\r\n\r\n";
+            out.write(header.getBytes()); out.flush();
             
             RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-            raf.seek(rs);
-            byte[] buf = new byte[65536];
-            long sent = 0;
-            int empty = 0;
-            while (sent < cl && downloading) {
-                int tr = (int)Math.min(buf.length, cl - sent);
-                int read = raf.read(buf, 0, tr);
-                if (read <= 0) { empty++; if (empty > 20) break; Thread.sleep(100); continue; }
-                empty = 0;
-                out.write(buf, 0, read); out.flush();
-                sent += read;
+            if (rangeStart < raf.length()) {
+                raf.seek(rangeStart);
+                long available = raf.length() - rangeStart;
+                int toRead = (int) Math.min(contentLength, available);
+                if (toRead > 0) {
+                    byte[] buf = new byte[toRead];
+                    int read = raf.read(buf);
+                    if (read > 0) out.write(buf, 0, read);
+                }
             }
             raf.close();
             out.flush(); client.close();
-        } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
+        } catch (Exception e) { try { client.close(); } catch (Exception ex) {} }
     }
     
-    private String getMime(String n) { n = n.toLowerCase(); if (n.endsWith(".mkv")) return "video/x-matroska"; if (n.endsWith(".mp4")) return "video/mp4"; if (n.endsWith(".webm")) return "video/webm"; return "video/mp4"; }
-    
-    // ============ DOWNLOAD ============
-    private void updateDownloadPos(long timeMs) {
-        if (pieceLength <= 0 || numPieces <= 0 || videoFile == null || videoDurationMs <= 0) return;
+    // ==================== PRIORIDADES ====================
+    private int pieceFromTime(long timeMs) {
+        if (pieceLength <= 0 || videoFile == null || videoDurationMs <= 0) return -1;
         long bytePos = timeMs * videoFile.length() / videoDurationMs;
-        int piece = (int)(bytePos / pieceLength);
-        if (piece == downloadPos) return;
-        downloadPos = piece;
-        prioritizeRange(piece);
+        return (int)(bytePos / pieceLength);
     }
     
-    private void doSeek(long timeMs) {
+    private void prioritizeCurrentRange(int start) {
+        executor.execute(() -> {
+            synchronized (torrentLock) {
+                if (torrentHandle == null || !torrentHandle.isValid() || seeking) return;
+                try {
+                    int end = Math.min(tailStart - 1, start + 8);
+                    if (end < start) end = start;
+                    
+                    for (int i = 0; i < numPieces; i++) {
+                        byte p = (i >= start && i <= end) ? (byte)7 : 
+                                (i >= start - 3 && i < start) ? (byte)2 : (byte)0;
+                        torrentHandle.swig().piece_priority_ex(i, p);
+                    }
+                    for (int i = start; i <= end; i++) {
+                        if (!torrentHandle.havePiece(i)) torrentHandle.swig().set_piece_deadline(i, 8000);
+                    }
+                } catch (Exception e) {}
+            }
+        });
+    }
+    
+    private void seekTo(long timeMs) {
         if (vlcPlayer == null) return;
         vlcPlayer.setTime(timeMs);
         
-        if (pieceLength <= 0 || numPieces <= 0 || videoFile == null || videoDurationMs <= 0) return;
+        if (pieceLength <= 0 || videoFile == null || videoDurationMs <= 0) return;
         
-        long bytePos = timeMs * videoFile.length() / videoDurationMs;
-        int piece = (int)(bytePos / pieceLength);
-        downloadPos = piece;
+        int piece = pieceFromTime(timeMs);
+        if (piece < 0) return;
+        
+        currentPiece = piece;
         seekTarget = piece;
         seeking = true;
         
         long min = timeMs / 60000;
         long sec = (timeMs / 1000) % 60;
-        debug("🔥 SEEK: " + min + ":" + String.format("%02d", sec) + " → peça " + piece);
+        debug("🔥 Seek: " + min + ":" + String.format("%02d", sec) + " → peça " + piece);
         
-        synchronized (torrentLock) {
-            if (torrentHandle == null || !torrentHandle.isValid()) { seeking = false; return; }
-            try {
-                // Zerar tudo e focar só na peça alvo + poucas à frente
-                byte_vector z = new byte_vector();
-                for (int i = 0; i < numPieces; i++) z.add((byte)0);
-                torrentHandle.swig().prioritize_pieces_ex(z);
-                
-                torrentHandle.swig().piece_priority_ex(piece, (byte)7);
-                torrentHandle.swig().set_piece_deadline(piece, 3000);
-                
-                for (int i = piece + 1; i <= Math.min(numPieces - 1, piece + 5); i++) {
-                    torrentHandle.swig().piece_priority_ex(i, (byte)6);
-                    torrentHandle.swig().set_piece_deadline(i, 5000);
-                }
-                
-                // Monitor
-                new Thread(() -> {
-                    int c = 0;
-                    while (seeking && downloading && c < 60) {
-                        try { Thread.sleep(500); } catch (InterruptedException e) { break; }
-                        c++;
-                        synchronized (torrentLock) {
-                            if (torrentHandle == null || !torrentHandle.isValid()) break;
-                            try {
-                                if (torrentHandle.havePiece(piece)) {
-                                    handler.post(() -> { debug("✅ Peça " + piece + " OK"); seeking = false; spinnerBar.setVisibility(View.GONE); });
-                                    return;
-                                }
-                                if (c % 4 == 0) torrentHandle.swig().set_piece_deadline(piece, 3000);
-                            } catch (Exception e) {}
-                        }
+        executor.execute(() -> {
+            synchronized (torrentLock) {
+                if (torrentHandle == null || !torrentHandle.isValid()) { seeking = false; return; }
+                try {
+                    if (torrentHandle.havePiece(piece)) {
+                        handler.post(() -> { debug("✅ Já existe"); seeking = false; spinnerBar.setVisibility(View.GONE); });
+                        return;
                     }
-                    handler.post(() -> { if (seeking) { debug("⏰ Timeout"); } seeking = false; spinnerBar.setVisibility(View.GONE); });
-                }).start();
-                
-            } catch (Exception e) { seeking = false; }
-        }
+                    
+                    // Zerar tudo
+                    byte_vector z = new byte_vector();
+                    for (int i = 0; i < numPieces; i++) z.add((byte)0);
+                    torrentHandle.swig().prioritize_pieces_ex(z);
+                    
+                    // Prioridade absoluta: peça alvo + 15 à frente
+                    int seekEnd = Math.min(tailStart - 1, piece + 15);
+                    for (int i = piece; i <= seekEnd; i++) {
+                        byte prio = (i == piece) ? (byte)7 : (i <= piece + 3) ? (byte)6 : (byte)4;
+                        torrentHandle.swig().piece_priority_ex(i, prio);
+                        torrentHandle.swig().set_piece_deadline(i, (i == piece) ? 3000 : 8000);
+                    }
+                    
+                    int waits = 0;
+                    while (seeking && downloading && waits < 40) {
+                        Thread.sleep(250); waits++;
+                        if (torrentHandle.havePiece(piece)) {
+                            handler.post(() -> { debug("✅ OK em " + (waits/4.0) + "s"); seeking = false; spinnerBar.setVisibility(View.GONE); });
+                            return;
+                        }
+                        if (waits % 4 == 0) torrentHandle.swig().set_piece_deadline(piece, 3000);
+                    }
+                    
+                    handler.post(() -> { if (seeking) debug("⏰ Timeout"); seeking = false; spinnerBar.setVisibility(View.GONE); });
+                } catch (Exception e) { seeking = false; }
+            }
+        });
     }
     
-    private void prioritizeRange(int start) {
-        synchronized (torrentLock) {
-            if (torrentHandle == null || !torrentHandle.isValid()) return;
-            try {
-                int end = Math.min(numPieces - 1, start + 8); // Apenas 8 peças à frente
-                for (int i = 0; i < numPieces; i++) {
-                    byte p = (i >= start && i <= end) ? (byte)7 : (i < start && i >= start - 3) ? (byte)2 : (byte)0;
-                    torrentHandle.swig().piece_priority_ex(i, p);
-                }
-                for (int i = start; i <= end; i++) {
-                    if (!torrentHandle.havePiece(i)) torrentHandle.swig().set_piece_deadline(i, 8000);
-                }
-            } catch (Exception e) {}
-        }
-    }
-    
-    private void seekDelta(long d) { if (vlcPlayer != null && vlcPlayer.getLength() > 0) doSeek(Math.max(0, Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + d))); }
+    private void seekDelta(long d) { if (vlcPlayer != null && vlcPlayer.getLength() > 0) seekTo(Math.max(0, Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + d))); }
     
     private void logMinute(long min) {
-        if (videoDurationMs <= 0 || pieceLength <= 0 || numPieces <= 0 || videoFile == null) return;
-        synchronized (torrentLock) {
-            if (torrentHandle == null || !torrentHandle.isValid()) return;
-            long bp = min * 60 * 1000 * videoFile.length() / videoDurationMs;
-            int s = (int)(bp / pieceLength);
-            long be = (min + 1) * 60 * 1000 * videoFile.length() / videoDurationMs;
-            int e = (int)(be / pieceLength);
-            int have = 0;
-            for (int i = s; i <= e && i < numPieces; i++) if (torrentHandle.havePiece(i)) have++;
-            int tot = e - s + 1, pct = tot > 0 ? have * 100 / tot : 0;
-            if (pct < 100 || min % 5 == 0) debug("⏱ Min " + min + ": " + have + "/" + tot + " (" + pct + "%)");
-        }
+        if (videoDurationMs <= 0 || pieceLength <= 0 || videoFile == null) return;
+        executor.execute(() -> {
+            synchronized (torrentLock) {
+                if (torrentHandle == null || !torrentHandle.isValid()) return;
+                long bp = min * 60 * 1000 * videoFile.length() / videoDurationMs;
+                int s = (int)(bp / pieceLength);
+                long be = (min + 1) * 60 * 1000 * videoFile.length() / videoDurationMs;
+                int e = (int)(be / pieceLength);
+                int have = 0;
+                for (int i = s; i <= e && i < numPieces; i++) if (torrentHandle.havePiece(i)) have++;
+                int tot = e - s + 1, pct = tot > 0 ? have * 100 / tot : 0;
+                if (pct < 100 || min % 5 == 0) {
+                    final String msg = "⏱ Min " + min + ": " + have + "/" + tot + " (" + pct + "%)";
+                    handler.post(() -> debug(msg));
+                }
+            }
+        });
     }
     
-    // ============ UI ============
-    private String formatTime(long ms) { if (ms < 0) return "0:00"; int s = (int)(ms / 1000); return (s/60) + ":" + (s%60 < 10 ? "0" : "") + (s%60); }
+    // ==================== UI ====================
+    private String formatTime(long ms) { if (ms < 0) return "0:00"; int s = (int)(ms / 1000); return (s/60) + ":" + String.format("%02d", s%60); }
     
     private void toggleAudioMenu() {
         if (vlcPlayer == null) return;
         MediaPlayer.TrackDescription[] tracks = vlcPlayer.getAudioTracks();
         int cur = vlcPlayer.getAudioTrack();
         audioMenu.removeAllViews();
+        
+        debug("🎵 Áudios: " + (tracks != null ? tracks.length : 0));
         if (tracks != null) for (MediaPlayer.TrackDescription t : tracks) {
             if (t.id >= 0) {
-                TextView tv = new TextView(this); tv.setText("🎵 " + t.name + (t.id == cur ? " ✓" : "")); tv.setTextColor(t.id == cur ? 0xFF6c5ce7 : 0xFFFFFFFF); tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
-                final int id = t.id; tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(id); audioScroll.setVisibility(View.GONE); });
+                TextView tv = new TextView(this); 
+                tv.setText("🎵 " + t.name + (t.id == cur ? " ✓" : ""));
+                tv.setTextColor(t.id == cur ? 0xFF6c5ce7 : 0xFFFFFFFF); 
+                tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
+                final int id = t.id; 
+                tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(id); audioScroll.setVisibility(View.GONE); });
                 audioMenu.addView(tv);
             }
         }
-        audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); subtitleScroll.setVisibility(View.GONE);
+        audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        subtitleScroll.setVisibility(View.GONE);
     }
     
     private void toggleSubtitleMenu() {
@@ -360,17 +406,28 @@ public class MainActivity extends AppCompatActivity {
         MediaPlayer.TrackDescription[] tracks = vlcPlayer.getSpuTracks();
         int cur = vlcPlayer.getSpuTrack();
         subtitleMenu.removeAllViews();
-        TextView off = new TextView(this); off.setText("📝 Desligado" + (cur == -1 ? " ✓" : "")); off.setTextColor(cur == -1 ? 0xFF6c5ce7 : 0xFFFFFFFF); off.setTextSize(12); off.setPadding(16, 12, 16, 12);
+        
+        debug("📝 Legendas: " + (tracks != null ? tracks.length : 0));
+        TextView off = new TextView(this); 
+        off.setText("📝 Desligado" + (cur == -1 ? " ✓" : ""));
+        off.setTextColor(cur == -1 ? 0xFF6c5ce7 : 0xFFFFFFFF); 
+        off.setTextSize(12); off.setPadding(16, 12, 16, 12);
         off.setOnClickListener(v -> { vlcPlayer.setSpuTrack(-1); subtitleScroll.setVisibility(View.GONE); });
         subtitleMenu.addView(off);
+        
         if (tracks != null) for (MediaPlayer.TrackDescription t : tracks) {
             if (t.id >= 0) {
-                TextView tv = new TextView(this); tv.setText("📝 " + t.name + (t.id == cur ? " ✓" : "")); tv.setTextColor(t.id == cur ? 0xFF6c5ce7 : 0xFFFFFFFF); tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
-                final int id = t.id; tv.setOnClickListener(v -> { vlcPlayer.setSpuTrack(id); subtitleScroll.setVisibility(View.GONE); });
+                TextView tv = new TextView(this); 
+                tv.setText("📝 " + t.name + (t.id == cur ? " ✓" : ""));
+                tv.setTextColor(t.id == cur ? 0xFF6c5ce7 : 0xFFFFFFFF); 
+                tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
+                final int id = t.id; 
+                tv.setOnClickListener(v -> { vlcPlayer.setSpuTrack(id); subtitleScroll.setVisibility(View.GONE); });
                 subtitleMenu.addView(tv);
             }
         }
-        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE); audioScroll.setVisibility(View.GONE);
+        subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
+        audioScroll.setVisibility(View.GONE);
     }
     
     private void playWithVlc(String url) {
@@ -382,11 +439,15 @@ public class MainActivity extends AppCompatActivity {
             vlcPlayer.getVLCVout().attachViews();
             Media m = new Media(libVLC, Uri.parse(url));
             m.setHWDecoderEnabled(true, true);
-            m.addOption(":network-caching=2000");
-            m.addOption(":file-caching=1000");
+            m.addOption(":network-caching=1000");
+            m.addOption(":file-caching=500");
             vlcPlayer.setMedia(m); m.release();
             vlcPlayer.play();
-            handler.post(() -> { playerControls.setVisibility(View.VISIBLE); centerControls.setVisibility(View.VISIBLE); btnSkip20.setVisibility(View.VISIBLE); });
+            handler.post(() -> { 
+                playerControls.setVisibility(View.VISIBLE); 
+                centerControls.setVisibility(View.VISIBLE); 
+                btnSkip20.setVisibility(View.VISIBLE); 
+            });
         } catch (Exception e) { vlcPreparing = false; }
     }
     
@@ -403,20 +464,36 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; Log.d("TS", msg); debugLog.append(line); handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); }
+    private void debug(String msg) { 
+        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; 
+        Log.d("TS", msg); 
+        debugLog.append(line); 
+        handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); 
+    }
     
-    private void start() { String m = magnetInput.getText().toString().trim(); if (m.startsWith("magnet:") && !downloading) startDownload(m); }
+    private void start() { 
+        String m = magnetInput.getText().toString().trim(); 
+        if (m.startsWith("magnet:") && !downloading) startDownload(m); 
+    }
     
     private void startDownload(String source) {
-        downloading = true; videoFile = null; torrentHandle = null; pieceLength = 0; numPieces = 0; totalSize = 0; videoDurationMs = 0;
-        downloadPos = 0; seeking = false; totalRequests = 0; lastMinuteLog = -1;
+        downloading = true; videoFile = null; torrentHandle = null; 
+        pieceLength = 0; numPieces = 0; totalSize = 0; videoDurationMs = 0;
+        currentPiece = 0; seeking = false; lastMinuteLog = -1;
         
-        handler.post(() -> { btnStop.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); });
-        debug("⏳ Conectando...");
+        handler.post(() -> { 
+            btnStop.setVisibility(View.VISIBLE); 
+            bufferBar.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE); 
+            btnSkip20.setVisibility(View.GONE); 
+        });
+        debug("⏳ Conectando ao tracker...");
         
-        new Thread(() -> {
+        executor.execute(() -> {
             try {
-                add_torrent_params p = source.startsWith("magnet:") ? libtorrent.parse_magnet_uri(source, new error_code()) : add_torrent_params.load_torrent_file(source, new error_code());
+                add_torrent_params p = source.startsWith("magnet:") ? 
+                    libtorrent.parse_magnet_uri(source, new error_code()) : 
+                    add_torrent_params.load_torrent_file(source, new error_code());
                 p.setSave_path(savePath);
                 p.setFlags(libtorrent.getAuto_managed().or_(libtorrent.getApply_ip_filter()));
                 p.setDownload_limit(0);
@@ -429,40 +506,110 @@ public class MainActivity extends AppCompatActivity {
                     if (h.size() > 0) torrentHandle = new TorrentHandle(h.get(0));
                 }
                 
+                // Aguardar metadados
                 int w = 0;
-                while (w < 60 && downloading) { Thread.sleep(1000); w++;
-                    synchronized (torrentLock) { if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) break; }
+                while (w < 60 && downloading) { 
+                    Thread.sleep(1000); w++;
+                    synchronized (torrentLock) { 
+                        if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) break; 
+                    }
                 }
                 
                 synchronized (torrentLock) {
                 if (torrentHandle != null && torrentHandle.isValid() && torrentHandle.torrentFile() != null) {
                     TorrentInfo ti = torrentHandle.torrentFile();
-                    pieceLength = ti.pieceLength(); numPieces = ti.numPieces(); totalSize = ti.totalSize();
-                    debug("📊 " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + torrentHandle.swig().status().getNum_peers() + " peers");
+                    pieceLength = ti.pieceLength(); 
+                    numPieces = ti.numPieces(); 
+                    totalSize = ti.totalSize();
                     
-                    // FASE 1: Cabeçalho (20 peças)
-                    int hdr = Math.min(20, numPieces);
-                    debug("📋 Cabeçalho: " + hdr + " peças");
+                    int peers = torrentHandle.swig().status().getNum_peers();
+                    debug("📊 " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + peers + " peers");
                     
+                    // ============ ESTRATÉGIA: INÍCIO + FINAL + PONTOS MÉDIOS ============
+                    
+                    int headerPieces = Math.min(20, numPieces);       // Cabeçalho
+                    int tailPieces = Math.min(5, numPieces);          // Cues (final)
+                    tailStart = numPieces - tailPieces;
+                    
+                    // Pontos médios para metadados extras
+                    int mid1 = numPieces / 3;       // 33%
+                    int mid2 = numPieces * 2 / 3;   // 66%
+                    
+                    debug("📋 Essenciais: [0-" + (headerPieces-1) + "] cabeçalho");
+                    debug("📋 Essenciais: [" + tailStart + "-" + (numPieces-1) + "] cues");
+                    debug("📋 Essenciais: peça " + mid1 + " (33%) + peça " + mid2 + " (66%)");
+                    
+                    // Zerar tudo
                     byte_vector z = new byte_vector();
                     for (int i = 0; i < numPieces; i++) z.add((byte)0);
                     torrentHandle.swig().prioritize_pieces_ex(z);
                     
-                    for (int i = 0; i < hdr; i++) { torrentHandle.swig().piece_priority_ex(i, (byte)7); torrentHandle.swig().set_piece_deadline(i, 30000); }
-                    
-                    int done = 0;
-                    while (done < hdr && downloading) { Thread.sleep(500); done = 0; for (int i = 0; i < hdr; i++) if (torrentHandle.havePiece(i)) done++; }
-                    debug("✅ Cabeçalho: " + done + "/" + hdr);
-                    
-                    for (int i = 0; i < 20; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 1048576) { videoFile = f; break; } Thread.sleep(500); }
-                    
-                    if (videoFile != null) {
-                        handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); });
-                        debug("📁 " + videoFile.getName());
+                    // Cabeçalho: prioridade MÁXIMA
+                    for (int i = 0; i < headerPieces; i++) {
+                        torrentHandle.swig().piece_priority_ex(i, (byte)7);
+                        torrentHandle.swig().set_piece_deadline(i, 30000);
                     }
                     
-                    // FASE 2: Download sequencial contínuo (apenas 8 peças por vez)
-                    debug("📥 Download sequencial...");
+                    // Final (cues): prioridade MÁXIMA
+                    for (int i = tailStart; i < numPieces; i++) {
+                        torrentHandle.swig().piece_priority_ex(i, (byte)7);
+                        torrentHandle.swig().set_piece_deadline(i, 30000);
+                    }
+                    
+                    // Pontos médios: prioridade ALTA
+                    torrentHandle.swig().piece_priority_ex(mid1, (byte)6);
+                    torrentHandle.swig().set_piece_deadline(mid1, 15000);
+                    torrentHandle.swig().piece_priority_ex(mid2, (byte)6);
+                    torrentHandle.swig().set_piece_deadline(mid2, 15000);
+                    
+                    // Aguardar
+                    int headerDone = 0, tailDone = 0;
+                    long startWait = System.currentTimeMillis();
+                    
+                    while ((headerDone < headerPieces || tailDone < tailPieces) && downloading) {
+                        Thread.sleep(500);
+                        
+                        headerDone = 0;
+                        for (int i = 0; i < headerPieces; i++) {
+                            if (torrentHandle.havePiece(i)) headerDone++;
+                        }
+                        
+                        tailDone = 0;
+                        for (int i = tailStart; i < numPieces; i++) {
+                            if (torrentHandle.havePiece(i)) tailDone++;
+                        }
+                        
+                        long elapsed = (System.currentTimeMillis() - startWait) / 1000;
+                        if (elapsed % 4 == 0) {
+                            debug("   📋 Header: " + headerDone + "/" + headerPieces + 
+                                  " | Cues: " + tailDone + "/" + tailPieces + 
+                                  " | Mid: " + (torrentHandle.havePiece(mid1) ? "✅" : "⏳") + 
+                                  (torrentHandle.havePiece(mid2) ? "✅" : "⏳") +
+                                  " (" + elapsed + "s)");
+                        }
+                    }
+                    
+                    debug("✅ Essenciais prontos! Header: " + headerDone + "/" + headerPieces + ", Cues: " + tailDone + "/" + tailPieces);
+                    
+                    // Encontrar arquivo de vídeo
+                    for (int i = 0; i < 20; i++) { 
+                        File f = find(new File(savePath)); 
+                        if (f != null && f.length() > 1048576) { videoFile = f; break; } 
+                        Thread.sleep(500); 
+                    }
+                    
+                    if (videoFile != null) {
+                        handler.post(() -> { 
+                            btnWatch.setText("🎬 ASSISTIR"); 
+                            btnWatch.setVisibility(View.VISIBLE); 
+                            bufferBar.setVisibility(View.GONE); 
+                        });
+                        debug("📁 " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)");
+                    }
+                    
+                    // ============ FASE 2: DOWNLOAD SEQUENCIAL (10 peças) ============
+                    debug("📥 Download sequencial (10 peças por ciclo)");
+                    int pos = headerPieces;
                     
                     while (downloading) {
                         if (seeking) { Thread.sleep(500); continue; }
@@ -470,45 +617,97 @@ public class MainActivity extends AppCompatActivity {
                         synchronized (torrentLock) {
                             if (torrentHandle == null || !torrentHandle.isValid()) break;
                             
-                            // Avançar sobre peças já baixadas
-                            while (downloadPos < numPieces && torrentHandle.havePiece(downloadPos)) downloadPos++;
-                            if (downloadPos >= numPieces) { debug("✅ Completo!"); break; }
+                            // Pular peças já baixadas
+                            while (pos < tailStart && torrentHandle.havePiece(pos)) pos++;
+                            if (pos >= tailStart) { 
+                                debug("✅ Download completo!"); 
+                                break; 
+                            }
                             
-                            int end = Math.min(numPieces - 1, downloadPos + 8);
+                            int end = Math.min(tailStart - 1, pos + 10);
+                            
                             for (int i = 0; i < numPieces; i++) {
-                                byte prr = (i >= downloadPos && i <= end) ? (byte)7 : (i < downloadPos && i >= downloadPos - 2) ? (byte)2 : (byte)0;
+                                byte prr;
+                                if (i >= pos && i <= end) {
+                                    prr = (byte)7;
+                                } else if (i < pos && i >= pos - 3) {
+                                    prr = (byte)3;
+                                } else {
+                                    prr = (byte)0;
+                                }
                                 torrentHandle.swig().piece_priority_ex(i, prr);
                             }
-                            for (int i = downloadPos; i <= end; i++) {
-                                if (!torrentHandle.havePiece(i)) torrentHandle.swig().set_piece_deadline(i, 10000);
+                            
+                            for (int i = pos; i <= end; i++) {
+                                if (!torrentHandle.havePiece(i)) {
+                                    torrentHandle.swig().set_piece_deadline(i, 10000 + (i - pos) * 500);
+                                }
                             }
                         }
                         
-                        long dl = torrentHandle.swig().status().getTotal_done();
-                        if (totalRequests % 10 == 0) { int pct = totalSize > 0 ? (int)(dl * 100 / totalSize) : 0; debug("📥 " + (dl/1048576) + "/" + (totalSize/1048576) + "MB (" + pct + "%)"); }
-                        totalRequests++;
+                        long done = torrentHandle.swig().status().getTotal_done();
+                        int pct = totalSize > 0 ? (int)(done * 100 / totalSize) : 0;
+                        if (pct % 5 == 0 || pct > (lastMinuteLog + 5)) {
+                            debug("📥 " + (done/1048576) + "/" + (totalSize/1048576) + "MB (" + pct + "%) | peça " + pos);
+                        }
+                        
                         Thread.sleep(2000);
                     }
                 }
                 }
-            } catch (Exception e) { debug("❌ " + e.getMessage()); downloading = false; }
-        }).start();
+            } catch (Exception e) { 
+                debug("❌ " + e.getMessage()); 
+                downloading = false; 
+            }
+        });
     }
     
-    private void watch() { if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não pronto"); return; } handler.post(() -> { videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); spinnerBar.setVisibility(View.VISIBLE); playWithVlc("http://127.0.0.1:8080/video"); }); }
+    private void watch() { 
+        if (videoFile == null || !videoFile.exists()) { 
+            debug("❌ Aguarde o download dos essenciais"); 
+            return; 
+        } 
+        handler.post(() -> { 
+            videoSurface.setVisibility(View.VISIBLE); 
+            btnWatch.setVisibility(View.GONE); 
+            spinnerBar.setVisibility(View.VISIBLE); 
+            playWithVlc("http://127.0.0.1:8080/video"); 
+        }); 
+    }
     
     private void stop() {
         downloading = false; vlcPreparing = false; seeking = false;
         if (vlcPlayer != null) vlcPlayer.stop();
-        videoSurface.setVisibility(View.GONE); playerControls.setVisibility(View.GONE); centerControls.setVisibility(View.GONE);
+        videoSurface.setVisibility(View.GONE); 
+        playerControls.setVisibility(View.GONE); centerControls.setVisibility(View.GONE);
         audioScroll.setVisibility(View.GONE); subtitleScroll.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
         handler.removeCallbacks(timeUpdater);
-        synchronized (torrentLock) { if (torrentHandle != null && session != null) { try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} torrentHandle = null; } }
+        synchronized (torrentLock) { 
+            if (torrentHandle != null && session != null) { 
+                try { session.swig().remove_torrent(torrentHandle.swig()); } catch (Exception e) {} 
+                torrentHandle = null; 
+            } 
+        }
     }
     
-    private File find(File dir) { File[] files = dir.listFiles(); if (files != null) for (File f : files) { if (f.isDirectory()) { File ff = find(f); if (ff != null) return ff; } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm)$")) return f; } return null; }
+    private File find(File dir) { 
+        File[] files = dir.listFiles(); 
+        if (files != null) for (File f : files) { 
+            if (f.isDirectory()) { File ff = find(f); if (ff != null) return ff; } 
+            else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm)$")) return f; 
+        } 
+        return null; 
+    }
     
-    @Override protected void onDestroy() { stop(); if (serverThread != null) serverThread.interrupt(); if (session != null) session.stop(); if (vlcPlayer != null) vlcPlayer.release(); if (libVLC != null) libVLC.release(); super.onDestroy(); }
+    @Override protected void onDestroy() { 
+        stop(); 
+        executor.shutdown();
+        if (serverThread != null) serverThread.interrupt(); 
+        if (session != null) session.stop(); 
+        if (vlcPlayer != null) vlcPlayer.release(); 
+        if (libVLC != null) libVLC.release(); 
+        super.onDestroy(); 
+    }
 }
