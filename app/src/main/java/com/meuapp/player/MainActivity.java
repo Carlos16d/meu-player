@@ -468,7 +468,7 @@ public class MainActivity extends AppCompatActivity {
     
     private void handleHttp(Socket client) {
         try {
-            client.setSoTimeout(15000);
+            client.setSoTimeout(30000);
             InputStream in = client.getInputStream(); OutputStream out = client.getOutputStream();
             ByteArrayOutputStream hb = new ByteArrayOutputStream(); int b;
             while ((b = in.read()) != -1) { hb.write(b); if (hb.size() > 4) { byte[] d = hb.toByteArray(); if (d[d.length-4]=='\r'&&d[d.length-3]=='\n'&&d[d.length-2]=='\r'&&d[d.length-1]=='\n') break; } }
@@ -480,35 +480,65 @@ public class MainActivity extends AppCompatActivity {
             
             if (videoFile == null || !videoFile.exists()) { out.write("HTTP/1.1 503\r\n\r\n".getBytes()); out.flush(); client.close(); return; }
             
-            long fs = videoFile.length();
+            // 🔧 REPORTAR TAMANHO TOTAL DO TORRENT
+            final long reportedSize = totalSize > 0 ? totalSize : videoFile.length();
+            String mime = "video/x-matroska";
+            
             if (!hr) {
-                out.write(("HTTP/1.1 200 OK\r\nContent-Type: video/x-matroska\r\nContent-Length: " + fs + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\n\r\n").getBytes());
+                out.write(("HTTP/1.1 200 OK\r\nContent-Type: " + mime + "\r\nContent-Length: " + reportedSize + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\nCache-Control: no-cache\r\n\r\n").getBytes());
                 out.flush();
+                
                 RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-                byte[] data = new byte[65536]; int read = raf.read(data);
-                if (read > 0) out.write(data, 0, read);
-                raf.close(); out.flush(); client.close();
+                byte[] data = new byte[65536];
+                int read;
+                int sent = 0;
+                // Enviar até 2MB do início
+                while (sent < 2097152 && (read = raf.read(data)) != -1) {
+                    out.write(data, 0, read);
+                    out.flush();
+                    sent += read;
+                }
+                raf.close();
+                out.flush();
+                client.close();
                 return;
             }
             
-            if (re == -1 || re >= fs) re = fs - 1;
+            if (re == -1 || re >= reportedSize) re = reportedSize - 1;
             long cl = re - rs + 1;
             
-            out.write(("HTTP/1.1 206 Partial Content\r\nContent-Type: video/x-matroska\r\nContent-Range: bytes " + rs + "-" + (rs+cl-1) + "/" + fs + "\r\nContent-Length: " + cl + "\r\nAccept-Ranges: bytes\r\nConnection: close\r\n\r\n").getBytes());
+            out.write(("HTTP/1.1 206 Partial Content\r\nContent-Type: " + mime + "\r\nContent-Range: bytes " + rs + "-" + re + "/" + reportedSize + "\r\nContent-Length: " + cl + "\r\nAccept-Ranges: bytes\r\nConnection: keep-alive\r\nCache-Control: no-cache\r\n\r\n").getBytes());
             out.flush();
             
-            RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
-            raf.seek(rs);
-            byte[] buf = new byte[65536];
-            long sent = 0;
-            while (sent < cl && downloading) {
-                int tr = (int)Math.min(buf.length, cl - sent);
-                int read = raf.read(buf, 0, tr);
-                if (read <= 0) break;
-                out.write(buf, 0, read); out.flush();
-                sent += read;
+            // Aguardar peça se não existir
+            if (pieceLength > 0 && playing) {
+                int neededPiece = (int)(rs / pieceLength);
+                if (!safeHavePiece(neededPiece)) {
+                    downloadRange(neededPiece, Math.min(numPieces - 1, neededPiece + 3));
+                    long waitStart = System.currentTimeMillis();
+                    while (!safeHavePiece(neededPiece) && (System.currentTimeMillis() - waitStart) < 5000) {
+                        try { Thread.sleep(200); } catch (InterruptedException ex) {}
+                    }
+                }
             }
-            raf.close(); out.flush(); client.close();
+            
+            RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
+            if (rs < raf.length()) {
+                raf.seek(rs);
+                long available = raf.length() - rs;
+                int toRead = (int) Math.min(cl, available);
+                if (toRead > 0) {
+                    byte[] buf = new byte[toRead];
+                    int read = raf.read(buf);
+                    if (read > 0) {
+                        out.write(buf, 0, read);
+                        out.flush();
+                    }
+                }
+            }
+            raf.close();
+            out.flush();
+            client.close();
         } catch (Exception e) { try { client.close(); } catch (IOException ex) {} }
     }
     
@@ -554,7 +584,6 @@ public class MainActivity extends AppCompatActivity {
                     torrent_status st = torrentHandle.swig().status();
                     debug("📊 " + (totalSize/1048576) + "MB | " + st.getNum_seeds() + " Seeds | " + st.getNum_peers() + " Peers");
                     
-                    // PRÉ-CARGA
                     int inicio = Math.min(15, numPieces);
                     int fim = Math.min(5, numPieces);
                     int fimStart = numPieces - fim;
@@ -581,6 +610,18 @@ public class MainActivity extends AppCompatActivity {
                     for (int i = 0; i < 15; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 5*1048576) { videoFile = f; break; } Thread.sleep(200); }
                     
                     if (videoFile != null) {
+                        // 🔧 AJUSTAR TAMANHO DO ARQUIVO PARA TOTAL SIZE
+                        if (videoFile.length() < totalSize) {
+                            try {
+                                RandomAccessFile raf = new RandomAccessFile(videoFile, "rw");
+                                raf.setLength(totalSize);
+                                raf.close();
+                                debug("📏 Arquivo ajustado para " + (totalSize/1048576) + "MB (sparse)");
+                            } catch (Exception e) {
+                                debug("⚠️ Erro ao ajustar tamanho: " + e.getMessage());
+                            }
+                        }
+                        
                         parseSeekHeadAndFindMissingPieces();
                         
                         int total = requiredPieces.size();
