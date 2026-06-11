@@ -62,10 +62,8 @@ public class MainActivity extends AppCompatActivity {
     private boolean seeking = false;
     private final Object torrentLock = new Object();
     
-    // Dados REAIS do SeekHead
     private long cuesBytePos = -1, cuesByteSize = -1;
     private Set<Integer> requiredPieces = new HashSet<>();
-    private boolean allMetadataReady = false;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -163,7 +161,7 @@ public class MainActivity extends AppCompatActivity {
         btnAudio.setOnClickListener(v -> toggleAudioMenu());
         btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        debug("=== STREAM INTELIGENTE: 15+5+5 + SeekHead ===");
+        debug("=== STREAM vFINAL ===");
         new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ Sessão OK"); } catch (Exception e) { debug("❌ " + e.getMessage()); } }).start();
         startServer();
         
@@ -171,6 +169,13 @@ public class MainActivity extends AppCompatActivity {
         btnTorrent.setOnClickListener(v -> { Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT); i.addCategory(Intent.CATEGORY_OPENABLE); i.setType("*/*"); startActivityForResult(i, PICK_TORRENT); });
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
+    }
+    
+    private boolean safeHavePiece(int piece) {
+        synchronized (torrentLock) {
+            if (torrentHandle == null || !torrentHandle.isValid()) return false;
+            try { return torrentHandle.havePiece(piece); } catch (Exception e) { return false; }
+        }
     }
     
     private void downloadRange(int start, int end) {
@@ -194,7 +199,6 @@ public class MainActivity extends AppCompatActivity {
     private void seekToPiece(long timeMs) {
         if (vlcPlayer == null || pieceLength <= 0 || totalSize <= 0 || videoDurationMs <= 0) return;
         vlcPlayer.setTime(timeMs);
-        
         final int piece = (int)(timeMs * totalSize / videoDurationMs / pieceLength);
         if (piece < 0 || piece >= numPieces) return;
         
@@ -211,28 +215,23 @@ public class MainActivity extends AppCompatActivity {
                         currentPlayingPiece = piece;
                         return;
                     }
-                    
                     byte_vector z = new byte_vector();
                     for (int i = 0; i < numPieces; i++) z.add((byte)0);
                     torrentHandle.swig().prioritize_pieces_ex(z);
-                    
                     for (int i = piece - 2; i <= piece + 8; i++) {
                         if (i >= 0 && i < numPieces) {
-                            byte p = (byte)(i == piece ? 7 : 6);
-                            torrentHandle.swig().piece_priority_ex(i, p);
+                            torrentHandle.swig().piece_priority_ex(i, (byte)(i == piece ? 7 : 6));
                             torrentHandle.swig().set_piece_deadline(i, 3000);
                         }
                     }
-                    
                     int waits = 0;
                     while (!torrentHandle.havePiece(piece) && downloading && waits < 32) {
                         Thread.sleep(250); waits++;
                         if (waits % 4 == 0) torrentHandle.swig().set_piece_deadline(piece, 3000);
                     }
-                    
-                    final double elapsed = waits / 4.0;
                     if (torrentHandle.havePiece(piece)) {
-                        handler.post(() -> { debug("✅ Peça " + piece + " em " + elapsed + "s"); seeking = false; spinnerBar.setVisibility(View.GONE); });
+                        final double elapsed = waits / 4.0;
+                        handler.post(() -> { debug("✅ em " + elapsed + "s"); seeking = false; spinnerBar.setVisibility(View.GONE); });
                         currentPlayingPiece = piece;
                     } else {
                         handler.post(() -> { debug("⏰ Timeout"); seeking = false; spinnerBar.setVisibility(View.GONE); });
@@ -244,7 +243,6 @@ public class MainActivity extends AppCompatActivity {
     
     private void seekRelative(long d) { if (vlcPlayer != null && vlcPlayer.getLength() > 0) seekToPiece(Math.max(0, Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + d))); }
     
-    // ==================== PARSER SEEKHEAD ====================
     private long readEBMLSize(byte[] data, int offset) {
         if (offset >= data.length) return 0;
         int firstByte = data[offset] & 0xFF, mask = 0x80, len = 0;
@@ -276,34 +274,24 @@ public class MainActivity extends AppCompatActivity {
         try {
             RandomAccessFile raf = new RandomAccessFile(videoFile, "r");
             long fileLen = raf.length();
-            
-            // Ler 128KB do início
             byte[] header = new byte[Math.min(131072, (int)fileLen)];
             raf.read(header);
             raf.close();
             
-            // Encontrar Segmento (0x18538067)
             int segPos = -1;
             byte[] segId = {(byte)0x18, (byte)0x53, (byte)0x80, (byte)0x67};
             for (int i = 0; i < header.length - 4; i++) {
-                if (header[i]==segId[0] && header[i+1]==segId[1] && header[i+2]==segId[2] && header[i+3]==segId[3]) {
-                    segPos = i; break;
-                }
+                if (header[i]==segId[0] && header[i+1]==segId[1] && header[i+2]==segId[2] && header[i+3]==segId[3]) { segPos = i; break; }
             }
-            
             if (segPos < 0) { debug("⚠️ Segmento não encontrado"); return; }
             
             int segDataStart = segPos + 4 + getEBMLSizeLen(header, segPos + 4);
             
-            // Encontrar SeekHead (0x114D9B74)
             int shPos = -1;
             byte[] shId = {(byte)0x11, (byte)0x4D, (byte)0x9B, (byte)0x74};
             for (int i = segDataStart; i < header.length - 4; i++) {
-                if (header[i]==shId[0] && header[i+1]==shId[1] && header[i+2]==shId[2] && header[i+3]==shId[3]) {
-                    shPos = i; break;
-                }
+                if (header[i]==shId[0] && header[i+1]==shId[1] && header[i+2]==shId[2] && header[i+3]==shId[3]) { shPos = i; break; }
             }
-            
             if (shPos < 0) { debug("⚠️ SeekHead não encontrado"); return; }
             
             int shDataStart = shPos + 4 + getEBMLSizeLen(header, shPos + 4);
@@ -312,7 +300,6 @@ public class MainActivity extends AppCompatActivity {
             
             debug("🔍 SeekHead: " + shSize + " bytes");
             
-            // Parsear entradas Seek
             Map<Long, Long> positions = new HashMap<>();
             int pos = shDataStart;
             
@@ -320,8 +307,7 @@ public class MainActivity extends AppCompatActivity {
                 if (header[pos] == (byte)0x4D && header[pos+1] == (byte)0xBB) {
                     pos += 2;
                     long entrySize = readEBMLSize(header, pos);
-                    int entrySizeLen = getEBMLSizeLen(header, pos);
-                    pos += entrySizeLen;
+                    pos += getEBMLSizeLen(header, pos);
                     int entryEnd = (int)(pos + entrySize);
                     
                     long elemId = -1, elemPos = -1;
@@ -330,67 +316,53 @@ public class MainActivity extends AppCompatActivity {
                         if (header[ip] == (byte)0x53 && header[ip+1] == (byte)0xAB) {
                             ip += 2;
                             long idSize = readEBMLSize(header, ip);
-                            int idSizeLen = getEBMLSizeLen(header, ip);
-                            ip += idSizeLen;
+                            ip += getEBMLSizeLen(header, ip);
                             elemId = readUInt(header, ip, (int)idSize);
                             ip += idSize;
                         } else if (header[ip] == (byte)0x53 && header[ip+1] == (byte)0xAC) {
                             ip += 2;
                             long posSize = readEBMLSize(header, ip);
-                            int posSizeLen = getEBMLSizeLen(header, ip);
-                            ip += posSizeLen;
+                            ip += getEBMLSizeLen(header, ip);
                             elemPos = readUInt(header, ip, (int)posSize);
                             ip += posSize;
                         } else { ip++; }
                     }
                     
-                    if (elemId > 0 && elemPos >= 0) {
-                        long realPos = segDataStart + elemPos;
-                        positions.put(elemId, realPos);
-                    }
+                    if (elemId > 0 && elemPos >= 0) positions.put(elemId, segDataStart + elemPos);
                     pos = entryEnd;
                 } else { pos++; }
             }
             
-            // Identificar elementos importantes
-            String[] elemNames = {"Cues", "Tracks", "Tags", "Chapters", "Info", "Attachments"};
             long[] elemIds = {0x1C53BB6BL, 0x1654AE6BL, 0x1254C367L, 0x1043A770L, 0x1549A966L, 0x1941A469L};
+            String[] elemNames = {"Cues", "Tracks", "Tags", "Chapters", "Info", "Attachments"};
             
             for (int i = 0; i < elemIds.length; i++) {
                 if (positions.containsKey(elemIds[i])) {
                     long bytePos = positions.get(elemIds[i]);
                     int piece = (int)(bytePos / pieceLength);
                     requiredPieces.add(piece);
-                    debug("   📍 " + elemNames[i] + " → byte " + bytePos + " (peça " + piece + ")");
-                    
                     if (elemIds[i] == 0x1C53BB6BL) cuesBytePos = bytePos;
+                    debug("   📍 " + elemNames[i] + " → peça " + piece);
                 }
             }
             
-            // Calcular tamanho das Cues
             if (cuesBytePos > 0) {
                 Long nextPos = null;
-                for (long p : positions.values()) {
-                    if (p > cuesBytePos && (nextPos == null || p < nextPos)) nextPos = p;
-                }
+                for (long p : positions.values()) if (p > cuesBytePos && (nextPos == null || p < nextPos)) nextPos = p;
                 
                 if (nextPos != null) {
                     cuesByteSize = nextPos - cuesBytePos;
                 } else {
-                    // Verificar no final do arquivo
                     raf = new RandomAccessFile(videoFile, "r");
                     if (fileLen > 524288) {
                         raf.seek(fileLen - 524288);
                         byte[] tail = new byte[524288];
                         raf.read(tail);
                         raf.close();
-                        
                         byte[] tagsId = {(byte)0x12, (byte)0x54, (byte)0xC3, (byte)0x67};
                         int tagsIdx = -1;
                         for (int j = 0; j < tail.length - 4; j++) {
-                            if (tail[j]==tagsId[0] && tail[j+1]==tagsId[1] && tail[j+2]==tagsId[2] && tail[j+3]==tagsId[3]) {
-                                tagsIdx = j; break;
-                            }
+                            if (tail[j]==tagsId[0] && tail[j+1]==tagsId[1] && tail[j+2]==tagsId[2] && tail[j+3]==tagsId[3]) { tagsIdx = j; break; }
                         }
                         cuesByteSize = (tagsIdx >= 0) ? (fileLen - 524288 + tagsIdx) - cuesBytePos : fileLen - cuesBytePos;
                     } else {
@@ -398,17 +370,14 @@ public class MainActivity extends AppCompatActivity {
                     }
                 }
                 
-                // Adicionar TODAS as peças das Cues
                 int cs = (int)(cuesBytePos / pieceLength);
                 int ce = (int)((cuesBytePos + cuesByteSize) / pieceLength);
                 for (int i = cs; i <= ce && i < numPieces; i++) requiredPieces.add(i);
-                debug("   📏 Cues: " + (cuesByteSize/1024) + "KB → peças " + cs + "-" + ce + " (" + (ce-cs+1) + " peças)");
+                debug("   📏 Cues: " + (cuesByteSize/1024) + "KB → " + (ce-cs+1) + " peças");
             }
             
-            // Garantir buffer inicial (peças 0-9 = 10MB)
             for (int i = 0; i < Math.min(10, numPieces); i++) requiredPieces.add(i);
-            
-            debug("🎯 Total após SeekHead: " + requiredPieces.size() + " peças");
+            debug("🎯 Total: " + requiredPieces.size() + " peças");
             
         } catch (Exception e) {
             debug("⚠️ Erro SeekHead: " + e.getMessage());
@@ -420,7 +389,7 @@ public class MainActivity extends AppCompatActivity {
         long bp = min * 60 * 1000 * totalSize / videoDurationMs;
         int s = (int)(bp / pieceLength), e = (int)(((min+1)*60*1000*totalSize/videoDurationMs)/pieceLength);
         int have = 0;
-        synchronized (torrentLock) { if (torrentHandle != null) for (int i = s; i <= e && i < numPieces; i++) if (torrentHandle.havePiece(i)) have++; }
+        synchronized (torrentLock) { if (torrentHandle != null && torrentHandle.isValid()) for (int i = s; i <= e && i < numPieces; i++) if (torrentHandle.havePiece(i)) have++; }
         if (e > s) debug("⏱ Min " + min + ": " + have + "/" + (e-s+1) + " (" + (have*100/(e-s+1)) + "%)");
     }
     
@@ -546,10 +515,12 @@ public class MainActivity extends AppCompatActivity {
     private void start() { String m = magnetInput.getText().toString().trim(); if (m.startsWith("magnet:") && !downloading) startDownload(m); }
     
     private void startDownload(String source) {
+        stop();
+        
         downloading = true; playing = false; seeking = false; videoFile = null; torrentHandle = null;
         pieceLength = 0; numPieces = 0; totalSize = 0; videoDurationMs = 0;
-        currentPlayingPiece = -1; lastMinuteLog = -1; allMetadataReady = false;
-        requiredPieces.clear();
+        currentPlayingPiece = -1; lastMinuteLog = -1;
+        requiredPieces.clear(); cuesBytePos = -1; cuesByteSize = -1;
         
         handler.post(() -> { btnStop.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE); });
         
@@ -583,43 +554,37 @@ public class MainActivity extends AppCompatActivity {
                     torrent_status st = torrentHandle.swig().status();
                     debug("📊 " + (totalSize/1048576) + "MB | " + st.getNum_seeds() + " Seeds | " + st.getNum_peers() + " Peers");
                     
-                    // ============ FASE 1: PRÉ-CARGA INTELIGENTE (15+5+5 = 25MB) ============
-                    int inicio = Math.min(15, numPieces);      // 15MB início
-                    int fim = Math.min(5, numPieces);           // 5MB final
-                    int meio = numPieces / 2;                   // 50% (1 peça)
+                    // PRÉ-CARGA
+                    int inicio = Math.min(15, numPieces);
+                    int fim = Math.min(5, numPieces);
                     int fimStart = numPieces - fim;
+                    int meio = numPieces / 2;
                     
-                    debug("📋 PRÉ-CARGA: [0-" + (inicio-1) + "] + [" + fimStart + "-" + (numPieces-1) + "] + peça " + meio);
+                    debug("📋 PRÉ-CARGA: [0-" + (inicio-1) + "] + [" + fimStart + "-" + (numPieces-1) + "] + p" + meio);
                     
                     byte_vector z = new byte_vector();
                     for (int i = 0; i < numPieces; i++) z.add((byte)0);
                     torrentHandle.swig().prioritize_pieces_ex(z);
                     
-                    // Início
                     for (int i = 0; i < inicio; i++) { torrentHandle.swig().piece_priority_ex(i, (byte)7); torrentHandle.swig().set_piece_deadline(i, 20000); }
-                    // Final
                     for (int i = fimStart; i < numPieces; i++) { torrentHandle.swig().piece_priority_ex(i, (byte)7); torrentHandle.swig().set_piece_deadline(i, 20000); }
-                    // Meio
-                    torrentHandle.swig().piece_priority_ex(meio, (byte)7);
-                    torrentHandle.swig().set_piece_deadline(meio, 20000);
+                    torrentHandle.swig().piece_priority_ex(meio, (byte)7); torrentHandle.swig().set_piece_deadline(meio, 20000);
                     
-                    int doneInicio = 0, doneFim = 0;
-                    while ((doneInicio < inicio || doneFim < fim) && downloading) {
+                    int doneIni = 0, doneFim = 0;
+                    while ((doneIni < inicio || doneFim < fim) && downloading) {
                         Thread.sleep(200);
-                        doneInicio = 0; for (int i = 0; i < inicio; i++) if (torrentHandle.havePiece(i)) doneInicio++;
+                        doneIni = 0; for (int i = 0; i < inicio; i++) if (torrentHandle.havePiece(i)) doneIni++;
                         doneFim = 0; for (int i = fimStart; i < numPieces; i++) if (torrentHandle.havePiece(i)) doneFim++;
                     }
-                    debug("✅ Pré-carga: " + doneInicio + "/" + inicio + " início | " + doneFim + "/" + fim + " final (" + ((System.currentTimeMillis()-t0)/1000) + "s)");
+                    debug("✅ Pré-carga: " + doneIni + "/" + inicio + " | " + doneFim + "/" + fim + " (" + ((System.currentTimeMillis()-t0)/1000) + "s)");
                     
-                    // Encontrar arquivo
-                    for (int i = 0; i < 15; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 10*1048576) { videoFile = f; break; } Thread.sleep(200); }
+                    for (int i = 0; i < 15; i++) { File f = find(new File(savePath)); if (f != null && f.length() > 5*1048576) { videoFile = f; break; } Thread.sleep(200); }
                     
                     if (videoFile != null) {
-                        // ============ FASE 2: PARSEAR SEEKHEAD ============
                         parseSeekHeadAndFindMissingPieces();
                         
                         int total = requiredPieces.size();
-                        debug("📥 FASE 2: Complementando " + total + " peças");
+                        debug("📥 Complementando " + total + " peças");
                         
                         z = new byte_vector();
                         for (int i = 0; i < numPieces; i++) z.add((byte)0);
@@ -644,7 +609,6 @@ public class MainActivity extends AppCompatActivity {
                             }
                         }
                         
-                        allMetadataReady = true;
                         long elapsed = (System.currentTimeMillis() - t0) / 1000;
                         debug("✅ TUDO PRONTO! " + done + "/" + total + " em " + elapsed + "s");
                     }
