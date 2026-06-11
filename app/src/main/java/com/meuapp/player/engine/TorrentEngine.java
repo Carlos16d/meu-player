@@ -2,7 +2,6 @@ package com.meuapp.player.engine;
 
 import android.os.Handler;
 import android.os.Looper;
-import android.util.Log;
 
 import com.meuapp.player.model.TorrentInfo;
 
@@ -41,7 +40,6 @@ public class TorrentEngine {
     }
     
     private void log(String msg) {
-        Log.d(TAG, msg);
         try { handler.post(() -> callback.onLog(msg)); } catch (Exception e) {}
     }
     
@@ -72,7 +70,13 @@ public class TorrentEngine {
         new Thread(() -> {
             try {
                 File saveDir = new File(savePath);
-                try { if (saveDir.exists()) { File[] files = saveDir.listFiles(); if (files != null) for (File f : files) { if (f.isDirectory()) deleteRecursive(f); else if (!f.getName().equals("torrent_file.torrent")) f.delete(); } } } catch (Exception e) {}
+                if (saveDir.exists()) {
+                    File[] files = saveDir.listFiles();
+                    if (files != null) for (File f : files) {
+                        if (f.isDirectory()) deleteRecursive(f);
+                        else f.delete();
+                    }
+                }
                 saveDir.mkdirs();
                 
                 if (source.startsWith("magnet:")) {
@@ -103,31 +107,31 @@ public class TorrentEngine {
                 }
                 if (!st.getHas_metadata()) { downloading = false; return; }
                 
-                totalSize = st.getTotal(); numPieces = 100; pieceLength = 524288;
+                totalSize = st.getTotal();
                 try {
                     torrent_info ti = torrentHandle.torrent_file_ptr();
-                    if (ti != null && ti.is_valid()) { numPieces = ti.num_pieces(); pieceLength = ti.piece_length(); }
+                    if (ti != null && ti.is_valid()) {
+                        numPieces = ti.num_pieces();
+                        pieceLength = ti.piece_length();
+                    }
                 } catch (Exception e) {}
-                if (numPieces <= 0) numPieces = 100;
-                if (pieceLength <= 0) pieceLength = 524288;
                 
                 log("📊 " + (totalSize/1048576) + "MB, " + numPieces + " peças, " + st.getNum_peers() + " peers");
                 
-                // ==================== CORREÇÃO 1: 59 peças (cabeçalho + cues) ====================
+                // Cabeçalho + cues
                 int headerPieces = Math.min(30, Math.max(20, numPieces / 30));
                 int cuePieces = Math.min(30, Math.max(10, numPieces / 20));
                 int cueStart = Math.max(0, numPieces - cuePieces);
-                int totalNeeded = headerPieces + cuePieces;
                 
-                log("📋 " + headerPieces + " cabeçalho + " + cuePieces + " cues = " + totalNeeded + " peças");
+                log("📋 " + headerPieces + " cabeçalho + " + cuePieces + " cues = " + (headerPieces + cuePieces) + " peças");
                 
-                // ==================== CORREÇÃO 2: NÃO baixar o vídeo completo ====================
+                // Prioridade MÁXIMA para cabeçalho+cues
                 try {
                     for (int i = 0; i < numPieces; i++) {
                         if (i < headerPieces || i >= cueStart)
-                            torrentHandle.piece_priority_ex(i, (byte)7); // MÁXIMA para cabeçalho+cues
+                            torrentHandle.piece_priority_ex(i, (byte)7);
                         else
-                            torrentHandle.piece_priority_ex(i, (byte)0); // IGNORE para o resto!
+                            torrentHandle.piece_priority_ex(i, (byte)0);
                     }
                     for (int i = 0; i < headerPieces; i++)
                         torrentHandle.set_piece_deadline(i, 500);
@@ -135,36 +139,39 @@ public class TorrentEngine {
                         torrentHandle.set_piece_deadline(i, 500);
                 } catch (Exception e) {}
                 
+                // Aguardar download REAL (usando getTotal_done)
+                long lastDone = 0;
+                int sameCount = 0;
                 boolean streamReady = false;
+                
                 while (downloading) {
-                    Thread.sleep(500);
+                    Thread.sleep(1000);
                     if (torrentHandle == null || !torrentHandle.is_valid()) break;
                     
-                    int complete = 0;
-                    for (int i = 0; i < headerPieces; i++)
-                        if (torrentHandle.have_piece(i)) complete++;
-                    for (int i = cueStart; i < numPieces; i++)
-                        if (torrentHandle.have_piece(i)) complete++;
-                    
                     st = torrentHandle.status();
-                    TorrentInfo info = new TorrentInfo();
-                    info.progress = totalNeeded > 0 ? (complete * 100 / totalNeeded) : 0;
-                    info.downloaded = st.getTotal_done();
-                    info.speed = st.getDownload_rate();
-                    info.peers = st.getNum_peers();
-                    try { handler.post(() -> callback.onProgress(info)); } catch (Exception e) {}
+                    long done = st.getTotal_done();
+                    int pct = totalSize > 0 ? (int)(done * 100 / totalSize) : 0;
                     
-                    if (!streamReady && complete >= totalNeeded) {
+                    // Verificar se o download está progredindo
+                    if (done == lastDone) {
+                        sameCount++;
+                    } else {
+                        sameCount = 0;
+                        lastDone = done;
+                        log("📥 " + (done/1048576) + "MB / " + (totalSize/1048576) + "MB (" + pct + "%)");
+                    }
+                    
+                    // Liberar streaming quando tiver pelo menos 35MB (cabeçalho+cues)
+                    if (!streamReady && done > 36700160) { // 35MB
                         streamReady = true;
-                        log("✅ Streaming liberado! " + complete + "/" + totalNeeded);
+                        log("✅ Streaming liberado! " + (done/1048576) + "MB baixados");
                         
-                        // Restaurar prioridades - NÃO baixar tudo
                         try {
                             for (int i = 0; i < numPieces; i++) {
                                 if (i < headerPieces + 30 || i >= cueStart)
                                     torrentHandle.piece_priority_ex(i, (byte)4);
                                 else
-                                    torrentHandle.piece_priority_ex(i, (byte)0); // IGNORE!
+                                    torrentHandle.piece_priority_ex(i, (byte)0);
                             }
                         } catch (Exception e) {}
                         
@@ -173,6 +180,22 @@ public class TorrentEngine {
                         try { handler.post(() -> callback.onStreamReady(th, sp)); } catch (Exception e) {}
                         break;
                     }
+                    
+                    // Timeout se não houver progresso por 30 segundos
+                    if (sameCount > 30 && done < 10485760) {
+                        log("⚠️ Download muito lento! Liberando mesmo assim...");
+                        final String sp = currentSavePath;
+                        final torrent_handle th = torrentHandle;
+                        try { handler.post(() -> callback.onStreamReady(th, sp)); } catch (Exception e) {}
+                        break;
+                    }
+                    
+                    TorrentInfo info = new TorrentInfo();
+                    info.progress = pct;
+                    info.downloaded = done;
+                    info.speed = st.getDownload_rate();
+                    info.peers = st.getNum_peers();
+                    try { handler.post(() -> callback.onProgress(info)); } catch (Exception e) {}
                 }
             } catch (Exception e) { log("ERRO: " + e.getMessage()); downloading = false; }
         }).start();
