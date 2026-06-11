@@ -87,7 +87,7 @@ public class MainActivity extends AppCompatActivity {
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // StreamServer (NanoHTTPD)
+        // StreamServer
         streamServer = new StreamServer();
         try { streamServer.start(); debug("🌐 Servidor HTTP iniciado"); } catch (IOException e) { debug("❌ " + e.getMessage()); }
         
@@ -100,7 +100,7 @@ public class MainActivity extends AppCompatActivity {
             }
             @Override public void onStreamReady(torrent_handle handle, String sp) {
                 streamServer.setTorrentInfo(handle);
-                debug("🎬 Streaming liberado pelo Engine!");
+                debug("🎬 Streaming liberado!");
             }
             @Override public void onStatus(String status) { debug(status); }
             @Override public void onLog(String log) { debug(log); }
@@ -111,13 +111,14 @@ public class MainActivity extends AppCompatActivity {
         ArrayList<String> options = new ArrayList<>();
         options.add("--network-caching=3000");
         options.add("--file-caching=2000");
+        options.add("--avcodec-hw=any");
         libVLC = new LibVLC(this, options);
         vlcPlayer = new MediaPlayer(libVLC);
         
         vlcPlayer.setEventListener(event -> {
             switch (event.type) {
-                case MediaPlayer.Event.Opening: debug("[VLC] Abrindo..."); break;
-                case MediaPlayer.Event.Playing: isPlaying = true; handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); }); debug("[VLC] ▶ Tocando!"); break;
+                case MediaPlayer.Event.Opening: debug("[VLC] 🔄 Abrindo..."); break;
+                case MediaPlayer.Event.Playing: isPlaying = true; handler.post(() -> { spinnerBar.setVisibility(View.GONE); btnPlayPause.setText("⏸"); handler.post(timeUpdater); }); debug("[VLC] ▶ Tocando!"); break;
                 case MediaPlayer.Event.Paused: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); break;
                 case MediaPlayer.Event.Stopped: isPlaying = false; handler.post(() -> btnPlayPause.setText("▶")); break;
                 case MediaPlayer.Event.Buffering: handler.post(() -> spinnerBar.setVisibility(View.VISIBLE)); debug("[VLC] 🔃 Buffering..."); break;
@@ -138,9 +139,18 @@ public class MainActivity extends AppCompatActivity {
         };
         
         videoSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
-            @Override public void surfaceCreated(SurfaceHolder h) { surfaceHolder = h; surfaceReady = true; if (pendingUrl != null) { playWithVlc(pendingUrl); pendingUrl = null; } }
+            @Override public void surfaceCreated(SurfaceHolder h) { 
+                surfaceHolder = h; 
+                surfaceReady = true; 
+                debug("✅ Superfície pronta!");
+                if (pendingUrl != null) { 
+                    String url = pendingUrl;
+                    pendingUrl = null;
+                    playWithVlc(url); 
+                } 
+            }
             @Override public void surfaceChanged(SurfaceHolder h, int f, int w, int h2) {}
-            @Override public void surfaceDestroyed(SurfaceHolder h) { surfaceReady = false; }
+            @Override public void surfaceDestroyed(SurfaceHolder h) { surfaceReady = false; surfaceHolder = null; }
         });
         
         btnPlayPause.setOnClickListener(v -> { if (vlcPlayer != null) { if (isPlaying) vlcPlayer.pause(); else vlcPlayer.play(); } });
@@ -210,8 +220,9 @@ public class MainActivity extends AppCompatActivity {
             vlcPlayer.getVLCVout().attachViews();
             Media m = new Media(libVLC, Uri.parse(url)); m.setHWDecoderEnabled(true, true);
             m.addOption(":network-caching=3000"); m.addOption(":file-caching=2000");
+            m.addOption(":avcodec-hw=any");
             vlcPlayer.setMedia(m); m.release(); vlcPlayer.play();
-            handler.post(() -> { playerControls.setVisibility(View.VISIBLE); centerControls.setVisibility(View.VISIBLE); btnSkip20.setVisibility(View.VISIBLE); handler.post(timeUpdater); });
+            handler.post(() -> { playerControls.setVisibility(View.VISIBLE); centerControls.setVisibility(View.VISIBLE); btnSkip20.setVisibility(View.VISIBLE); });
             debug("[VLC] ▶ Play executado");
         } catch (Exception e) { debug("[VLC] ❌ " + e.getMessage()); }
     }
@@ -236,26 +247,16 @@ public class MainActivity extends AppCompatActivity {
         new Thread(() -> {
             torrentEngine.startDownload(source, savePath);
             
-            // Aguardar o arquivo aparecer (até 120 segundos)
-            boolean found = false;
             for (int i = 0; i < 120; i++) {
                 File f = find(new File(savePath));
-                if (f != null && f.length() > 5242880) { // Pelo menos 5MB
+                if (f != null && f.length() > 5242880) {
                     videoFile = f;
                     streamServer.setVideoFile(f);
                     debug("📁 " + f.getName() + " (" + (f.length()/1048576) + "MB)");
-                    found = true;
-                    
-                    // Mostrar botão ASSISTIR
                     handler.post(() -> { btnWatch.setText("🎬 ASSISTIR"); btnWatch.setVisibility(View.VISIBLE); bufferBar.setVisibility(View.GONE); });
                     break;
                 }
-                if (i % 10 == 0 && i > 0) debug("⏳ Procurando arquivo... (" + i + "s)");
                 try { Thread.sleep(1000); } catch (Exception e) {}
-            }
-            
-            if (!found) {
-                debug("❌ Arquivo não encontrado após 120s!");
             }
         }).start();
     }
@@ -263,7 +264,18 @@ public class MainActivity extends AppCompatActivity {
     private void watch() { 
         if (videoFile == null || !videoFile.exists()) { debug("❌ Arquivo não encontrado"); return; } 
         debug("▶️ VLC: " + videoFile.getName() + " (" + (videoFile.length()/1048576) + "MB)"); 
-        handler.post(() -> { videoSurface.setVisibility(View.VISIBLE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.VISIBLE); spinnerBar.setVisibility(View.VISIBLE); playWithVlc("http://127.0.0.1:8080/video"); }); 
+        handler.post(() -> { 
+            videoSurface.setVisibility(View.VISIBLE);
+            btnWatch.setVisibility(View.GONE); 
+            btnSkip20.setVisibility(View.VISIBLE); 
+            spinnerBar.setVisibility(View.VISIBLE);
+            if (surfaceReady && surfaceHolder != null) {
+                playWithVlc("http://127.0.0.1:8080/video");
+            } else {
+                pendingUrl = "http://127.0.0.1:8080/video";
+                debug("⏳ Aguardando superfície...");
+            }
+        }); 
     }
     
     private void stop() { 
