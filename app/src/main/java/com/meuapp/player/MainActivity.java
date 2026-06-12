@@ -49,11 +49,27 @@ public class MainActivity extends AppCompatActivity {
     private String savePath;
     private boolean videoPlaying = false;
     private Runnable timeUpdater;
+    
+    // LOG EM ARQUIVO
+    private File logFile;
+    private BufferedWriter logWriter;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        
+        // Configurar log em arquivo
+        setupFileLogging();
+        
+        // Capturar crashes não tratados
+        Thread.setDefaultUncaughtExceptionHandler((thread, throwable) -> {
+            logToFile("💀 CRASH na thread " + thread.getName() + ": " + throwable.getMessage());
+            logToFile("   Stack: " + android.util.Log.getStackTraceString(throwable));
+            flushLog();
+            throwable.printStackTrace();
+            System.exit(1);
+        });
         
         initViews();
         
@@ -64,13 +80,20 @@ public class MainActivity extends AppCompatActivity {
         streamInfo = new StreamInfo();
         
         torrentSession = new TorrentSession(streamInfo, new TorrentSession.SessionCallback() {
-            @Override public void onMetadataReady() { handler.post(() -> torrentStreamer.preload()); }
+            @Override public void onMetadataReady() { 
+                logToFile("onMetadataReady chamado");
+                handler.post(() -> {
+                    logToFile("Iniciando preload...");
+                    torrentStreamer.preload();
+                });
+            }
             @Override public void onError(String error) { debug(error); }
             @Override public void onLog(String msg) { debug(msg); }
         });
         
         torrentStreamer = new TorrentStreamer(torrentSession, streamInfo, savePath, new TorrentStreamer.StreamerCallback() {
             @Override public void onReady() {
+                logToFile("onReady chamado");
                 handler.post(() -> {
                     btnWatch.setText("🎬 ASSISTIR");
                     btnWatch.setVisibility(View.VISIBLE);
@@ -86,6 +109,7 @@ public class MainActivity extends AppCompatActivity {
         
         vlcPlayer = new VlcPlayerManager(this, streamInfo, new VlcPlayerManager.PlayerCallback() {
             @Override public void onPlaying() {
+                logToFile("VLC onPlaying");
                 handler.post(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     btnPlayPause.setText("⏸");
@@ -104,6 +128,7 @@ public class MainActivity extends AppCompatActivity {
                     streamInfo.videoDurationMs = length;
                     if (!streamInfo.minuteAppeared) {
                         streamInfo.minuteAppeared = true;
+                        logToFile("Minutagem apareceu: " + length + "ms");
                         torrentSession.disableSequential();
                         torrentStreamer.disableSequential();
                         smartBuffer.enable();
@@ -126,6 +151,7 @@ public class MainActivity extends AppCompatActivity {
                     streamInfo.videoDurationMs = length;
                     if (!streamInfo.minuteAppeared) {
                         streamInfo.minuteAppeared = true;
+                        logToFile("Minutagem apareceu (timeUpdater): " + length + "ms");
                         torrentSession.disableSequential();
                         torrentStreamer.disableSequential();
                         smartBuffer.enable();
@@ -139,9 +165,45 @@ public class MainActivity extends AppCompatActivity {
             handler.postDelayed(timeUpdater, 200);
         };
         
+        logToFile("=== STREAM MODULAR INICIADO ===");
+        logToFile("savePath: " + savePath);
+        
         torrentSession.start();
         httpServer.start();
         debug("=== STREAM MODULAR ===");
+    }
+    
+    private void setupFileLogging() {
+        try {
+            File logDir = new File(getExternalFilesDir(null), "logs");
+            logDir.mkdirs();
+            logFile = new File(logDir, "stream_log_" + System.currentTimeMillis() + ".txt");
+            logWriter = new BufferedWriter(new FileWriter(logFile, true));
+            logToFile("📁 Log iniciado: " + logFile.getAbsolutePath());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+    
+    private void logToFile(String msg) {
+        String line = "[" + sdf.format(new Date()) + "] " + msg;
+        android.util.Log.d("TS_LOG", line);
+        try {
+            if (logWriter != null) {
+                logWriter.write(line);
+                logWriter.newLine();
+                logWriter.flush();
+            }
+        } catch (Exception e) {}
+    }
+    
+    private void flushLog() {
+        try {
+            if (logWriter != null) {
+                logWriter.flush();
+                logWriter.close();
+            }
+        } catch (Exception e) {}
     }
     
     private void initViews() {
@@ -190,6 +252,7 @@ public class MainActivity extends AppCompatActivity {
     private void startDownload() {
         String m = magnetInput.getText().toString().trim();
         if (m.startsWith("magnet:") && streamInfo != null) {
+            logToFile("Iniciando download: " + m.substring(0, Math.min(50, m.length())) + "...");
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
@@ -207,7 +270,12 @@ public class MainActivity extends AppCompatActivity {
     }
     
     private void watch() {
-        if (streamInfo.videoFile == null || !streamInfo.videoFile.exists()) { debug("❌ Aguarde"); return; }
+        if (streamInfo.videoFile == null || !streamInfo.videoFile.exists()) { 
+            logToFile("watch() falhou - videoFile é null ou não existe");
+            debug("❌ Aguarde"); 
+            return; 
+        }
+        logToFile("watch() - videoFile: " + streamInfo.videoFile.getAbsolutePath());
         debug("▶️ Iniciando player...");
         smartBuffer.enable();
         handler.post(() -> {
@@ -216,17 +284,31 @@ public class MainActivity extends AppCompatActivity {
                 btnWatch.setVisibility(View.GONE);
                 spinnerBar.setVisibility(View.VISIBLE);
                 videoSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
-                    @Override public void surfaceCreated(SurfaceHolder holder) { vlcPlayer.attachToSurface(videoSurface); vlcPlayer.play("http://127.0.0.1:8080/video"); handler.post(timeUpdater); }
+                    @Override public void surfaceCreated(SurfaceHolder holder) { 
+                        logToFile("Surface criada - iniciando VLC");
+                        vlcPlayer.attachToSurface(videoSurface); 
+                        vlcPlayer.play("http://127.0.0.1:8080/video"); 
+                        handler.post(timeUpdater); 
+                    }
                     @Override public void surfaceChanged(SurfaceHolder holder, int f, int w, int h) {}
                     @Override public void surfaceDestroyed(SurfaceHolder holder) {}
                 });
-                if (videoSurface.getHolder().getSurface().isValid()) { vlcPlayer.attachToSurface(videoSurface); vlcPlayer.play("http://127.0.0.1:8080/video"); handler.post(timeUpdater); }
-            } catch (Exception e) { debug("❌ " + e.getMessage()); }
+                if (videoSurface.getHolder().getSurface().isValid()) { 
+                    logToFile("Surface já válida - iniciando VLC imediatamente");
+                    vlcPlayer.attachToSurface(videoSurface); 
+                    vlcPlayer.play("http://127.0.0.1:8080/video"); 
+                    handler.post(timeUpdater); 
+                }
+            } catch (Exception e) { 
+                logToFile("❌ Erro watch(): " + e.getMessage());
+                debug("❌ " + e.getMessage()); 
+            }
         });
     }
     
     private void seekTo(long timeMs) {
         if (vlcPlayer == null || torrentStreamer.isPreloading()) return;
+        logToFile("seekTo: " + timeMs + "ms");
         vlcPlayer.seekTo(timeMs);
         int piece = streamInfo.timeToPiece(timeMs);
         if (piece >= 0) {
@@ -242,6 +324,7 @@ public class MainActivity extends AppCompatActivity {
     private void seekRelative(long delta) { if (vlcPlayer != null && vlcPlayer.getLength() > 0) seekTo(Math.max(0, Math.min(vlcPlayer.getLength(), vlcPlayer.getTime() + delta))); }
     
     private void stop() {
+        logToFile("stop() chamado");
         if (vlcPlayer != null) vlcPlayer.stop();
         torrentSession.stop();
         torrentStreamer.reset();
@@ -254,6 +337,7 @@ public class MainActivity extends AppCompatActivity {
         btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
         handler.removeCallbacks(timeUpdater);
+        flushLog();
     }
     
     private void toggleAudioMenu() {
@@ -293,7 +377,13 @@ public class MainActivity extends AppCompatActivity {
     
     private String formatTime(long ms) { if (ms < 0) return "0:00"; int s = (int)(ms / 1000); return (s/60) + ":" + String.format("%02d", s%60); }
     
-    private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; android.util.Log.d("TS", msg); debugLog.append(line); handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); }
+    private void debug(String msg) { 
+        String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; 
+        android.util.Log.d("TS", msg); 
+        logToFile(msg);
+        debugLog.append(line); 
+        handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); 
+    }
     
     @Override protected void onActivityResult(int r, int res, Intent data) {
         super.onActivityResult(r, res, data);
@@ -309,5 +399,12 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    @Override protected void onDestroy() { stop(); httpServer.stop(); if (vlcPlayer != null) vlcPlayer.release(); super.onDestroy(); }
+    @Override protected void onDestroy() { 
+        logToFile("onDestroy()");
+        stop(); 
+        httpServer.stop(); 
+        if (vlcPlayer != null) vlcPlayer.release(); 
+        flushLog();
+        super.onDestroy(); 
+    }
 }
