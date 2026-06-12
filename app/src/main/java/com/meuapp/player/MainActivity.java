@@ -6,6 +6,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
+import android.view.SurfaceHolder;
 import android.view.SurfaceView;
 import android.view.View;
 import android.widget.*;
@@ -231,15 +232,39 @@ public class MainActivity extends AppCompatActivity {
     
     private void watch() {
         if (streamInfo.videoFile == null || !streamInfo.videoFile.exists()) {
-            debug("❌ Aguarde");
+            debug("❌ Aguarde o download");
             return;
         }
-        videoSurface.setVisibility(View.VISIBLE);
-        btnWatch.setVisibility(View.GONE);
-        spinnerBar.setVisibility(View.VISIBLE);
-        vlcPlayer.attachToSurface(videoSurface);
-        vlcPlayer.play("http://127.0.0.1:8080/video");
-        handler.post(timeUpdater);
+        
+        debug("▶️ Iniciando player...");
+        
+        handler.post(() -> {
+            try {
+                videoSurface.setVisibility(View.VISIBLE);
+                btnWatch.setVisibility(View.GONE);
+                spinnerBar.setVisibility(View.VISIBLE);
+                
+                // Aguardar a surface estar pronta
+                videoSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
+                    @Override public void surfaceCreated(SurfaceHolder holder) {
+                        vlcPlayer.attachToSurface(videoSurface);
+                        vlcPlayer.play("http://127.0.0.1:8080/video");
+                        handler.post(timeUpdater);
+                    }
+                    @Override public void surfaceChanged(SurfaceHolder holder, int format, int width, int height) {}
+                    @Override public void surfaceDestroyed(SurfaceHolder holder) {}
+                });
+                
+                // Se a surface já está pronta, iniciar imediatamente
+                if (videoSurface.getHolder().getSurface().isValid()) {
+                    vlcPlayer.attachToSurface(videoSurface);
+                    vlcPlayer.play("http://127.0.0.1:8080/video");
+                    handler.post(timeUpdater);
+                }
+            } catch (Exception e) {
+                debug("❌ Erro ao iniciar player: " + e.getMessage());
+            }
+        });
     }
     
     private void seekTo(long timeMs) {
