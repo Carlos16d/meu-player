@@ -57,7 +57,6 @@ public class TorrentStreamer {
             long elapsed = (System.currentTimeMillis() - t0) / 1000;
             log("✅ Pré-carga: " + doneIni + "/" + inicio + " | " + doneFim + "/" + fim + " (" + elapsed + "s)");
             
-            // Procurar arquivo no savePath
             if (savePath != null) {
                 File searchDir = new File(savePath);
                 File f = findVideoFile(searchDir);
@@ -69,7 +68,6 @@ public class TorrentStreamer {
                 }
             }
             
-            // Sparse file
             if (info.videoFile != null && info.videoFile.length() < info.totalSize) {
                 try {
                     RandomAccessFile raf = new RandomAccessFile(info.videoFile, "rw");
@@ -80,7 +78,6 @@ public class TorrentStreamer {
                 }
             }
             
-            // SeekHead
             if (info.videoFile != null) {
                 SeekHeadParser parser = new SeekHeadParser(info);
                 Set<Integer> critical = parser.parse();
@@ -111,7 +108,7 @@ public class TorrentStreamer {
     }
     
     public void maintainBuffer(int piece) {
-        if (!info.metadataReady || seeking || sequentialActive) return;
+        if (!info.metadataReady || seeking) return;
         if (piece == currentPiece) return;
         currentPiece = piece;
         
@@ -172,6 +169,10 @@ public class TorrentStreamer {
             }
             return false;
         } finally { seeking = false; }
+    }
+    
+    public void disableSequential() {
+        this.sequentialActive = false;
     }
     
     private File findVideoFile(File dir) {
