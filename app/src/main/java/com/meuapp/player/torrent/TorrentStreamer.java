@@ -15,7 +15,8 @@ public class TorrentStreamer {
     private final StreamerCallback callback;
     private boolean sequentialActive = true;
     private boolean seeking = false;
-    private int currentPiece = -1;
+    private volatile boolean preloading = false;
+    private int lastBufferedStart = -1;
     private String savePath;
     
     public interface StreamerCallback {
@@ -32,7 +33,12 @@ public class TorrentStreamer {
         this.mainHandler = new Handler(Looper.getMainLooper());
     }
     
+    public boolean isPreloading() {
+        return preloading;
+    }
+    
     public void preload() {
+        preloading = true;
         new Thread(() -> {
             long t0 = System.currentTimeMillis();
             int inicio = Math.min(35, info.numPieces);
@@ -44,14 +50,22 @@ public class TorrentStreamer {
             byte_vector z = info.getCachedPriorities(info.numPieces);
             session.prioritizePieces(z);
             
-            for (int i = 0; i < inicio; i++) { session.setPiecePriority(i, (byte)7); session.setPieceDeadline(i, 20000); }
-            for (int i = fimStart; i < info.numPieces; i++) { session.setPiecePriority(i, (byte)7); session.setPieceDeadline(i, 20000); }
+            for (int i = 0; i < inicio; i++) { 
+                session.setPiecePriority(i, (byte)7); 
+                session.setPieceDeadline(i, 20000); 
+            }
+            for (int i = fimStart; i < info.numPieces; i++) { 
+                session.setPiecePriority(i, (byte)7); 
+                session.setPieceDeadline(i, 20000); 
+            }
             
             int doneIni = 0, doneFim = 0;
             while ((doneIni < inicio || doneFim < fim) && !Thread.interrupted()) {
                 try { Thread.sleep(200); } catch (InterruptedException e) { break; }
-                doneIni = 0; for (int i = 0; i < inicio; i++) if (session.hasPiece(i)) doneIni++;
-                doneFim = 0; for (int i = fimStart; i < info.numPieces; i++) if (session.hasPiece(i)) doneFim++;
+                doneIni = 0; 
+                for (int i = 0; i < inicio; i++) if (session.hasPiece(i)) doneIni++;
+                doneFim = 0; 
+                for (int i = fimStart; i < info.numPieces; i++) if (session.hasPiece(i)) doneFim++;
             }
             
             long elapsed = (System.currentTimeMillis() - t0) / 1000;
@@ -71,7 +85,8 @@ public class TorrentStreamer {
             if (info.videoFile != null && info.videoFile.length() < info.totalSize) {
                 try {
                     RandomAccessFile raf = new RandomAccessFile(info.videoFile, "rw");
-                    raf.setLength(info.totalSize); raf.close();
+                    raf.setLength(info.totalSize); 
+                    raf.close();
                     log("📏 Sparse: " + info.sizeToString());
                 } catch (Exception e) {
                     log("⚠️ Sparse: " + e.getMessage());
@@ -83,18 +98,23 @@ public class TorrentStreamer {
                 Set<Integer> critical = parser.parse();
                 
                 if (!critical.isEmpty()) {
-                    log("📥 Complementando " + critical.size() + " peças");
+                    log("📥 Complementando " + critical.size() + " peças críticas");
                     z = info.getCachedPriorities(info.numPieces);
                     session.prioritizePieces(z);
                     for (int piece : critical) {
-                        if (piece < info.numPieces) { session.setPiecePriority(piece, (byte)7); session.setPieceDeadline(piece, 15000); }
+                        if (piece < info.numPieces) { 
+                            session.setPiecePriority(piece, (byte)7); 
+                            session.setPieceDeadline(piece, 15000); 
+                        }
                     }
                     
                     int done = 0, total = critical.size();
                     while (done < total && !Thread.interrupted()) {
                         try { Thread.sleep(150); } catch (InterruptedException e) { break; }
                         done = 0;
-                        for (int piece : critical) if (piece < info.numPieces && session.hasPiece(piece)) done++;
+                        for (int piece : critical) {
+                            if (piece < info.numPieces && session.hasPiece(piece)) done++;
+                        }
                         int pct = total > 0 ? done * 100 / total : 0;
                         mainHandler.post(() -> callback.onProgress("📥 " + pct + "% | " + (info.downloadRate/1024) + " KB/s"));
                     }
@@ -103,48 +123,67 @@ public class TorrentStreamer {
                 log("⚠️ Arquivo de vídeo não encontrado");
             }
             
+            preloading = false;
             mainHandler.post(() -> callback.onReady());
         }, "TorrentStreamer").start();
     }
     
-    public void maintainBuffer(int piece) {
-        if (!info.metadataReady || seeking) return;
-        if (piece == currentPiece) return;
-        currentPiece = piece;
+    public void maintainBuffer(int currentPiece) {
+        if (!info.metadataReady || seeking || preloading) return;
         
         int buffered = 0;
-        for (int i = piece; i < Math.min(info.numPieces, piece + 20); i++) {
-            if (session.hasPiece(i)) buffered++; else break;
+        for (int i = currentPiece; i < Math.min(info.numPieces, currentPiece + 50); i++) {
+            if (session.hasPiece(i)) buffered++;
+            else break;
         }
         
-        if (buffered < 5) {
-            int start = piece + buffered;
-            int end = Math.min(info.numPieces - 1, start + 10);
-            session.setSequentialRange(start, end);
-            for (int i = start; i <= end; i++) {
-                if (!session.hasPiece(i)) { session.setPiecePriority(i, (byte)7); session.setPieceDeadline(i, 5000); }
+        if (buffered < 10) {
+            int start = currentPiece + buffered;
+            int end = Math.min(info.numPieces - 1, start + 30);
+            
+            if (start != lastBufferedStart) {
+                lastBufferedStart = start;
+                session.setSequentialRange(start, end);
+                for (int i = start; i <= end; i++) {
+                    if (!session.hasPiece(i)) {
+                        session.setPiecePriority(i, (byte)7);
+                        session.setPieceDeadline(i, 5000);
+                    }
+                }
+                log("📥 Buffer " + buffered + " → baixando " + (end - start + 1) + " peças [" + start + "-" + end + "]");
             }
-            log("📥 Buffer " + buffered + " → " + start + "-" + end);
         }
     }
     
     public boolean seekToPiece(int piece, long timeoutMs) {
         seeking = true;
         try {
-            if (sequentialActive) { sequentialActive = false; session.disableSequential(); }
+            if (sequentialActive) {
+                sequentialActive = false;
+                session.disableSequential();
+            }
             
             boolean hasAll = true;
             for (int i = piece - 1; i <= piece + 1; i++) {
-                if (i >= 0 && i < info.numPieces && !session.hasPiece(i)) hasAll = false;
+                if (i >= 0 && i < info.numPieces && !session.hasPiece(i)) {
+                    hasAll = false;
+                    break;
+                }
             }
-            if (hasAll) { currentPiece = piece; return true; }
+            if (hasAll) {
+                lastBufferedStart = -1;
+                return true;
+            }
             
             byte_vector z = info.getCachedPriorities(info.numPieces);
             session.prioritizePieces(z);
             session.setSequentialRange(Math.max(0, piece - 1), Math.min(info.numPieces - 1, piece + 1));
             
             for (int i = piece - 1; i <= piece + 1; i++) {
-                if (i >= 0 && i < info.numPieces) { session.setPiecePriority(i, (byte)(i == piece ? 7 : 6)); session.setPieceDeadline(i, 2000); }
+                if (i >= 0 && i < info.numPieces) {
+                    session.setPiecePriority(i, (byte)(i == piece ? 7 : 6));
+                    session.setPieceDeadline(i, 2000);
+                }
             }
             
             long t0 = System.currentTimeMillis();
@@ -161,14 +200,22 @@ public class TorrentStreamer {
                     }
                 }
                 log(sb.toString().trim());
-                if (ok) { currentPiece = piece; return true; }
+                
+                if (ok) {
+                    lastBufferedStart = -1;
+                    return true;
+                }
                 
                 for (int i = piece - 1; i <= piece + 1; i++) {
-                    if (i >= 0 && i < info.numPieces && !session.hasPiece(i)) session.setPieceDeadline(i, 2000);
+                    if (i >= 0 && i < info.numPieces && !session.hasPiece(i)) {
+                        session.setPieceDeadline(i, 2000);
+                    }
                 }
             }
             return false;
-        } finally { seeking = false; }
+        } finally {
+            seeking = false;
+        }
     }
     
     public void disableSequential() {
@@ -178,13 +225,27 @@ public class TorrentStreamer {
     private File findVideoFile(File dir) {
         if (dir == null || !dir.exists()) return null;
         File[] files = dir.listFiles();
-        if (files != null) for (File f : files) {
-            if (f.isDirectory()) { File found = findVideoFile(f); if (found != null) return found; }
-            else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm)$")) return f;
+        if (files != null) {
+            for (File f : files) {
+                if (f.isDirectory()) {
+                    File found = findVideoFile(f);
+                    if (found != null) return found;
+                } else if (f.getName().matches(".*\\.(mp4|mkv|avi|webm)$")) {
+                    return f;
+                }
+            }
         }
         return null;
     }
     
-    private void log(String msg) { mainHandler.post(() -> callback.onLog(msg)); }
-    public void reset() { sequentialActive = true; seeking = false; currentPiece = -1; }
+    private void log(String msg) {
+        mainHandler.post(() -> callback.onLog(msg));
+    }
+    
+    public void reset() {
+        sequentialActive = true;
+        seeking = false;
+        preloading = false;
+        lastBufferedStart = -1;
+    }
 }
