@@ -1,300 +1,271 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:background="#0a0a1a"
-    android:padding="6dp">
-    
-    <FrameLayout
+    android:background="#000000">
+
+    <!-- SUPERFÍCIE DE VÍDEO (tela cheia) -->
+    <SurfaceView
+        android:id="@+id/video_surface"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="25"
-        android:layout_marginBottom="4dp"
-        android:background="#000000">
-        
-        <SurfaceView
-            android:id="@+id/video_surface"
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:visibility="gone" />
-        
-        <Button
-            android:id="@+id/btn_skip_20"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_gravity="top|end"
-            android:layout_margin="8dp"
-            android:background="@drawable/btn_primary"
-            android:text="⏭ 20:00"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:visibility="gone" />
-        
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- LOADING SPINNER (centro da tela) -->
+    <ProgressBar
+        android:id="@+id/spinner_bar"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:layout_centerInParent="true"
+        android:indeterminateTint="#6c5ce7"
+        android:visibility="gone" />
+
+    <!-- CONTROLES INFERIORES (overlay) -->
+    <LinearLayout
+        android:id="@+id/player_controls"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_alignParentBottom="true"
+        android:orientation="vertical"
+        android:background="#CC000000"
+        android:padding="12dp"
+        android:visibility="gone">
+
+        <!-- TEMPO + SEEKBAR -->
         <LinearLayout
-            android:id="@+id/center_controls"
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center"
+            android:orientation="horizontal"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:id="@+id/time_text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="0:00 / 0:00"
+                android:textColor="#FFFFFF"
+                android:textSize="12sp"
+                android:fontFamily="monospace"
+                android:layout_marginEnd="12dp" />
+
+            <SeekBar
+                android:id="@+id/seek_bar"
+                android:layout_width="0dp"
+                android:layout_height="24dp"
+                android:layout_weight="1"
+                android:progressTint="#6c5ce7"
+                android:thumbTint="#FFFFFF"
+                android:progressBackgroundTint="#33FFFFFF" />
+        </LinearLayout>
+
+        <!-- BOTÕES DE CONTROLE -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="48dp"
             android:orientation="horizontal"
             android:gravity="center"
-            android:visibility="gone">
-            
-            <Button
+            android:layout_marginTop="8dp">
+
+            <ImageButton
+                android:id="@+id/btn_audio"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_sort_by_size"
+                android:background="@android:color/transparent"
+                android:tint="#FFFFFF"
+                android:scaleType="fitCenter" />
+
+            <ImageButton
                 android:id="@+id/btn_seek_back"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
+                android:src="@android:drawable/ic_media_rew"
                 android:background="@android:color/transparent"
-                android:text="⏪"
-                android:textColor="#FFFFFF"
-                android:textSize="22sp" />
-            
-            <Button
+                android:tint="#FFFFFF"
+                android:scaleType="fitCenter" />
+
+            <ImageButton
                 android:id="@+id/btn_play_pause"
                 android:layout_width="64dp"
                 android:layout_height="64dp"
+                android:src="@android:drawable/ic_media_play"
+                android:background="@drawable/btn_circle"
+                android:tint="#FFFFFF"
+                android:scaleType="fitCenter"
                 android:layout_marginStart="16dp"
-                android:layout_marginEnd="16dp"
-                android:background="@drawable/btn_primary"
-                android:text="⏸"
-                android:textColor="#FFFFFF"
-                android:textSize="28sp" />
-            
-            <Button
+                android:layout_marginEnd="16dp" />
+
+            <ImageButton
                 android:id="@+id/btn_seek_forward"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
+                android:src="@android:drawable/ic_media_ff"
                 android:background="@android:color/transparent"
-                android:text="⏩"
-                android:textColor="#FFFFFF"
-                android:textSize="22sp" />
+                android:tint="#FFFFFF"
+                android:scaleType="fitCenter" />
+
+            <ImageButton
+                android:id="@+id/btn_subtitle"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:src="@android:drawable/ic_menu_sort_alphabetically"
+                android:background="@android:color/transparent"
+                android:tint="#FFFFFF"
+                android:scaleType="fitCenter" />
         </LinearLayout>
-        
-        <LinearLayout
-            android:id="@+id/player_controls"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_gravity="bottom"
-            android:orientation="vertical"
-            android:background="#80000000"
-            android:padding="8dp"
-            android:visibility="gone">
-            
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
-                
-                <TextView
-                    android:id="@+id/time_text"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="0:00 / 0:00"
-                    android:textColor="#FFFFFF"
-                    android:textSize="10sp"
-                    android:layout_marginEnd="8dp" />
-                
-                <SeekBar
-                    android:id="@+id/seek_bar"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:progressTint="#6c5ce7"
-                    android:thumbTint="#FFFFFF"
-                    android:progressBackgroundTint="#33FFFFFF" />
-            </LinearLayout>
-            
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center"
-                android:layout_marginTop="4dp">
-                
-                <Button
-                    android:id="@+id/btn_audio"
-                    android:layout_width="0dp"
-                    android:layout_height="30dp"
-                    android:layout_weight="1"
-                    android:background="@android:color/transparent"
-                    android:text="🎵 Áudio"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp" />
-                
-                <Button
-                    android:id="@+id/btn_subtitle"
-                    android:layout_width="0dp"
-                    android:layout_height="30dp"
-                    android:layout_weight="1"
-                    android:background="@android:color/transparent"
-                    android:text="📝 Legenda"
-                    android:textColor="#FFFFFF"
-                    android:textSize="11sp" />
-            </LinearLayout>
-        </LinearLayout>
-        
-        <ScrollView
-            android:id="@+id/audio_scroll"
-            android:layout_width="200dp"
-            android:layout_height="200dp"
-            android:layout_gravity="bottom|end"
-            android:layout_marginBottom="80dp"
-            android:layout_marginEnd="8dp"
-            android:background="#E0000000"
-            android:visibility="gone">
-            
-            <LinearLayout
-                android:id="@+id/audio_menu"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </ScrollView>
-        
-        <ScrollView
-            android:id="@+id/subtitle_scroll"
-            android:layout_width="200dp"
-            android:layout_height="200dp"
-            android:layout_gravity="bottom|end"
-            android:layout_marginBottom="80dp"
-            android:layout_marginEnd="8dp"
-            android:background="#E0000000"
-            android:visibility="gone">
-            
-            <LinearLayout
-                android:id="@+id/subtitle_menu"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </ScrollView>
-        
-        <ProgressBar
-            android:id="@+id/spinner_bar"
-            android:layout_width="24dp"
-            android:layout_height="24dp"
-            android:layout_gravity="center"
-            android:indeterminateTint="#6c5ce7"
-            android:visibility="gone" />
-    </FrameLayout>
-    
+    </LinearLayout>
+
+    <!-- PAINEL SUPERIOR (magnet + botões) -->
     <LinearLayout
+        android:id="@+id/top_panel"
         android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="20"
+        android:layout_height="wrap_content"
+        android:layout_alignParentTop="true"
         android:orientation="vertical"
-        android:background="@drawable/glass_bg"
-        android:padding="8dp"
-        android:layout_marginBottom="4dp">
-        
-        <TextView
-            android:id="@+id/status_text"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text="🎬 Torrent Stream"
-            android:textColor="#FFFFFF"
-            android:textSize="11sp"
-            android:textStyle="bold" />
-        
-        <ProgressBar
-            android:id="@+id/buffer_bar"
-            style="?android:attr/progressBarStyleHorizontal"
-            android:layout_width="match_parent"
-            android:layout_height="2dp"
-            android:progressTint="#6c5ce7"
-            android:progressBackgroundTint="#33FFFFFF"
-            android:visibility="gone"
-            android:layout_marginTop="2dp" />
-        
+        android:background="#CC0a0a1a"
+        android:padding="12dp"
+        android:visibility="visible">
+
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="38dp"
+            android:layout_height="44dp"
             android:orientation="horizontal"
-            android:layout_marginTop="4dp">
-            
+            android:gravity="center_vertical">
+
             <EditText
                 android:id="@+id/magnet_input"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:background="@drawable/input_bg"
-                android:hint="Magnet link..."
+                android:hint="Colar magnet link..."
                 android:textColorHint="#80FFFFFF"
-                android:padding="6dp"
                 android:textColor="#FFFFFF"
-                android:textSize="10sp" />
-            
+                android:textSize="13sp"
+                android:paddingStart="12dp"
+                android:paddingEnd="12dp"
+                android:singleLine="true" />
+
             <Button
                 android:id="@+id/btn_play"
-                android:layout_width="40dp"
-                android:layout_height="match_parent"
-                android:layout_marginStart="4dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
                 android:background="@drawable/btn_primary"
-                android:text="GO"
+                android:text="▶"
                 android:textColor="#FFFFFF"
-                android:textStyle="bold"
-                android:textSize="10sp" />
-            
+                android:textSize="18sp" />
+
             <Button
                 android:id="@+id/btn_torrent"
-                android:layout_width="40dp"
-                android:layout_height="match_parent"
-                android:layout_marginStart="4dp"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:layout_marginStart="8dp"
                 android:background="@drawable/btn_primary"
                 android:text="📁"
                 android:textColor="#FFFFFF"
-                android:textSize="14sp" />
+                android:textSize="16sp" />
         </LinearLayout>
-        
+
         <LinearLayout
             android:layout_width="match_parent"
-            android:layout_height="34dp"
+            android:layout_height="40dp"
             android:orientation="horizontal"
-            android:layout_marginTop="4dp">
-            
+            android:gravity="center"
+            android:layout_marginTop="8dp">
+
             <Button
                 android:id="@+id/btn_watch"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
                 android:background="@drawable/btn_success"
-                android:text="▶ ASSISTIR"
+                android:text="🎬 ASSISTIR"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
-                android:textSize="11sp"
+                android:textSize="14sp"
                 android:visibility="gone" />
-            
+
             <Button
                 android:id="@+id/btn_stop"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
                 android:layout_weight="1"
-                android:layout_marginStart="4dp"
                 android:background="@drawable/btn_danger"
                 android:text="⏹ PARAR"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
-                android:textSize="11sp"
-                android:visibility="gone" />
+                android:textSize="14sp"
+                android:visibility="gone"
+                android:layout_marginStart="8dp" />
         </LinearLayout>
+
+        <!-- BARRA DE PROGRESSO DO DOWNLOAD -->
+        <ProgressBar
+            android:id="@+id/buffer_bar"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="3dp"
+            android:progressTint="#6c5ce7"
+            android:progressBackgroundTint="#33FFFFFF"
+            android:visibility="gone"
+            android:layout_marginTop="8dp" />
     </LinearLayout>
-    
+
+    <!-- MENU DE ÁUDIO (popup) -->
     <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="55"
-        android:background="@drawable/glass_bg">
-        
-        <TextView
-            android:id="@+id/debug_text"
+        android:id="@+id/audio_scroll"
+        android:layout_width="220dp"
+        android:layout_height="280dp"
+        android:layout_alignParentEnd="true"
+        android:layout_above="@id/player_controls"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="#E01a1a2e"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/audio_menu"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text=""
-            android:textColor="#AAFFFFFF"
-            android:textSize="9sp"
-            android:fontFamily="monospace"
-            android:padding="6dp" />
+            android:orientation="vertical"
+            android:padding="8dp" />
     </ScrollView>
-    
-</LinearLayout>
+
+    <!-- MENU DE LEGENDA (popup) -->
+    <ScrollView
+        android:id="@+id/subtitle_scroll"
+        android:layout_width="220dp"
+        android:layout_height="280dp"
+        android:layout_alignParentEnd="true"
+        android:layout_above="@id/player_controls"
+        android:layout_marginEnd="8dp"
+        android:layout_marginBottom="8dp"
+        android:background="#E01a1a2e"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:id="@+id/subtitle_menu"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="8dp" />
+    </ScrollView>
+
+    <!-- BOTÃO PULAR 20:00 -->
+    <Button
+        android:id="@+id/btn_skip_20"
+        android:layout_width="wrap_content"
+        android:layout_height="36dp"
+        android:layout_alignParentEnd="true"
+        android:layout_marginTop="60dp"
+        android:layout_marginEnd="12dp"
+        android:background="@drawable/btn_primary"
+        android:text="⏭ 20:00"
+        android:textColor="#FFFFFF"
+        android:textSize="11sp"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:visibility="gone" />
+
+</RelativeLayout>
