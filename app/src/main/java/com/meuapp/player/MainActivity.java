@@ -74,7 +74,7 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onLog(String msg) { debug(msg); }
         });
         
-        torrentStreamer = new TorrentStreamer(torrentSession, streamInfo, new TorrentStreamer.StreamerCallback() {
+        torrentStreamer = new TorrentStreamer(torrentSession, streamInfo, savePath, new TorrentStreamer.StreamerCallback() {
             @Override public void onReady() {
                 handler.post(() -> {
                     btnWatch.setText("🎬 ASSISTIR");
