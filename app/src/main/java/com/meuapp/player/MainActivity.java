@@ -24,7 +24,6 @@ import java.text.SimpleDateFormat;
 import java.util.*;
 
 public class MainActivity extends AppCompatActivity {
-    // UI
     private SurfaceView videoSurface;
     private TextView statusText, debugText, timeText;
     private ProgressBar bufferBar, spinnerBar;
@@ -36,7 +35,6 @@ public class MainActivity extends AppCompatActivity {
     private SeekBar seekBar;
     private boolean isTracking = false;
     
-    // Core
     private StreamInfo streamInfo;
     private TorrentSession torrentSession;
     private TorrentStreamer torrentStreamer;
@@ -57,14 +55,12 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         
-        // Inicializar UI
         initViews();
         
         savePath = new File(getExternalFilesDir(null), "torrents").getAbsolutePath();
         new File(savePath).mkdirs();
         handler = new Handler(Looper.getMainLooper());
         
-        // Inicializar componentes
         streamInfo = new StreamInfo();
         
         torrentSession = new TorrentSession(streamInfo, new TorrentSession.SessionCallback() {
@@ -97,6 +93,9 @@ public class MainActivity extends AppCompatActivity {
                 handler.post(() -> {
                     spinnerBar.setVisibility(View.GONE);
                     btnPlayPause.setText("⏸");
+                    playerControls.setVisibility(View.VISIBLE);
+                    centerControls.setVisibility(View.VISIBLE);
+                    btnSkip20.setVisibility(View.VISIBLE);
                     videoPlaying = true;
                     smartBuffer.enable();
                 });
@@ -113,37 +112,35 @@ public class MainActivity extends AppCompatActivity {
             @Override public void onTimeChanged(long time, long length) {
                 if (length > 0) {
                     streamInfo.videoDurationMs = length;
-                    
                     if (!streamInfo.minuteAppeared) {
                         streamInfo.minuteAppeared = true;
                         torrentSession.disableSequential();
+                        torrentStreamer.disableSequential();
+                        smartBuffer.enable();
                         debug("🔓 Sequential OFF - minutagem OK");
                     }
-                    
                     handler.post(() -> {
                         timeText.setText(formatTime(time) + " / " + formatTime(length));
                         if (!isTracking) seekBar.setProgress((int)(time * 100 / length));
                     });
-                    
                     smartBuffer.checkAndBuffer(time);
                 }
             }
         });
         
-        // Time updater a cada 200ms para barra responsiva
         timeUpdater = () -> {
             if (vlcPlayer != null && vlcPlayer.isPlaying()) {
                 long time = vlcPlayer.getTime();
                 long length = vlcPlayer.getLength();
                 if (length > 0) {
                     streamInfo.videoDurationMs = length;
-                    
                     if (!streamInfo.minuteAppeared) {
                         streamInfo.minuteAppeared = true;
                         torrentSession.disableSequential();
+                        torrentStreamer.disableSequential();
+                        smartBuffer.enable();
                         debug("🔓 Sequential OFF - minutagem OK");
                     }
-                    
                     timeText.setText(formatTime(time) + " / " + formatTime(length));
                     if (!isTracking) seekBar.setProgress((int)(time * 100 / length));
                     smartBuffer.checkAndBuffer(time);
@@ -152,7 +149,6 @@ public class MainActivity extends AppCompatActivity {
             handler.postDelayed(timeUpdater, 200);
         };
         
-        // Iniciar serviços
         torrentSession.start();
         httpServer.start();
         debug("=== STREAM MODULAR ===");
@@ -190,8 +186,7 @@ public class MainActivity extends AppCompatActivity {
         btnWatch.setOnClickListener(v -> watch());
         btnPlayPause.setOnClickListener(v -> {
             if (vlcPlayer != null) {
-                if (vlcPlayer.isPlaying()) vlcPlayer.pause();
-                else vlcPlayer.resume();
+                if (vlcPlayer.isPlaying()) vlcPlayer.pause(); else vlcPlayer.resume();
             }
         });
         btnSeekBack.setOnClickListener(v -> seekRelative(-10000));
@@ -235,8 +230,8 @@ public class MainActivity extends AppCompatActivity {
             debug("❌ Aguarde o download");
             return;
         }
-        
         debug("▶️ Iniciando player...");
+        smartBuffer.enable();
         
         handler.post(() -> {
             try {
@@ -244,7 +239,6 @@ public class MainActivity extends AppCompatActivity {
                 btnWatch.setVisibility(View.GONE);
                 spinnerBar.setVisibility(View.VISIBLE);
                 
-                // Aguardar a surface estar pronta
                 videoSurface.getHolder().addCallback(new SurfaceHolder.Callback() {
                     @Override public void surfaceCreated(SurfaceHolder holder) {
                         vlcPlayer.attachToSurface(videoSurface);
@@ -255,7 +249,6 @@ public class MainActivity extends AppCompatActivity {
                     @Override public void surfaceDestroyed(SurfaceHolder holder) {}
                 });
                 
-                // Se a surface já está pronta, iniciar imediatamente
                 if (videoSurface.getHolder().getSurface().isValid()) {
                     vlcPlayer.attachToSurface(videoSurface);
                     vlcPlayer.play("http://127.0.0.1:8080/video");
@@ -275,7 +268,6 @@ public class MainActivity extends AppCompatActivity {
         if (piece >= 0) {
             spinnerBar.setVisibility(View.VISIBLE);
             debug("🎯 Seek → p" + (piece-1) + "-" + piece + "-" + (piece+1));
-            
             new Thread(() -> {
                 boolean ok = torrentStreamer.seekToPiece(piece, 20000);
                 handler.post(() -> {
@@ -298,7 +290,6 @@ public class MainActivity extends AppCompatActivity {
         torrentStreamer.reset();
         smartBuffer.disable();
         videoPlaying = false;
-        
         videoSurface.setVisibility(View.GONE);
         playerControls.setVisibility(View.GONE);
         centerControls.setVisibility(View.GONE);
@@ -314,64 +305,52 @@ public class MainActivity extends AppCompatActivity {
     
     private void toggleAudioMenu() {
         if (vlcPlayer == null) return;
-        
         org.videolan.libvlc.MediaPlayer.TrackDescription[] tracks = vlcPlayer.getAudioTracks();
         int current = vlcPlayer.getAudioTrack();
         audioMenu.removeAllViews();
-        
         debug("🎵 Áudios: " + (tracks != null ? tracks.length : 0));
-        
         if (tracks != null) {
             for (org.videolan.libvlc.MediaPlayer.TrackDescription t : tracks) {
                 if (t.id >= 0) {
                     TextView tv = new TextView(this);
                     tv.setText("🎵 " + t.name + (t.id == current ? " ✓" : ""));
                     tv.setTextColor(t.id == current ? 0xFF6c5ce7 : 0xFFFFFFFF);
-                    tv.setTextSize(12);
-                    tv.setPadding(16, 12, 16, 12);
+                    tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
                     final int id = t.id;
                     tv.setOnClickListener(v -> { vlcPlayer.setAudioTrack(id); audioScroll.setVisibility(View.GONE); });
                     audioMenu.addView(tv);
                 }
             }
         }
-        
         audioScroll.setVisibility(audioScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
         subtitleScroll.setVisibility(View.GONE);
     }
     
     private void toggleSubtitleMenu() {
         if (vlcPlayer == null) return;
-        
         org.videolan.libvlc.MediaPlayer.TrackDescription[] tracks = vlcPlayer.getSubtitleTracks();
         int current = vlcPlayer.getSubtitleTrack();
         subtitleMenu.removeAllViews();
-        
         debug("📝 Legendas: " + (tracks != null ? tracks.length : 0));
-        
         TextView off = new TextView(this);
         off.setText("📝 Desligado" + (current == -1 ? " ✓" : ""));
         off.setTextColor(current == -1 ? 0xFF6c5ce7 : 0xFFFFFFFF);
-        off.setTextSize(12);
-        off.setPadding(16, 12, 16, 12);
+        off.setTextSize(12); off.setPadding(16, 12, 16, 12);
         off.setOnClickListener(v -> { vlcPlayer.setSubtitleTrack(-1); subtitleScroll.setVisibility(View.GONE); });
         subtitleMenu.addView(off);
-        
         if (tracks != null) {
             for (org.videolan.libvlc.MediaPlayer.TrackDescription t : tracks) {
                 if (t.id >= 0) {
                     TextView tv = new TextView(this);
                     tv.setText("📝 " + t.name + (t.id == current ? " ✓" : ""));
                     tv.setTextColor(t.id == current ? 0xFF6c5ce7 : 0xFFFFFFFF);
-                    tv.setTextSize(12);
-                    tv.setPadding(16, 12, 16, 12);
+                    tv.setTextSize(12); tv.setPadding(16, 12, 16, 12);
                     final int id = t.id;
                     tv.setOnClickListener(v -> { vlcPlayer.setSubtitleTrack(id); subtitleScroll.setVisibility(View.GONE); });
                     subtitleMenu.addView(tv);
                 }
             }
         }
-        
         subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
         audioScroll.setVisibility(View.GONE);
     }
@@ -392,20 +371,16 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    @Override
-    protected void onActivityResult(int r, int res, Intent data) {
+    @Override protected void onActivityResult(int r, int res, Intent data) {
         super.onActivityResult(r, res, data);
         if (r == PICK_TORRENT && res == RESULT_OK && data != null && data.getData() != null) {
             try {
                 InputStream is = getContentResolver().openInputStream(data.getData());
                 File tf = new File(savePath, "torrent_file.torrent");
                 FileOutputStream fos = new FileOutputStream(tf);
-                byte[] b = new byte[8192];
-                int l;
+                byte[] b = new byte[8192]; int l;
                 while ((l = is.read(b)) > 0) fos.write(b, 0, l);
-                fos.close();
-                is.close();
-                
+                fos.close(); is.close();
                 btnStop.setVisibility(View.VISIBLE);
                 bufferBar.setVisibility(View.VISIBLE);
                 torrentSession.startDownload(tf.getAbsolutePath(), savePath);
@@ -413,8 +388,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    @Override
-    protected void onDestroy() {
+    @Override protected void onDestroy() {
         stop();
         httpServer.stop();
         if (vlcPlayer != null) vlcPlayer.release();
