@@ -1,5 +1,6 @@
 package com.meuapp.player.model;
 
+import org.libtorrent4j.swig.byte_vector;
 import java.io.File;
 
 /**
