@@ -24,6 +24,7 @@ public class VlcPlayerManager {
     
     private MediaPlayer.TrackDescription[] cachedAudioTracks;
     private MediaPlayer.TrackDescription[] cachedSubtitleTracks;
+    private boolean surfaceAttached = false;
     
     public interface PlayerCallback {
         void onPlaying();
@@ -60,85 +61,109 @@ public class VlcPlayerManager {
                 case MediaPlayer.Event.Buffering:
                     callback.onBuffering();
                     break;
+                case MediaPlayer.Event.TimeChanged:
+                    callback.onTimeChanged(event.getTimeChanged(), mediaPlayer.getLength());
+                    break;
             }
         });
     }
     
+    /**
+     * Anexa o player à superfície de vídeo
+     */
     public void attachToSurface(SurfaceView surfaceView) {
-        SurfaceHolder holder = surfaceView.getHolder();
-        mediaPlayer.getVLCVout().setVideoSurface(holder.getSurface(), holder);
-        mediaPlayer.getVLCVout().setWindowSize(surfaceView.getWidth(), surfaceView.getHeight());
-        mediaPlayer.getVLCVout().attachViews();
+        if (surfaceAttached) return;
+        
+        try {
+            SurfaceHolder holder = surfaceView.getHolder();
+            mediaPlayer.getVLCVout().setVideoSurface(holder.getSurface(), holder);
+            mediaPlayer.getVLCVout().setWindowSize(surfaceView.getWidth(), surfaceView.getHeight());
+            mediaPlayer.getVLCVout().attachViews();
+            surfaceAttached = true;
+        } catch (Exception e) {
+            // Se falhar, tenta de novo sem attachViews
+            try {
+                SurfaceHolder holder = surfaceView.getHolder();
+                mediaPlayer.getVLCVout().setVideoSurface(holder.getSurface(), holder);
+                surfaceAttached = true;
+            } catch (Exception e2) {
+                e2.printStackTrace();
+            }
+        }
     }
     
     public void play(String url) {
-        Media m = new Media(libVLC, Uri.parse(url));
-        m.setHWDecoderEnabled(true, true);
-        m.addOption(":network-caching=2000");
-        m.addOption(":file-caching=1000");
-        mediaPlayer.setMedia(m);
-        m.release();
-        mediaPlayer.play();
+        try {
+            Media m = new Media(libVLC, Uri.parse(url));
+            m.setHWDecoderEnabled(true, true);
+            m.addOption(":network-caching=2000");
+            m.addOption(":file-caching=1000");
+            mediaPlayer.setMedia(m);
+            m.release();
+            mediaPlayer.play();
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
     
     public void pause() {
-        mediaPlayer.pause();
+        try { mediaPlayer.pause(); } catch (Exception e) {}
     }
     
     public void resume() {
-        mediaPlayer.play();
+        try { mediaPlayer.play(); } catch (Exception e) {}
     }
     
     public void stop() {
-        mediaPlayer.stop();
+        try { mediaPlayer.stop(); } catch (Exception e) {}
     }
     
     public void seekTo(long timeMs) {
-        mediaPlayer.setTime(timeMs);
+        try { mediaPlayer.setTime(timeMs); } catch (Exception e) {}
     }
     
     public long getTime() {
-        return mediaPlayer.getTime();
+        try { return mediaPlayer.getTime(); } catch (Exception e) { return 0; }
     }
     
     public long getLength() {
-        return mediaPlayer.getLength();
+        try { return mediaPlayer.getLength(); } catch (Exception e) { return 0; }
     }
     
     public boolean isPlaying() {
-        return mediaPlayer.isPlaying();
+        try { return mediaPlayer.isPlaying(); } catch (Exception e) { return false; }
     }
     
     // ==================== ÁUDIO/LEGENDA CACHED ====================
     
     public MediaPlayer.TrackDescription[] getAudioTracks() {
         if (cachedAudioTracks == null) {
-            cachedAudioTracks = mediaPlayer.getAudioTracks();
+            try { cachedAudioTracks = mediaPlayer.getAudioTracks(); } catch (Exception e) {}
         }
         return cachedAudioTracks;
     }
     
     public MediaPlayer.TrackDescription[] getSubtitleTracks() {
         if (cachedSubtitleTracks == null) {
-            cachedSubtitleTracks = mediaPlayer.getSpuTracks();
+            try { cachedSubtitleTracks = mediaPlayer.getSpuTracks(); } catch (Exception e) {}
         }
         return cachedSubtitleTracks;
     }
     
     public int getAudioTrack() {
-        return mediaPlayer.getAudioTrack();
+        try { return mediaPlayer.getAudioTrack(); } catch (Exception e) { return -1; }
     }
     
     public int getSubtitleTrack() {
-        return mediaPlayer.getSpuTrack();
+        try { return mediaPlayer.getSpuTrack(); } catch (Exception e) { return -1; }
     }
     
     public void setAudioTrack(int track) {
-        mediaPlayer.setAudioTrack(track);
+        try { mediaPlayer.setAudioTrack(track); } catch (Exception e) {}
     }
     
     public void setSubtitleTrack(int track) {
-        mediaPlayer.setSpuTrack(track);
+        try { mediaPlayer.setSpuTrack(track); } catch (Exception e) {}
     }
     
     public void refreshTracks() {
@@ -147,7 +172,11 @@ public class VlcPlayerManager {
     }
     
     public void release() {
-        mediaPlayer.release();
-        libVLC.release();
+        try {
+            mediaPlayer.stop();
+            mediaPlayer.getVLCVout().detachViews();
+        } catch (Exception e) {}
+        try { mediaPlayer.release(); } catch (Exception e) {}
+        try { libVLC.release(); } catch (Exception e) {}
     }
 }
