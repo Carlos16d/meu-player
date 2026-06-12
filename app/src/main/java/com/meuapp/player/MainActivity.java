@@ -6,7 +6,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
 import android.os.Looper;
-import android.view.SurfaceHolder;
+import android.view.SurfaceView;
 import android.view.View;
 import android.widget.*;
 import androidx.appcompat.app.AppCompatActivity;
@@ -68,10 +68,7 @@ public class MainActivity extends AppCompatActivity {
         
         torrentSession = new TorrentSession(streamInfo, new TorrentSession.SessionCallback() {
             @Override public void onMetadataReady() {
-                handler.post(() -> {
-                    // Iniciar pré-carga
-                    torrentStreamer.preload();
-                });
+                handler.post(() -> torrentStreamer.preload());
             }
             @Override public void onError(String error) { debug(error); }
             @Override public void onLog(String msg) { debug(msg); }
@@ -92,7 +89,6 @@ public class MainActivity extends AppCompatActivity {
         });
         
         smartBuffer = new SmartBuffer(torrentStreamer, streamInfo);
-        
         httpServer = new HttpStreamServer(8080, streamInfo);
         
         vlcPlayer = new VlcPlayerManager(this, streamInfo, new VlcPlayerManager.PlayerCallback() {
@@ -133,7 +129,7 @@ public class MainActivity extends AppCompatActivity {
             }
         });
         
-        // Time updater
+        // Time updater a cada 200ms para barra responsiva
         timeUpdater = () -> {
             if (vlcPlayer != null && vlcPlayer.isPlaying()) {
                 long time = vlcPlayer.getTime();
@@ -149,11 +145,10 @@ public class MainActivity extends AppCompatActivity {
                     
                     timeText.setText(formatTime(time) + " / " + formatTime(length));
                     if (!isTracking) seekBar.setProgress((int)(time * 100 / length));
-                    
                     smartBuffer.checkAndBuffer(time);
                 }
             }
-            handler.postDelayed(timeUpdater, 200); // 200ms para barra responsiva
+            handler.postDelayed(timeUpdater, 200);
         };
         
         // Iniciar serviços
@@ -192,7 +187,12 @@ public class MainActivity extends AppCompatActivity {
         btnTorrent.setOnClickListener(v -> pickTorrentFile());
         btnStop.setOnClickListener(v -> stop());
         btnWatch.setOnClickListener(v -> watch());
-        btnPlayPause.setOnClickListener(v -> { if (vlcPlayer != null) { if (vlcPlayer.isPlaying()) vlcPlayer.pause(); else vlcPlayer.resume(); } });
+        btnPlayPause.setOnClickListener(v -> {
+            if (vlcPlayer != null) {
+                if (vlcPlayer.isPlaying()) vlcPlayer.pause();
+                else vlcPlayer.resume();
+            }
+        });
         btnSeekBack.setOnClickListener(v -> seekRelative(-10000));
         btnSeekForward.setOnClickListener(v -> seekRelative(10000));
         btnSkip20.setOnClickListener(v -> seekTo(20 * 60 * 1000));
@@ -210,18 +210,14 @@ public class MainActivity extends AppCompatActivity {
         });
     }
     
-    // ==================== AÇÕES ====================
-    
     private void startDownload() {
         String m = magnetInput.getText().toString().trim();
         if (m.startsWith("magnet:") && streamInfo != null) {
             btnStop.setVisibility(View.VISIBLE);
             bufferBar.setVisibility(View.VISIBLE);
             btnWatch.setVisibility(View.GONE);
-            
             streamInfo.reset();
             torrentStreamer.reset();
-            
             torrentSession.startDownload(m, savePath);
         }
     }
@@ -238,20 +234,16 @@ public class MainActivity extends AppCompatActivity {
             debug("❌ Aguarde");
             return;
         }
-        
         videoSurface.setVisibility(View.VISIBLE);
         btnWatch.setVisibility(View.GONE);
         spinnerBar.setVisibility(View.VISIBLE);
-        
         vlcPlayer.attachToSurface(videoSurface);
         vlcPlayer.play("http://127.0.0.1:8080/video");
-        
         handler.post(timeUpdater);
     }
     
     private void seekTo(long timeMs) {
         if (vlcPlayer == null) return;
-        
         vlcPlayer.seekTo(timeMs);
         int piece = streamInfo.timeToPiece(timeMs);
         
@@ -263,11 +255,7 @@ public class MainActivity extends AppCompatActivity {
                 boolean ok = torrentStreamer.seekToPiece(piece, 20000);
                 handler.post(() -> {
                     spinnerBar.setVisibility(View.GONE);
-                    if (ok) {
-                        debug("✅ OK\n▶️ Reproduzindo");
-                    } else {
-                        debug("❌ Off");
-                    }
+                    debug(ok ? "✅ OK\n▶️ Reproduzindo" : "❌ Off");
                 });
             }).start();
         }
@@ -289,6 +277,8 @@ public class MainActivity extends AppCompatActivity {
         videoSurface.setVisibility(View.GONE);
         playerControls.setVisibility(View.GONE);
         centerControls.setVisibility(View.GONE);
+        audioScroll.setVisibility(View.GONE);
+        subtitleScroll.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE);
         btnWatch.setVisibility(View.GONE);
         btnSkip20.setVisibility(View.GONE);
@@ -296,8 +286,6 @@ public class MainActivity extends AppCompatActivity {
         spinnerBar.setVisibility(View.GONE);
         handler.removeCallbacks(timeUpdater);
     }
-    
-    // ==================== ÁUDIO/LEGENDA ====================
     
     private void toggleAudioMenu() {
         if (vlcPlayer == null) return;
@@ -362,8 +350,6 @@ public class MainActivity extends AppCompatActivity {
         subtitleScroll.setVisibility(subtitleScroll.getVisibility() == View.VISIBLE ? View.GONE : View.VISIBLE);
         audioScroll.setVisibility(View.GONE);
     }
-    
-    // ==================== UTILITÁRIOS ====================
     
     private String formatTime(long ms) {
         if (ms < 0) return "0:00";
