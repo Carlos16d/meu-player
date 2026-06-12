@@ -30,11 +30,11 @@ public class MainActivity extends AppCompatActivity {
     private SurfaceHolder surfaceHolder;
     private LibVLC libVLC;
     private MediaPlayer vlcPlayer;
-    private TextView statusText, timeText;
+    private TextView statusText, debugText, timeText;
     private ProgressBar bufferBar, spinnerBar;
     private EditText magnetInput;
     private Button btnPlay, btnTorrent, btnStop, btnWatch, btnSkip20;
-    private LinearLayout playerControls, audioMenu, subtitleMenu;
+    private LinearLayout playerControls, centerControls, audioMenu, subtitleMenu;
     private ScrollView audioScroll, subtitleScroll;
     private Button btnPlayPause, btnSeekBack, btnSeekForward, btnAudio, btnSubtitle;
     private SeekBar seekBar;
@@ -72,6 +72,7 @@ public class MainActivity extends AppCompatActivity {
         
         videoSurface = findViewById(R.id.video_surface);
         statusText = findViewById(R.id.status_text);
+        debugText = findViewById(R.id.debug_text);
         timeText = findViewById(R.id.time_text);
         bufferBar = findViewById(R.id.buffer_bar);
         spinnerBar = findViewById(R.id.spinner_bar);
@@ -82,6 +83,7 @@ public class MainActivity extends AppCompatActivity {
         btnWatch = findViewById(R.id.btn_watch);
         btnSkip20 = findViewById(R.id.btn_skip_20);
         playerControls = findViewById(R.id.player_controls);
+        centerControls = findViewById(R.id.center_controls);
         btnPlayPause = findViewById(R.id.btn_play_pause);
         btnSeekBack = findViewById(R.id.btn_seek_back);
         btnSeekForward = findViewById(R.id.btn_seek_forward);
@@ -106,7 +108,6 @@ public class MainActivity extends AppCompatActivity {
                     if (time >= 0) {
                         timeText.setText(formatTime(time) + " / " + formatTime(length));
                         if (!isTracking) seekBar.setProgress((int)(time * 100 / length));
-                        
                         if (pieceLength > 0 && totalSize > 0) {
                             int piece = (int)(time * totalSize / length / pieceLength);
                             if (piece != currentPlayingPiece && piece >= 0 && piece < numPieces) {
@@ -114,7 +115,6 @@ public class MainActivity extends AppCompatActivity {
                                 maintainBuffer(piece);
                             }
                         }
-                        
                         long min = time / 60000;
                         if (min != lastMinuteLog) { lastMinuteLog = min; logMinute(min); }
                     }
@@ -159,7 +159,7 @@ public class MainActivity extends AppCompatActivity {
         btnAudio.setOnClickListener(v -> toggleAudioMenu());
         btnSubtitle.setOnClickListener(v -> toggleSubtitleMenu());
         
-        debug("=== STREAM v2.1 + STREMIO SEEK ===");
+        debug("=== STREAM v2.1 + STREMIO ===");
         new Thread(() -> { try { session = new SessionManager(); session.start(); debug("✅ OK"); } catch (Exception e) {} }).start();
         startServer();
         
@@ -191,7 +191,6 @@ public class MainActivity extends AppCompatActivity {
                     for (int i = 0; i < Math.max(0, piece - 20); i++) {
                         torrentHandle.swig().piece_priority_ex(i, (byte)0);
                     }
-                    debug("📥 " + buffered + " → " + start + "-" + end);
                 }
             } catch (Exception e) {}
         }
@@ -298,7 +297,6 @@ public class MainActivity extends AppCompatActivity {
             int shDataStart = shPos + 4 + getEBMLSizeLen(header, shPos + 4);
             long shSize = readEBMLSize(header, shPos + 4);
             int shEnd = (int)(shDataStart + shSize);
-            debug("🔍 SeekHead: " + shSize + " bytes");
             
             Map<Long, Long> positions = new HashMap<>();
             int pos = shDataStart;
@@ -344,7 +342,7 @@ public class MainActivity extends AppCompatActivity {
             
             for (int i = 0; i < Math.min(10, numPieces); i++) requiredPieces.add(i);
             debug("🎯 Total: " + requiredPieces.size() + " peças");
-        } catch (Exception e) { debug("⚠️ " + e.getMessage()); }
+        } catch (Exception e) {}
     }
     
     private void logMinute(long min) {
@@ -407,7 +405,7 @@ public class MainActivity extends AppCompatActivity {
             vlcPlayer.setMedia(m); m.release();
             vlcPlayer.play();
             playing = true;
-            handler.post(() -> { playerControls.setVisibility(View.VISIBLE); btnSkip20.setVisibility(View.VISIBLE); });
+            handler.post(() -> { playerControls.setVisibility(View.VISIBLE); centerControls.setVisibility(View.VISIBLE); btnSkip20.setVisibility(View.VISIBLE); });
             debug("[VLC] ▶ Reproduzindo");
         } catch (Exception e) { vlcPreparing = false; }
     }
@@ -425,7 +423,7 @@ public class MainActivity extends AppCompatActivity {
         }
     }
     
-    private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; Log.d("TS", msg); debugLog.append(line); handler.post(() -> statusText.setText(msg)); }
+    private void debug(String msg) { String line = "[" + sdf.format(new Date()) + "] " + msg + "\n"; Log.d("TS", msg); debugLog.append(line); handler.post(() -> { statusText.setText(msg); debugText.setText(debugLog.toString()); }); }
     
     private void startServer() { serverThread = new Thread(() -> { try { ServerSocket s = new ServerSocket(8080, 10); s.setReuseAddress(true); while (!Thread.interrupted()) { try { Socket c = s.accept(); new Thread(() -> handleHttp(c)).start(); } catch (IOException e) {} } s.close(); } catch (IOException e) {} }); serverThread.setDaemon(true); serverThread.start(); }
     
@@ -559,7 +557,7 @@ public class MainActivity extends AppCompatActivity {
     private void stop() {
         downloading = false; playing = false; seeking = false; vlcPreparing = false;
         if (vlcPlayer != null) vlcPlayer.stop();
-        videoSurface.setVisibility(View.GONE); playerControls.setVisibility(View.GONE);
+        videoSurface.setVisibility(View.GONE); playerControls.setVisibility(View.GONE); centerControls.setVisibility(View.GONE);
         audioScroll.setVisibility(View.GONE); subtitleScroll.setVisibility(View.GONE);
         btnStop.setVisibility(View.GONE); btnWatch.setVisibility(View.GONE); btnSkip20.setVisibility(View.GONE);
         bufferBar.setVisibility(View.GONE); spinnerBar.setVisibility(View.GONE);
